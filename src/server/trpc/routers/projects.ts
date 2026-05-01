@@ -1,0 +1,139 @@
+import { z } from "zod";
+import { eq, and } from "drizzle-orm";
+import { router, protectedProcedure } from "../trpc";
+import { projects, wallets } from "@/server/db/schema";
+import { slugify } from "@/lib/utils";
+import { TRPCError } from "@trpc/server";
+
+const PLAN_PROJECT_LIMITS: Record<string, number> = {
+  free: 1,
+  starter: 1,
+  growth: 1,
+  vc_suite: 30,
+};
+
+export const projectsRouter = router({
+  list: protectedProcedure.query(async ({ ctx }) => {
+    return ctx.db.query.projects.findMany({
+      where: eq(projects.userId, ctx.session.user.id!),
+      with: { wallets: true },
+      orderBy: (p, { desc }) => [desc(p.createdAt)],
+    });
+  }),
+
+  create: protectedProcedure
+    .input(
+      z.object({
+        name: z.string().min(1).max(100),
+        website: z.string().url().optional(),
+        description: z.string().max(500).optional(),
+        tokenSymbol: z.string().max(20).optional(),
+        tokenContract: z.string().optional(),
+        tokenChain: z.string().optional(),
+        githubOrg: z.string().optional(),
+        teamSize: z.number().int().positive().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id!;
+      const existing = await ctx.db.query.projects.findMany({
+        where: eq(projects.userId, userId),
+      });
+
+      const plan = (ctx.session.user as { plan?: string }).plan ?? "free";
+      const limit = PLAN_PROJECT_LIMITS[plan] ?? 1;
+      if (existing.length >= limit) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: `Your plan allows up to ${limit} project(s). Upgrade to add more.`,
+        });
+      }
+
+      const baseSlug = slugify(input.name);
+      // Ensure unique slug
+      let slug = baseSlug;
+      let attempt = 0;
+      while (true) {
+        const conflict = await ctx.db.query.projects.findFirst({
+          where: eq(projects.slug, slug),
+        });
+        if (!conflict) break;
+        attempt++;
+        slug = `${baseSlug}-${attempt}`;
+      }
+
+      const [project] = await ctx.db
+        .insert(projects)
+        .values({ ...input, userId, slug })
+        .returning();
+      return project;
+    }),
+
+  getById: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const project = await ctx.db.query.projects.findFirst({
+        where: and(
+          eq(projects.id, input.id),
+          eq(projects.userId, ctx.session.user.id!)
+        ),
+        with: { wallets: true, milestones: true },
+      });
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      return project;
+    }),
+
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        name: z.string().min(1).max(100).optional(),
+        website: z.string().url().optional().nullable(),
+        description: z.string().max(500).optional().nullable(),
+        tokenSymbol: z.string().max(20).optional().nullable(),
+        tokenContract: z.string().optional().nullable(),
+        tokenChain: z.string().optional().nullable(),
+        githubOrg: z.string().optional().nullable(),
+        teamSize: z.number().int().positive().optional().nullable(),
+        reportFrequency: z.enum(["monthly", "quarterly"]).optional(),
+        reportDay: z.number().int().min(1).max(28).optional(),
+        reportTimezone: z.string().optional(),
+        customBranding: z
+          .object({ primaryColor: z.string(), logoUrl: z.string() })
+          .optional()
+          .nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      await assertOwner(ctx, id);
+      const [updated] = await ctx.db
+        .update(projects)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(projects.id, id))
+        .returning();
+      return updated;
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertOwner(ctx, input.id);
+      await ctx.db.delete(projects).where(eq(projects.id, input.id));
+      return { success: true };
+    }),
+});
+
+async function assertOwner(
+  ctx: { db: typeof import("@/server/db").db; session: { user: { id?: string | null } } },
+  projectId: string
+) {
+  const project = await ctx.db.query.projects.findFirst({
+    where: and(
+      eq(projects.id, projectId),
+      eq(projects.userId, ctx.session.user.id!)
+    ),
+  });
+  if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+  return project;
+}
