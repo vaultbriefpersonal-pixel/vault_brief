@@ -134,6 +134,9 @@ export default async function ProjectPage({ params }: Props) {
               fontSize: 14,
               color: "#555555",
               margin: 0,
+              maxWidth: 720,
+              lineHeight: 1.5,
+              wordBreak: "break-word",
             }}
           >
             {project.description}

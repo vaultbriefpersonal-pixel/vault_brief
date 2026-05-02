@@ -20,11 +20,62 @@ interface BurnRateChartProps {
   data: DataPoint[];
 }
 
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        height: 200,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        textAlign: "center",
+        padding: "0 16px",
+        color: "#555",
+        fontFamily: "var(--font-inter), Inter, sans-serif",
+        fontSize: 13,
+        lineHeight: 1.5,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function BurnRateChart({ data }: BurnRateChartProps) {
   if (data.length === 0) {
     return (
-      <div className="h-48 flex items-center justify-center text-slate-500 text-sm">
-        No data yet
+      <EmptyState>
+        No transactions tracked yet. Burn rate appears after the first sync.
+      </EmptyState>
+    );
+  }
+  if (data.length === 1) {
+    const point = data[0];
+    return (
+      <div
+        style={{
+          height: 200,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+            fontSize: 28,
+            fontWeight: 700,
+            color: "#f0f0f0",
+          }}
+        >
+          {formatUsd(point.burnRateUsd)}
+        </span>
+        <span style={{ color: "#888", fontSize: 12 }}>{point.date}</span>
+        <span style={{ color: "#555", fontSize: 11, marginTop: 4 }}>
+          Trend chart appears after the second monthly snapshot.
+        </span>
       </div>
     );
   }

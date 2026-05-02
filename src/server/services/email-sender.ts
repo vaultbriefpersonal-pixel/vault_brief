@@ -15,7 +15,7 @@ function getResend(): Resend {
   return _resend;
 }
 
-const FROM = process.env.RESEND_FROM_EMAIL ?? "reports@vaultbrief.com";
+const FROM = process.env.RESEND_FROM_EMAIL ?? "reports@vaultbrief.io";
 
 interface SendReportEmailParams {
   to: { name: string; email: string };
@@ -67,7 +67,7 @@ function buildEmailHtml(params: SendReportEmailParams): string {
       <a href="${reportUrl}" class="cta">View Full Report →</a>
     </div>
     <div class="footer">
-      <p>Sent via <a href="https://vaultbrief.com" style="color: #6366F1;">VaultBrief</a> · Automated investor reporting for Web3</p>
+      <p>Sent via <a href="https://vaultbrief.io" style="color: #6366F1;">VaultBrief</a> · Automated investor reporting for Web3</p>
       <img src="${reportUrl}/track" width="1" height="1" alt="" />
     </div>
   </div>
@@ -140,7 +140,7 @@ function buildReadyForReviewHtml(params: SendReportReadyForReviewParams): string
       </p>
     </div>
     <div class="footer">
-      <p>Sent via <a href="https://vaultbrief.com" style="color: #6366F1;">VaultBrief</a> · Automated investor reporting for Web3</p>
+      <p>Sent via <a href="https://vaultbrief.io" style="color: #6366F1;">VaultBrief</a> · Automated investor reporting for Web3</p>
     </div>
   </div>
 </body>

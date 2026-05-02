@@ -42,7 +42,11 @@ Generate a monthly investor report in Markdown format from the provided treasury
 - Use ONLY the provided data. Never invent numbers.
 - If a data point is missing, say "Not available" rather than guessing.
 - Keep the tone professional but accessible. Write for a VC partner, not an accountant.
-- Use exact USD amounts with appropriate rounding ($1.2M not $1,234,567.89).
+- **Never include cents.** No ".00", no ".50". Round and abbreviate:
+  - Amounts >= $1,000,000 → "$1.2M" (one decimal)
+  - Amounts >= $1,000 → "$48K" (no decimals, K-suffix)
+  - Amounts < $1,000 → "$420" (whole dollars)
+  Inputs in this prompt are already pre-formatted — copy that style verbatim.
 - Compare to previous month whenever data is available.
 - Do not use excessive formatting. Clean, readable paragraphs.
 - Total length: 600-1200 words.`;
