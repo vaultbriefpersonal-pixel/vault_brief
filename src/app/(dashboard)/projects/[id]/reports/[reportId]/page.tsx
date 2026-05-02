@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import { trpc } from "@/lib/api";
 import { ReportEditor } from "@/components/report/ReportEditor";
 import { Download, Send, RefreshCw, ChevronLeft } from "lucide-react";
@@ -27,11 +27,29 @@ export default function ReportEditorPage({ params }: Props) {
   const { id: projectId, reportId } = use(params);
   const { data: report, refetch } = trpc.reports.getById.useQuery({ reportId });
 
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendSuccess, setSendSuccess] = useState<string | null>(null);
+
   const update = trpc.reports.update.useMutation({ onSuccess: () => refetch() });
   const updateStatus = trpc.reports.updateStatus.useMutation({ onSuccess: () => refetch() });
   const regenerate = trpc.reports.regenerate.useMutation({ onSuccess: () => refetch() });
   const downloadPdf = trpc.reports.downloadPdf.useMutation({
     onSuccess: ({ url }) => window.open(url, "_blank"),
+  });
+  // Real email send. The "Send" button (review → sent) used to bounce through
+  // updateStatus, which silently skipped the actual email — this hooks the
+  // real Resend-backed mutation that loops active investors.
+  const sendToInvestors = trpc.investors.sendReport.useMutation({
+    onSuccess: (res) => {
+      setSendError(null);
+      setSendSuccess(`Sent to ${res.sent} of ${res.total} investors`);
+      refetch();
+      setTimeout(() => setSendSuccess(null), 4000);
+    },
+    onError: (err) => {
+      setSendSuccess(null);
+      setSendError(err.message || "Send failed");
+    },
   });
 
   if (!report) {
@@ -142,26 +160,79 @@ export default function ReportEditorPage({ params }: Props) {
           </button>
 
           {nextStatus && (
-            <button
-              onClick={() =>
-                updateStatus.mutate({
-                  reportId,
-                  status: nextStatus as "draft" | "review" | "sent",
-                })
-              }
-              disabled={updateStatus.isPending}
-              style={{
-                ...btnBase,
-                background: "#00e87b",
-                color: "#0a0a0a",
-                border: "none",
-                fontWeight: 600,
-                opacity: updateStatus.isPending ? 0.7 : 1,
-              }}
-            >
-              <Send size={13} />
-              {nextStatus === "review" ? "Mark Ready" : "Send"}
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+              <button
+                onClick={() => {
+                  setSendError(null);
+                  if (nextStatus === "sent") {
+                    if (
+                      !window.confirm(
+                        "Send this report to all active investors? This cannot be undone."
+                      )
+                    ) {
+                      return;
+                    }
+                    sendToInvestors.mutate({ reportId, projectId });
+                  } else {
+                    updateStatus.mutate({
+                      reportId,
+                      status: nextStatus as "draft" | "review" | "sent",
+                    });
+                  }
+                }}
+                disabled={
+                  nextStatus === "sent"
+                    ? sendToInvestors.isPending
+                    : updateStatus.isPending
+                }
+                style={{
+                  ...btnBase,
+                  background: "#00e87b",
+                  color: "#0a0a0a",
+                  border: "none",
+                  fontWeight: 600,
+                  opacity:
+                    (nextStatus === "sent"
+                      ? sendToInvestors.isPending
+                      : updateStatus.isPending)
+                      ? 0.7
+                      : 1,
+                }}
+              >
+                <Send size={13} />
+                {nextStatus === "review"
+                  ? updateStatus.isPending
+                    ? "Updating..."
+                    : "Mark Ready"
+                  : sendToInvestors.isPending
+                    ? "Sending..."
+                    : "Send to investors"}
+              </button>
+              {sendError && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "#f87171",
+                    fontFamily: "var(--font-inter), Inter, sans-serif",
+                    maxWidth: 240,
+                    textAlign: "right",
+                  }}
+                >
+                  {sendError}
+                </span>
+              )}
+              {sendSuccess && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "#00e87b",
+                    fontFamily: "var(--font-inter), Inter, sans-serif",
+                  }}
+                >
+                  {sendSuccess}
+                </span>
+              )}
+            </div>
           )}
         </div>
       </div>

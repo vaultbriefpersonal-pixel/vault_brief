@@ -2,10 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/server/db";
-import { projects, reports } from "@/server/db/schema";
+import { projects, reports, treasurySnapshots } from "@/server/db/schema";
 import { and, eq, desc } from "drizzle-orm";
-import { FileText } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { ReportsEmptyState } from "@/components/reports/ReportsEmptyState";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -37,6 +37,16 @@ export default async function ReportsPage({ params }: Props) {
     orderBy: [desc(reports.periodEnd)],
   });
 
+  // Latest snapshot drives the manual-generate empty state.
+  const latestSnapshot = await db.query.treasurySnapshots.findFirst({
+    where: eq(treasurySnapshots.projectId, projectId),
+    orderBy: [desc(treasurySnapshots.snapshotDate)],
+  });
+
+  const latestSnapshotHasReport = latestSnapshot
+    ? reportList.some((r) => r.snapshotId === latestSnapshot.id)
+    : false;
+
   return (
     <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <h2
@@ -54,59 +64,15 @@ export default async function ReportsPage({ params }: Props) {
       </h2>
 
       {reportList.length === 0 ? (
-        <div
-          style={{
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "#161616",
-            borderRadius: 14,
-            padding: "64px 24px",
-            textAlign: "center",
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <div
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: 12,
-              background: "rgba(0,232,123,0.08)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              margin: "0 auto 16px",
-            }}
-          >
-            <FileText size={20} color="#00e87b" />
-          </div>
-          <p
-            style={{
-              fontFamily:
-                "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-              fontSize: 16,
-              fontWeight: 600,
-              color: "#f0f0f0",
-              margin: "0 0 8px",
-            }}
-          >
-            No reports yet
-          </p>
-          <p
-            style={{
-              fontFamily: "var(--font-inter), Inter, sans-serif",
-              fontSize: 13,
-              color: "#555555",
-              margin: 0,
-              lineHeight: 1.6,
-            }}
-          >
-            Reports are generated automatically on the 1st of each month after
-            your data syncs.
-          </p>
-        </div>
+        <ReportsEmptyState
+          projectId={projectId}
+          latestSnapshot={
+            latestSnapshot
+              ? { id: latestSnapshot.id, snapshotDate: latestSnapshot.snapshotDate }
+              : null
+          }
+          latestSnapshotHasReport={latestSnapshotHasReport}
+        />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {reportList.map((report) => (

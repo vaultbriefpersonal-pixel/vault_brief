@@ -1,0 +1,136 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { Menu, X } from "lucide-react";
+
+const MOBILE_BREAKPOINT_PX = 768;
+
+/**
+ * Wraps the dashboard layout with a mobile-aware sidebar drawer.
+ * Desktop (>=768px): renders sidebar inline as a sticky column (pre-existing behaviour).
+ * Mobile (<768px): hides the sidebar offscreen behind a slide-in drawer + backdrop,
+ * with a fixed burger toggle in the top-left.
+ */
+export function DashboardShell({
+  sidebar,
+  children,
+}: {
+  sidebar: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [isMobile, setIsMobile] = useState(false);
+  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+
+  // Track the viewport breakpoint via matchMedia. Initial render assumes
+  // desktop to avoid SSR mismatch (server can't know the viewport).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`);
+    const sync = () => setIsMobile(mql.matches);
+    sync();
+    mql.addEventListener("change", sync);
+    return () => mql.removeEventListener("change", sync);
+  }, []);
+
+  // Close the drawer whenever the route changes — a tap on a nav link should
+  // navigate AND close the menu in one motion.
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  // Lock body scroll while the mobile drawer is open so background content
+  // doesn't scroll under the overlay.
+  useEffect(() => {
+    if (!isMobile) return;
+    document.body.style.overflow = open ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open, isMobile]);
+
+  // Desktop: original layout, sidebar is rendered inline.
+  if (!isMobile) {
+    return (
+      <div style={{ display: "flex", minHeight: "100vh", background: "#0a0a0a" }}>
+        {sidebar}
+        <main style={{ flex: 1, overflow: "auto" }}>{children}</main>
+      </div>
+    );
+  }
+
+  // Mobile: drawer + backdrop + main with a top burger bar.
+  return (
+    <div style={{ minHeight: "100vh", background: "#0a0a0a" }}>
+      {/* Top bar with burger */}
+      <div
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 30,
+          height: 52,
+          display: "flex",
+          alignItems: "center",
+          padding: "0 12px",
+          background: "rgba(10,10,10,0.92)",
+          backdropFilter: "blur(12px)",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
+        }}
+      >
+        <button
+          aria-label={open ? "Close menu" : "Open menu"}
+          onClick={() => setOpen((v) => !v)}
+          style={{
+            background: "transparent",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 8,
+            color: "#f0f0f0",
+            width: 36,
+            height: 36,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          {open ? <X size={18} /> : <Menu size={18} />}
+        </button>
+      </div>
+
+      {/* Backdrop — fades in over content while drawer is open. */}
+      {open && (
+        <div
+          onClick={() => setOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.55)",
+            zIndex: 40,
+            transition: "opacity 0.2s ease",
+          }}
+        />
+      )}
+
+      {/* Sidebar drawer */}
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          bottom: 0,
+          width: 260,
+          maxWidth: "85vw",
+          zIndex: 50,
+          transform: open ? "translateX(0)" : "translateX(-100%)",
+          transition: "transform 0.25s ease",
+          boxShadow: open ? "0 0 40px rgba(0,0,0,0.5)" : "none",
+        }}
+      >
+        {sidebar}
+      </div>
+
+      <main>{children}</main>
+    </div>
+  );
+}
