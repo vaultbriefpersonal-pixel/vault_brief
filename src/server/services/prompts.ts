@@ -85,6 +85,16 @@ ${Object.entries(snapshot.expensesByCategory as Record<string, number>)
   .map(([k, v]) => `- ${k}: ${formatUsd(v)}`)
   .join("\n")}`
     : "Expense breakdown: Not available"
+}
+
+${
+  snapshot.incomeByCategory
+    ? `Income breakdown:
+${Object.entries(snapshot.incomeByCategory as Record<string, number>)
+  .filter(([, v]) => v > 0)
+  .map(([k, v]) => `- ${k}: ${formatUsd(v)}`)
+  .join("\n") || "- (no inflows in period)"}`
+    : ""
 }`;
 
   const githubSection =

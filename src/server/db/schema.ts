@@ -161,6 +161,8 @@ export const treasurySnapshots = pgTable(
 
     // Expense categories
     expensesByCategory: jsonb("expenses_by_category"),
+    // Income categories (revenue, funding_round, token_sale_inflow, staking_reward, airdrop, other_income)
+    incomeByCategory: jsonb("income_by_category"),
 
     // Derived metrics
     burnRateUsd: numeric("burn_rate_usd", { precision: 20, scale: 2 }),

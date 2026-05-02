@@ -9,7 +9,8 @@ test.describe("E6 - Mobile responsiveness", () => {
   test("landing page renders at 375px", async ({ page }) => {
     await page.goto("/");
     // Nav logo — exact match
-    await expect(page.getByRole("navigation").getByText("VaultBrief", { exact: true })).toBeVisible();
+    // Logo renders "VAULT" + " BRIEF" across two spans — match the wrapper text.
+    await expect(page.getByRole("navigation").getByText(/VAULT/)).toBeVisible();
     await expect(page.getByText("on autopilot")).toBeVisible();
   });
 

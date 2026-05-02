@@ -72,6 +72,7 @@ export async function createMonthlySnapshot(
       burnRateUsd: txResult?.burnRateUsd.toFixed(2) ?? null,
       runwayMonths: txResult?.runwayMonths?.toFixed(1) ?? null,
       expensesByCategory: txResult?.expensesByCategory ?? null,
+      incomeByCategory: txResult?.incomeByCategory ?? null,
       transactionsRaw: txResult?.transactions as unknown as Record<string, unknown>[] ?? null,
 
       githubCommitsCount: github?.githubCommitsCount ?? null,

@@ -1,7 +1,9 @@
 import type { Wallet } from "@/server/db/schema";
 import {
   classifyTransactions,
+  INCOME_CATEGORIES,
   type ClassifiedTransaction,
+  type IncomeCategory,
   type RawTransaction,
 } from "./expense-classifier";
 import { tokenAmountToUsd } from "./price-resolver";
@@ -138,6 +140,8 @@ export interface ExpenseSummary {
   other: number;
 }
 
+export type IncomeSummary = Record<IncomeCategory, number>;
+
 export interface TransactionSyncResult {
   transactions: ClassifiedTransaction[];
   totalInflowsUsd: number;
@@ -146,6 +150,7 @@ export interface TransactionSyncResult {
   burnRateUsd: number;
   runwayMonths: number | null;
   expensesByCategory: ExpenseSummary;
+  incomeByCategory: IncomeSummary;
 }
 
 async function fetchAlchemyTransfers(
@@ -257,13 +262,23 @@ export async function fetchAndClassify(
     })
   );
 
-  const classifiedOutgoing = await classifyTransactions(allOutgoing);
+  // Classify both directions. classifyTransactions splits internally and uses
+  // direction-aware rules + prompts (see expense-classifier.ts).
+  const allClassified = await classifyTransactions([
+    ...allOutgoing,
+    ...allIncoming,
+  ]);
+  const classifiedOutgoing = allClassified.filter((t) => t.direction === "out");
+  const classifiedIncoming = allClassified.filter((t) => t.direction === "in");
 
   const totalOutflowsUsd = classifiedOutgoing.reduce(
     (sum, t) => sum + t.valueUsd,
     0
   );
-  const totalInflowsUsd = allIncoming.reduce((sum, t) => sum + t.valueUsd, 0);
+  const totalInflowsUsd = classifiedIncoming.reduce(
+    (sum, t) => sum + t.valueUsd,
+    0
+  );
   const netFlowUsd = totalInflowsUsd - totalOutflowsUsd;
 
   // Burn rate excludes token sales (treasury management, not expenses)
@@ -285,13 +300,22 @@ export async function fetchAndClassify(
     other: 0,
   };
   for (const t of classifiedOutgoing) {
-    expensesByCategory[t.category] += t.valueUsd;
+    if (t.category in expensesByCategory) {
+      expensesByCategory[t.category as keyof ExpenseSummary] += t.valueUsd;
+    }
   }
 
-  const allClassified = [
-    ...classifiedOutgoing,
-    ...allIncoming.map((t) => ({ ...t, category: "other" as const, confidence: 1 })),
-  ];
+  const incomeByCategory: IncomeSummary = INCOME_CATEGORIES.reduce(
+    (acc, c) => ({ ...acc, [c]: 0 }),
+    {} as IncomeSummary
+  );
+  for (const t of classifiedIncoming) {
+    if (INCOME_CATEGORIES.includes(t.category as IncomeCategory)) {
+      incomeByCategory[t.category as IncomeCategory] += t.valueUsd;
+    } else {
+      incomeByCategory.other_income += t.valueUsd;
+    }
+  }
 
   return {
     transactions: allClassified,
@@ -301,5 +325,6 @@ export async function fetchAndClassify(
     burnRateUsd,
     runwayMonths,
     expensesByCategory,
+    incomeByCategory,
   };
 }

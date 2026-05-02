@@ -25,7 +25,9 @@ test.describe("E5 - Billing flow (public pages)", () => {
     await page.goto("/pricing");
     await expect(page.getByText("1 wallet", { exact: true })).toBeVisible();
     await expect(page.getByText("5 GitHub repos")).toBeVisible();
-    await expect(page.getByText("API access")).toBeVisible();
+    // "API access" appears in both the pricing card and the comparison table
+    // — at least one needs to be visible.
+    await expect(page.getByText("API access").first()).toBeVisible();
   });
 });
 
