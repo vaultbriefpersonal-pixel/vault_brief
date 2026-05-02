@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
-import { projects, wallets } from "@/server/db/schema";
+import { projects } from "@/server/db/schema";
 import { slugify } from "@/lib/utils";
 import { TRPCError } from "@trpc/server";
+import { requireProject } from "../guards";
 
 const PLAN_PROJECT_LIMITS: Record<string, number> = {
   free: 1,
@@ -72,15 +73,12 @@ export const projectsRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const project = await ctx.db.query.projects.findFirst({
-        where: and(
-          eq(projects.id, input.id),
-          eq(projects.userId, ctx.session.user.id!)
-        ),
+      // Ownership via guard, then refetch with relations.
+      await requireProject(ctx, input.id);
+      return ctx.db.query.projects.findFirst({
+        where: eq(projects.id, input.id),
         with: { wallets: true, milestones: true },
       });
-      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      return project;
     }),
 
   update: protectedProcedure
@@ -121,7 +119,7 @@ export const projectsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
-      await assertOwner(ctx, id);
+      await requireProject(ctx, id);
       const [updated] = await ctx.db
         .update(projects)
         .set({ ...data, updatedAt: new Date() })
@@ -133,22 +131,8 @@ export const projectsRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await assertOwner(ctx, input.id);
+      await requireProject(ctx, input.id);
       await ctx.db.delete(projects).where(eq(projects.id, input.id));
       return { success: true };
     }),
 });
-
-async function assertOwner(
-  ctx: { db: typeof import("@/server/db").db; session: { user: { id?: string | null } } },
-  projectId: string
-) {
-  const project = await ctx.db.query.projects.findFirst({
-    where: and(
-      eq(projects.id, projectId),
-      eq(projects.userId, ctx.session.user.id!)
-    ),
-  });
-  if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-  return project;
-}

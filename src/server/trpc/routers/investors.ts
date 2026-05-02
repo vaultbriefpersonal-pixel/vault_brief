@@ -1,31 +1,15 @@
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
-import { investors, projects, reports } from "@/server/db/schema";
+import { investors, reports } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
-
-async function assertProjectOwner(
-  ctx: {
-    db: typeof import("@/server/db").db;
-    session: { user: { id?: string | null } };
-  },
-  projectId: string
-) {
-  const project = await ctx.db.query.projects.findFirst({
-    where: and(
-      eq(projects.id, projectId),
-      eq(projects.userId, ctx.session.user.id!)
-    ),
-  });
-  if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-  return project;
-}
+import { requireProject, requireInvestor } from "../guards";
 
 export const investorsRouter = router({
   list: protectedProcedure
     .input(z.object({ projectId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      await assertProjectOwner(ctx, input.projectId);
+      await requireProject(ctx, input.projectId);
       return ctx.db.query.investors.findMany({
         where: eq(investors.projectId, input.projectId),
         orderBy: (inv, { asc }) => [asc(inv.createdAt)],
@@ -43,7 +27,7 @@ export const investorsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertProjectOwner(ctx, input.projectId);
+      await requireProject(ctx, input.projectId);
       const [investor] = await ctx.db
         .insert(investors)
         .values(input)
@@ -64,12 +48,7 @@ export const investorsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { investorId, ...data } = input;
-      const investor = await ctx.db.query.investors.findFirst({
-        where: eq(investors.id, investorId),
-      });
-      if (!investor) throw new TRPCError({ code: "NOT_FOUND" });
-      await assertProjectOwner(ctx, investor.projectId);
-
+      await requireInvestor(ctx, investorId);
       const [updated] = await ctx.db
         .update(investors)
         .set(data)
@@ -81,11 +60,7 @@ export const investorsRouter = router({
   remove: protectedProcedure
     .input(z.object({ investorId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const investor = await ctx.db.query.investors.findFirst({
-        where: eq(investors.id, input.investorId),
-      });
-      if (!investor) throw new TRPCError({ code: "NOT_FOUND" });
-      await assertProjectOwner(ctx, investor.projectId);
+      await requireInvestor(ctx, input.investorId);
       await ctx.db
         .delete(investors)
         .where(eq(investors.id, input.investorId));
@@ -107,7 +82,7 @@ export const investorsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertProjectOwner(ctx, input.projectId);
+      await requireProject(ctx, input.projectId);
       const inserted = await ctx.db
         .insert(investors)
         .values(
@@ -126,7 +101,7 @@ export const investorsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const project = await assertProjectOwner(ctx, input.projectId);
+      const project = await requireProject(ctx, input.projectId);
 
       const report = await ctx.db.query.reports.findFirst({
         where: and(

@@ -55,41 +55,60 @@ export async function createMonthlySnapshot(
 
   const snapshotDate = period.end.toISOString().split("T")[0];
 
+  // Cap raw transactions to 200 most recent. Aggregates are computed inside
+  // fetchAndClassify from the full list, so accuracy is preserved; this only
+  // bounds the JSONB blob size on the snapshot row (~60KB instead of 1MB+).
+  const TX_SAMPLE_SIZE = 200;
+  const allTx = txResult?.transactions ?? [];
+  const sampledTx = [...allTx]
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, TX_SAMPLE_SIZE);
+  const transactionsRaw = txResult
+    ? {
+        sample: sampledTx,
+        totalCount: allTx.length,
+        capped: allTx.length > TX_SAMPLE_SIZE,
+      }
+    : null;
+
+  const snapshotValues = {
+    projectId,
+    snapshotDate,
+    totalBalanceUsd: balances.totalBalanceUsd.toFixed(2),
+    stablecoinsUsd: balances.stablecoinsUsd.toFixed(2),
+    ethUsd: balances.ethUsd.toFixed(2),
+    nativeTokenUsd: balances.nativeTokenUsd.toFixed(2),
+    otherAssetsUsd: balances.otherAssetsUsd.toFixed(2),
+    balancesDetail: balances.balancesDetail as unknown as Record<string, unknown>[],
+
+    totalInflowsUsd: txResult?.totalInflowsUsd.toFixed(2) ?? null,
+    totalOutflowsUsd: txResult?.totalOutflowsUsd.toFixed(2) ?? null,
+    netFlowUsd: txResult?.netFlowUsd.toFixed(2) ?? null,
+    burnRateUsd: txResult?.burnRateUsd.toFixed(2) ?? null,
+    runwayMonths: txResult?.runwayMonths?.toFixed(1) ?? null,
+    expensesByCategory: txResult?.expensesByCategory ?? null,
+    incomeByCategory: txResult?.incomeByCategory ?? null,
+    transactionsRaw: transactionsRaw as unknown as Record<string, unknown> | null,
+
+    githubCommitsCount: github?.githubCommitsCount ?? null,
+    githubPrsMerged: github?.githubPrsMerged ?? null,
+    githubContributorsActive: github?.githubContributorsActive ?? null,
+
+    tokenHoldersCount: tokenMetrics?.tokenHoldersCount ?? null,
+    tokenPriceUsd: tokenMetrics?.tokenPriceUsd?.toFixed(8) ?? null,
+    tokenMarketCapUsd: tokenMetrics?.tokenMarketCapUsd?.toFixed(2) ?? null,
+    tokenCirculatingSupply: tokenMetrics?.tokenCirculatingSupply?.toFixed(2) ?? null,
+  };
+
   const [snapshot] = await db
     .insert(treasurySnapshots)
-    .values({
-      projectId,
-      snapshotDate,
-      totalBalanceUsd: balances.totalBalanceUsd.toFixed(2),
-      stablecoinsUsd: balances.stablecoinsUsd.toFixed(2),
-      ethUsd: balances.ethUsd.toFixed(2),
-      nativeTokenUsd: balances.nativeTokenUsd.toFixed(2),
-      otherAssetsUsd: balances.otherAssetsUsd.toFixed(2),
-      balancesDetail: balances.balancesDetail as unknown as Record<string, unknown>[],
-
-      totalInflowsUsd: txResult?.totalInflowsUsd.toFixed(2) ?? null,
-      totalOutflowsUsd: txResult?.totalOutflowsUsd.toFixed(2) ?? null,
-      netFlowUsd: txResult?.netFlowUsd.toFixed(2) ?? null,
-      burnRateUsd: txResult?.burnRateUsd.toFixed(2) ?? null,
-      runwayMonths: txResult?.runwayMonths?.toFixed(1) ?? null,
-      expensesByCategory: txResult?.expensesByCategory ?? null,
-      incomeByCategory: txResult?.incomeByCategory ?? null,
-      transactionsRaw: txResult?.transactions as unknown as Record<string, unknown>[] ?? null,
-
-      githubCommitsCount: github?.githubCommitsCount ?? null,
-      githubPrsMerged: github?.githubPrsMerged ?? null,
-      githubContributorsActive: github?.githubContributorsActive ?? null,
-
-      tokenHoldersCount: tokenMetrics?.tokenHoldersCount ?? null,
-      tokenPriceUsd: tokenMetrics?.tokenPriceUsd?.toFixed(8) ?? null,
-      tokenMarketCapUsd: tokenMetrics?.tokenMarketCapUsd?.toFixed(2) ?? null,
-      tokenCirculatingSupply: tokenMetrics?.tokenCirculatingSupply?.toFixed(2) ?? null,
-    })
+    .values(snapshotValues)
     .onConflictDoUpdate({
       target: [treasurySnapshots.projectId, treasurySnapshots.snapshotDate],
-      set: {
-        totalBalanceUsd: balances.totalBalanceUsd.toFixed(2),
-      },
+      // Re-syncs for the same (project, date) must overwrite all derived
+      // fields, not just totalBalanceUsd — otherwise expense breakdowns and
+      // GitHub metrics get stuck on the first sync of the day.
+      set: snapshotValues,
     })
     .returning();
 

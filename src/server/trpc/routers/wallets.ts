@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
-import { wallets, projects } from "@/server/db/schema";
+import { wallets } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
+import { requireProject } from "../guards";
 
 const PLAN_WALLET_LIMITS: Record<string, number> = {
   free: 5,
@@ -23,7 +24,7 @@ export const walletsRouter = router({
   list: protectedProcedure
     .input(z.object({ projectId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      await assertProjectOwner(ctx, input.projectId);
+      await requireProject(ctx, input.projectId);
       return ctx.db.query.wallets.findMany({
         where: eq(wallets.projectId, input.projectId),
         orderBy: (w, { asc }) => [asc(w.createdAt)],
@@ -48,7 +49,7 @@ export const walletsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const project = await assertProjectOwner(ctx, input.projectId);
+      await requireProject(ctx, input.projectId);
 
       if (!validateWalletAddress(input.address, input.chain)) {
         throw new TRPCError({
@@ -85,7 +86,7 @@ export const walletsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertProjectOwner(ctx, input.projectId);
+      await requireProject(ctx, input.projectId);
       await ctx.db
         .delete(wallets)
         .where(
@@ -110,19 +111,3 @@ export const walletsRouter = router({
     }),
 });
 
-async function assertProjectOwner(
-  ctx: {
-    db: typeof import("@/server/db").db;
-    session: { user: { id?: string | null } };
-  },
-  projectId: string
-) {
-  const project = await ctx.db.query.projects.findFirst({
-    where: and(
-      eq(projects.id, projectId),
-      eq(projects.userId, ctx.session.user.id!)
-    ),
-  });
-  if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-  return project;
-}

@@ -2,7 +2,17 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 
-const PUBLIC_PATHS = ["/", "/login", "/pricing", "/blog", "/docs", "/about", "/api/auth"];
+const PUBLIC_PATHS = [
+  "/",
+  "/login",
+  "/pricing",
+  "/blog",
+  "/docs",
+  "/about",
+  "/api/auth",
+  // Webhooks (Stripe, Resend) authenticate via signed payloads, not session.
+  "/api/webhooks",
+];
 
 export default auth((req: NextRequest & { auth: unknown }) => {
   const { pathname } = req.nextUrl;

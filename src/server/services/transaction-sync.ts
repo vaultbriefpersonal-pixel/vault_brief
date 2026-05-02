@@ -244,7 +244,17 @@ export async function fetchAndClassify(
 
   await Promise.all(
     wallets.map(async (wallet) => {
-      if (wallet.chain === "solana") return; // Solana uses different API
+      if (wallet.chain === "solana") {
+        // Helius gives parsed token+native transfers in a single response, so
+        // we don't need the from/to split that EVM requires.
+        const { fetchSolanaTransfers } = await import("./solana-sync");
+        const transfers = await fetchSolanaTransfers(wallet.address, period);
+        for (const t of transfers) {
+          if (t.direction === "out") allOutgoing.push(t);
+          else allIncoming.push(t);
+        }
+        return;
+      }
 
       const [outgoing, incoming] = await Promise.all([
         fetchAlchemyTransfers(wallet.address, wallet.chain, period.start, period.end, "from"),

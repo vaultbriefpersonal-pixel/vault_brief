@@ -5,6 +5,7 @@ import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { db } from "@/server/db";
 import { users, accounts, sessions, verificationTokens } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
+import { sendMagicLinkEmail } from "@/server/services/email-sender";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: DrizzleAdapter(db, {
@@ -21,6 +22,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Resend({
       apiKey: process.env.RESEND_API_KEY!,
       from: process.env.RESEND_FROM_EMAIL ?? "noreply@vaultbrief.io",
+      async sendVerificationRequest({ identifier, url }) {
+        await sendMagicLinkEmail(identifier, url);
+      },
     }),
   ],
   pages: {

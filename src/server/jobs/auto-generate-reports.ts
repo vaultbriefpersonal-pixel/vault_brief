@@ -51,8 +51,12 @@ export const autoGenerateReportsJob = schedules.task({
           continue;
         }
 
-        const snapshotAge =
-          now - new Date(snapshot.snapshotDate).getTime();
+        // snapshotDate is the period end (last day of the reporting month) and
+        // can sit days behind reality. createdAt is when the cron actually
+        // wrote the row, which is what we want to gate on.
+        const snapshotAge = snapshot.createdAt
+          ? now - new Date(snapshot.createdAt).getTime()
+          : Infinity;
         if (snapshotAge > FRESH_SNAPSHOT_MAX_AGE_MS) {
           // Stale — this month's sync didn't run for this project; don't auto-generate.
           skippedNoSnapshot++;

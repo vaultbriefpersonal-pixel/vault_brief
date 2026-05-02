@@ -1,8 +1,13 @@
-import { STABLECOIN_SYMBOLS } from "@/lib/chains";
+import { CHAINS, STABLECOIN_SYMBOLS } from "@/lib/chains";
 import type { Wallet } from "@/server/db/schema";
 
 const DUNE_API_BASE = "https://api.sim.dune.com/v1/evm";
 const DUNE_API_KEY = process.env.DUNE_API_KEY!;
+
+function evmChainId(chain: string): number | null {
+  const cfg = CHAINS[chain as keyof typeof CHAINS];
+  return cfg?.id ?? null;
+}
 
 // In-memory cache: key → { data, expiresAt }
 const cache = new Map<string, { data: DuneBalanceResponse; expiresAt: number }>();
@@ -56,13 +61,21 @@ async function fetchDuneBalances(
   address: string,
   chain: string
 ): Promise<DuneBalanceResponse> {
+  // Solana balances must go through solana-sync (Helius) — Dune Sim is EVM-only here.
+  if (chain === "solana") {
+    throw new Error("solana balances must go through solana-sync");
+  }
+
   const cacheKey = `${address}:${chain}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.data;
   }
 
-  const chainParam = chain === "ethereum" ? "" : `?chain=${chain}`;
+  // Sim API expects chain_ids as a numeric chain ID. Without it the endpoint
+  // returns balances across "default-tagged" chains, which is not what we want.
+  const chainId = evmChainId(chain);
+  const chainParam = chainId ? `?chain_ids=${chainId}` : "";
   const url = `${DUNE_API_BASE}/balances/${address}${chainParam}`;
   const res = await fetch(url, {
     headers: { "X-Sim-Api-Key": DUNE_API_KEY },
@@ -143,9 +156,16 @@ export async function fetchAllBalances(
   wallets: Wallet[],
   projectTokenSymbol?: string | null
 ): Promise<ProjectBalanceSummary> {
-  // Fetch all wallets in parallel (rate limiting: max 10 concurrent)
+  // Solana goes through Helius; EVM through Dune Sim. Both produce the same
+  // WalletBalanceSummary shape, so the rest of the function is chain-agnostic.
+  // Lazy import keeps Helius env-var checks out of the hot path for EVM-only deployments.
+  const { fetchSolanaBalance } = await import("./solana-sync");
   const results = await Promise.all(
-    wallets.map((w) => fetchWalletBalance(w, projectTokenSymbol))
+    wallets.map((w) =>
+      w.chain === "solana"
+        ? fetchSolanaBalance(w.address)
+        : fetchWalletBalance(w, projectTokenSymbol)
+    )
   );
 
   const summary: ProjectBalanceSummary = {
@@ -168,30 +188,61 @@ export async function fetchAllBalances(
   return summary;
 }
 
-export async function fetchTokenMetrics(
-  tokenContract: string,
-  chain: string
-): Promise<{
+interface TokenMetrics {
   tokenHoldersCount: number | null;
   tokenPriceUsd: number | null;
   tokenMarketCapUsd: number | null;
   tokenCirculatingSupply: number | null;
-}> {
-  // Dune Sim API token holders endpoint
-  const url = `${DUNE_API_BASE}/token/${tokenContract}/holders/count?chain=${chain}`;
+}
+
+const EMPTY_METRICS: TokenMetrics = {
+  tokenHoldersCount: null,
+  tokenPriceUsd: null,
+  tokenMarketCapUsd: null,
+  tokenCirculatingSupply: null,
+};
+
+export async function fetchTokenMetrics(
+  tokenContract: string,
+  chain: string
+): Promise<TokenMetrics> {
+  const chainId = evmChainId(chain);
+  if (!chainId) return EMPTY_METRICS; // SVM/unknown chains handled elsewhere.
+
+  // Real Sim endpoint — the previous /token/{c}/holders/count path doesn't
+  // exist. token-info covers price + supply + FDV in one shot.
+  const url = `${DUNE_API_BASE}/token-info/${tokenContract}?chain_ids=${chainId}`;
   try {
     const res = await fetch(url, {
       headers: { "X-Sim-Api-Key": DUNE_API_KEY },
     });
-    if (!res.ok) return { tokenHoldersCount: null, tokenPriceUsd: null, tokenMarketCapUsd: null, tokenCirculatingSupply: null };
-    const data = await res.json();
+    if (!res.ok) return EMPTY_METRICS;
+    const data = (await res.json()) as {
+      price_usd?: number;
+      total_supply?: string | number;
+      fully_diluted_value?: number;
+    };
+
+    const totalSupply =
+      typeof data.total_supply === "string"
+        ? parseFloat(data.total_supply)
+        : typeof data.total_supply === "number"
+          ? data.total_supply
+          : null;
+
     return {
-      tokenHoldersCount: data.count ?? null,
-      tokenPriceUsd: data.price_usd ?? null,
-      tokenMarketCapUsd: data.market_cap_usd ?? null,
-      tokenCirculatingSupply: data.circulating_supply ?? null,
+      tokenPriceUsd: typeof data.price_usd === "number" ? data.price_usd : null,
+      tokenMarketCapUsd:
+        typeof data.fully_diluted_value === "number"
+          ? data.fully_diluted_value
+          : null,
+      tokenCirculatingSupply:
+        totalSupply !== null && Number.isFinite(totalSupply) ? totalSupply : null,
+      // Holders count requires paginating /token-holders — too expensive for
+      // a monthly sync. Left null until we add a dedicated holder-count job.
+      tokenHoldersCount: null,
     };
   } catch {
-    return { tokenHoldersCount: null, tokenPriceUsd: null, tokenMarketCapUsd: null, tokenCirculatingSupply: null };
+    return EMPTY_METRICS;
   }
 }

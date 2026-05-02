@@ -68,7 +68,6 @@ function buildEmailHtml(params: SendReportEmailParams): string {
     </div>
     <div class="footer">
       <p>Sent via <a href="https://vaultbrief.io" style="color: #6366F1;">VaultBrief</a> · Automated investor reporting for Web3</p>
-      <img src="${reportUrl}/track" width="1" height="1" alt="" />
     </div>
   </div>
 </body>
@@ -84,6 +83,12 @@ export async function sendReportEmail(params: SendReportEmailParams) {
     to: `${to.name} <${to.email}>`,
     subject: `${projectName} — Monthly Update (${period})`,
     html: buildEmailHtml(params),
+    // Tags identify the report on Resend webhooks (email.opened/clicked) so we
+    // can attribute opens back to the right row without a tracking pixel.
+    tags: [
+      { name: "reportId", value: report.id },
+      { name: "kind", value: "investor_report" },
+    ],
   });
 
   if (error) throw new Error(`Email send failed: ${error.message}`);

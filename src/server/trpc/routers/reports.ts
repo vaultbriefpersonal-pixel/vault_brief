@@ -1,31 +1,15 @@
 import { z } from "zod";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
-import { reports, projects, treasurySnapshots } from "@/server/db/schema";
+import { reports } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
-
-async function assertProjectOwner(
-  ctx: {
-    db: typeof import("@/server/db").db;
-    session: { user: { id?: string | null } };
-  },
-  projectId: string
-) {
-  const project = await ctx.db.query.projects.findFirst({
-    where: and(
-      eq(projects.id, projectId),
-      eq(projects.userId, ctx.session.user.id!)
-    ),
-  });
-  if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-  return project;
-}
+import { requireProject, requireReport } from "../guards";
 
 export const reportsRouter = router({
   list: protectedProcedure
     .input(z.object({ projectId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      await assertProjectOwner(ctx, input.projectId);
+      await requireProject(ctx, input.projectId);
       return ctx.db.query.reports.findMany({
         where: eq(reports.projectId, input.projectId),
         orderBy: [desc(reports.periodEnd)],
@@ -35,13 +19,13 @@ export const reportsRouter = router({
   getById: protectedProcedure
     .input(z.object({ reportId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const report = await ctx.db.query.reports.findFirst({
+      // requireReport already enforces project ownership; we only need the
+      // joined project for the UI.
+      await requireReport(ctx, input.reportId);
+      return ctx.db.query.reports.findFirst({
         where: eq(reports.id, input.reportId),
         with: { project: true },
       });
-      if (!report) throw new TRPCError({ code: "NOT_FOUND" });
-      await assertProjectOwner(ctx, report.projectId);
-      return report;
     }),
 
   update: protectedProcedure
@@ -54,12 +38,7 @@ export const reportsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { reportId, ...data } = input;
-      const report = await ctx.db.query.reports.findFirst({
-        where: eq(reports.id, reportId),
-      });
-      if (!report) throw new TRPCError({ code: "NOT_FOUND" });
-      await assertProjectOwner(ctx, report.projectId);
-
+      await requireReport(ctx, reportId);
       const [updated] = await ctx.db
         .update(reports)
         .set({ ...data, updatedAt: new Date() })
@@ -76,12 +55,7 @@ export const reportsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const report = await ctx.db.query.reports.findFirst({
-        where: eq(reports.id, input.reportId),
-      });
-      if (!report) throw new TRPCError({ code: "NOT_FOUND" });
-      await assertProjectOwner(ctx, report.projectId);
-
+      await requireReport(ctx, input.reportId);
       const [updated] = await ctx.db
         .update(reports)
         .set({ status: input.status, updatedAt: new Date() })
@@ -93,13 +67,13 @@ export const reportsRouter = router({
   regenerate: protectedProcedure
     .input(z.object({ reportId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const report = await ctx.db.query.reports.findFirst({
-        where: eq(reports.id, input.reportId),
-      });
-      if (!report) throw new TRPCError({ code: "NOT_FOUND" });
-      if (!report.snapshotId) throw new TRPCError({ code: "BAD_REQUEST", message: "No snapshot linked to this report" });
-      await assertProjectOwner(ctx, report.projectId);
-
+      const report = await requireReport(ctx, input.reportId);
+      if (!report.snapshotId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No snapshot linked to this report",
+        });
+      }
       const { generateReport } = await import("@/server/services/report-generator");
       const contentMd = await generateReport(report.projectId, report.snapshotId);
 
@@ -114,13 +88,7 @@ export const reportsRouter = router({
   downloadPdf: protectedProcedure
     .input(z.object({ reportId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const report = await ctx.db.query.reports.findFirst({
-        where: eq(reports.id, input.reportId),
-      });
-      if (!report) throw new TRPCError({ code: "NOT_FOUND" });
-      await assertProjectOwner(ctx, report.projectId);
-
-      // Return a URL to the PDF download endpoint
+      await requireReport(ctx, input.reportId);
       return { url: `/api/reports/${input.reportId}/pdf` };
     }),
 
@@ -132,7 +100,7 @@ export const reportsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertProjectOwner(ctx, input.projectId);
+      await requireProject(ctx, input.projectId);
       const { generateAndSaveReport } = await import("@/server/services/report-generator");
       return generateAndSaveReport(input.projectId, input.snapshotId);
     }),
