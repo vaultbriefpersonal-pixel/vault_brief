@@ -78,6 +78,80 @@ export async function sendReportEmail(params: SendReportEmailParams) {
   return data;
 }
 
+interface SendReportReadyForReviewParams {
+  to: { name: string; email: string };
+  projectName: string;
+  report: Report;
+  reviewUrl: string;
+}
+
+function buildReadyForReviewHtml(params: SendReportReadyForReviewParams): string {
+  const { to, projectName, report, reviewUrl } = params;
+  const period = formatDate(report.periodEnd);
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #374151; margin: 0; padding: 0; background: #f9fafb; }
+    .container { max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; border: 1px solid #e5e7eb; }
+    .header { background: #1B2A4A; padding: 24px 32px; }
+    .header h1 { color: white; margin: 0; font-size: 20px; font-weight: 700; }
+    .header p { color: #94a3b8; margin: 4px 0 0; font-size: 14px; }
+    .body { padding: 32px; }
+    .greeting { font-size: 15px; color: #374151; margin-bottom: 16px; }
+    .draft-badge { display: inline-block; background: #fef3c7; color: #92400e; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; padding: 4px 10px; border-radius: 999px; margin-bottom: 12px; }
+    .cta { display: block; background: #6366F1; color: white !important; text-decoration: none; text-align: center; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; margin: 24px 0; }
+    .executive-summary { font-size: 14px; color: #374151; line-height: 1.6; margin: 16px 0; border-left: 3px solid #6366F1; padding-left: 16px; }
+    .footer { text-align: center; font-size: 12px; color: #9ca3af; padding: 20px 32px; border-top: 1px solid #f3f4f6; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>${projectName}</h1>
+      <p>Investor report draft · ${period}</p>
+    </div>
+    <div class="body">
+      <p class="greeting">Hi ${to.name},</p>
+      <span class="draft-badge">Draft</span>
+      <p>VaultBrief auto-generated this month's investor report from your latest treasury snapshot. Review the numbers, edit the narrative, then send it to your investors when you're happy with it.</p>
+
+      ${report.executiveSummary ? `<div class="executive-summary">${report.executiveSummary}</div>` : ""}
+
+      <a href="${reviewUrl}" class="cta">Review and edit →</a>
+
+      <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">
+        Nothing has been sent to investors yet. The draft will sit in your dashboard until you approve it.
+      </p>
+    </div>
+    <div class="footer">
+      <p>Sent via <a href="https://vaultbrief.com" style="color: #6366F1;">VaultBrief</a> · Automated investor reporting for Web3</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+export async function sendReportReadyForReviewEmail(
+  params: SendReportReadyForReviewParams
+) {
+  const { to, projectName, report } = params;
+  const period = formatDate(report.periodEnd);
+
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: `${to.name} <${to.email}>`,
+    subject: `Your ${projectName} report is ready for review (${period})`,
+    html: buildReadyForReviewHtml(params),
+  });
+
+  if (error) throw new Error(`Email send failed: ${error.message}`);
+  return data;
+}
+
 export async function sendMagicLinkEmail(to: string, url: string) {
   const { error } = await resend.emails.send({
     from: FROM,

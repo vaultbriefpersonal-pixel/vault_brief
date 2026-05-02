@@ -9,6 +9,7 @@ import { formatUsd, formatDate } from "@/lib/utils";
 import { TreasuryChart } from "@/components/charts/TreasuryChart";
 import { BurnRateChart } from "@/components/charts/BurnRateChart";
 import { ExpenseBreakdown } from "@/components/charts/ExpenseBreakdown";
+import { IncomeBreakdown } from "@/components/charts/IncomeBreakdown";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -81,6 +82,8 @@ export default async function ProjectPage({ params }: Props) {
 
   const expenseData =
     (latestSnapshot?.expensesByCategory as Record<string, number> | null) ?? {};
+  const incomeData =
+    (latestSnapshot?.incomeByCategory as Record<string, number> | null) ?? {};
 
   const NAV = [
     {
@@ -312,6 +315,29 @@ export default async function ProjectPage({ params }: Props) {
             Expense breakdown
           </h3>
           <ExpenseBreakdown data={expenseData} />
+        </div>
+        <div
+          style={{
+            background: "#161616",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 12,
+            padding: 20,
+          }}
+        >
+          <h3
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#888888",
+              margin: "0 0 16px",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+            }}
+          >
+            Income breakdown
+          </h3>
+          <IncomeBreakdown data={incomeData} />
         </div>
         {latestSnapshot?.githubCommitsCount !== null && (
           <div
