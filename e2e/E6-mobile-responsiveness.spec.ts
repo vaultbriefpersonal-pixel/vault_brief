@@ -10,7 +10,7 @@ test.describe("E6 - Mobile responsiveness", () => {
     await page.goto("/");
     // Nav logo — exact match
     await expect(page.getByRole("navigation").getByText("VaultBrief", { exact: true })).toBeVisible();
-    await expect(page.getByText("Your investors deserve better")).toBeVisible();
+    await expect(page.getByText("on autopilot")).toBeVisible();
   });
 
   test("login page renders at 375px", async ({ page }) => {
@@ -25,7 +25,7 @@ test.describe("E6 - Mobile responsiveness", () => {
   test("pricing page renders at 375px", async ({ page }) => {
     await page.goto("/pricing");
     await expect(page.getByText("Simple, transparent pricing")).toBeVisible();
-    await expect(page.getByText("Starter")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Seed" })).toBeVisible();
   });
 
   test("no horizontal overflow on landing page", async ({ page }) => {
