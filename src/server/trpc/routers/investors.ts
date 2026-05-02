@@ -4,6 +4,13 @@ import { router, protectedProcedure } from "../trpc";
 import { investors, reports } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { requireProject, requireInvestor } from "../guards";
+import { sendReportEmail } from "@/server/services/email-sender";
+import { notify } from "@/server/services/notifications";
+import {
+  checkLimit,
+  bulkImportLimiter,
+  sendReportLimiter,
+} from "@/server/lib/ratelimit";
 
 export const investorsRouter = router({
   list: protectedProcedure
@@ -83,6 +90,7 @@ export const investorsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await requireProject(ctx, input.projectId);
+      await checkLimit(bulkImportLimiter, ctx.session.user.id!);
       const inserted = await ctx.db
         .insert(investors)
         .values(
@@ -102,6 +110,7 @@ export const investorsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const project = await requireProject(ctx, input.projectId);
+      await checkLimit(sendReportLimiter, ctx.session.user.id!);
 
       const report = await ctx.db.query.reports.findFirst({
         where: and(
@@ -131,8 +140,6 @@ export const investorsRouter = router({
         });
       }
 
-      const { sendReportEmail } = await import("@/server/services/email-sender");
-
       const results = await Promise.allSettled(
         activeInvestors.map((inv) =>
           sendReportEmail({
@@ -157,7 +164,6 @@ export const investorsRouter = router({
         .where(eq(reports.id, input.reportId));
 
       // In-app inbox notification — mirrors what the founder just did.
-      const { notify } = await import("@/server/services/notifications");
       await notify(ctx.session.user.id!, {
         type: "report_sent",
         title: `${project.name} report sent`,

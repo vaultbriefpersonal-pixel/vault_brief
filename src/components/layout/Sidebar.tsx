@@ -36,9 +36,10 @@ const NAV: NavItem[] = [
 ];
 
 function UnreadBadge() {
-  // Polls every 60s — quiet enough to ignore, snappy enough to feel live.
+  // No interval polling — react-query refetches on window focus by default,
+  // and mutations that create notifications invalidate this query directly.
+  // Idle tabs don't burn DB calls, fresh tabs feel live.
   const { data } = trpc.notifications.unreadCount.useQuery(undefined, {
-    refetchInterval: 60_000,
     staleTime: 30_000,
   });
   if (!data || data === 0) return null;

@@ -140,6 +140,8 @@ function buildReadyForReviewHtml(params: SendReportReadyForReviewParams): string
 
       <a href="${reviewUrl}" class="cta">Review and edit →</a>
 
+      ${report.pdfUrl ? `<p style="margin: 16px 0 0; text-align: center; font-size: 13px;"><a href="${report.pdfUrl}" style="color: #6366F1; text-decoration: underline;">Download draft PDF</a></p>` : ""}
+
       <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">
         Nothing has been sent to investors yet. The draft will sit in your dashboard until you approve it.
       </p>

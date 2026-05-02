@@ -4,6 +4,11 @@ import { router, protectedProcedure } from "../trpc";
 import { reports } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { requireProject, requireReport } from "../guards";
+import {
+  generateReport,
+  generateAndSaveReport,
+} from "@/server/services/report-generator";
+import { renderAndStorePDF } from "@/server/services/pdf-storage";
 
 export const reportsRouter = router({
   list: protectedProcedure
@@ -39,9 +44,11 @@ export const reportsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { reportId, ...data } = input;
       await requireReport(ctx, reportId);
+      // Markdown changed → pdf is stale. Null it out; next download will
+      // trigger an on-demand re-render via the /pdf route.
       const [updated] = await ctx.db
         .update(reports)
-        .set({ ...data, updatedAt: new Date() })
+        .set({ ...data, pdfUrl: null, updatedAt: new Date() })
         .where(eq(reports.id, reportId))
         .returning();
       return updated;
@@ -74,14 +81,25 @@ export const reportsRouter = router({
           message: "No snapshot linked to this report",
         });
       }
-      const { generateReport } = await import("@/server/services/report-generator");
       const contentMd = await generateReport(report.projectId, report.snapshotId);
 
       const [updated] = await ctx.db
         .update(reports)
-        .set({ contentMd, status: "draft", updatedAt: new Date() })
+        .set({
+          contentMd,
+          status: "draft",
+          pdfUrl: null, // invalidate stale blob; rerender triggered next.
+          updatedAt: new Date(),
+        })
         .where(eq(reports.id, input.reportId))
         .returning();
+
+      // Re-render in background — best-effort; UI fallback handles miss.
+      try {
+        await renderAndStorePDF(input.reportId);
+      } catch (err) {
+        console.error("regenerate: PDF render failed:", err);
+      }
       return updated;
     }),
 
@@ -101,7 +119,15 @@ export const reportsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await requireProject(ctx, input.projectId);
-      const { generateAndSaveReport } = await import("@/server/services/report-generator");
-      return generateAndSaveReport(input.projectId, input.snapshotId);
+      const report = await generateAndSaveReport(
+        input.projectId,
+        input.snapshotId
+      );
+      try {
+        await renderAndStorePDF(report.id);
+      } catch (err) {
+        console.error("generate: PDF render failed:", err);
+      }
+      return report;
     }),
 });

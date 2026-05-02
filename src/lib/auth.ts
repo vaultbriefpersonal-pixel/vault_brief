@@ -6,6 +6,7 @@ import { db } from "@/server/db";
 import { users, accounts, sessions, verificationTokens } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
 import { sendMagicLinkEmail } from "@/server/services/email-sender";
+import { loginLimiter, checkLimit } from "@/server/lib/ratelimit";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: DrizzleAdapter(db, {
@@ -23,6 +24,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       apiKey: process.env.RESEND_API_KEY!,
       from: process.env.RESEND_FROM_EMAIL ?? "noreply@vaultbrief.io",
       async sendVerificationRequest({ identifier, url }) {
+        // Throttle by email so a single address can't spam the world (or
+        // burn through Resend quota). Limiter throws TRPCError on miss; for
+        // the non-TRPC NextAuth surface we surface as a generic Error.
+        try {
+          await checkLimit(loginLimiter, `email:${identifier.toLowerCase()}`);
+        } catch (err) {
+          throw new Error(
+            err instanceof Error
+              ? err.message
+              : "Too many magic link requests."
+          );
+        }
         await sendMagicLinkEmail(identifier, url);
       },
     }),

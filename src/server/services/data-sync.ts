@@ -116,9 +116,13 @@ export async function createMonthlySnapshot(
 }
 
 export async function syncAllProjects() {
-  const activeProjects = await db.query.projects.findMany({
+  const all = await db.query.projects.findMany({
     where: eq(projects.isActive, true),
   });
+  // Plan-aware soft-block: users over their limit (e.g. after downgrade) get
+  // the most recent N synced; the rest are silently skipped here.
+  const { filterEligibleProjects } = await import("@/server/lib/plan-limits");
+  const activeProjects = await filterEligibleProjects(all);
   const period = getLastMonthPeriod();
 
   const results = await Promise.allSettled(

@@ -10,6 +10,8 @@ import {
 import { generateAndSaveReport } from "@/server/services/report-generator";
 import { sendReportReadyForReviewEmail } from "@/server/services/email-sender";
 import { notify } from "@/server/services/notifications";
+import { filterEligibleProjects } from "@/server/lib/plan-limits";
+import { renderAndStorePDF } from "@/server/services/pdf-storage";
 
 /**
  * Auto-generate the monthly draft report ~2 days after the snapshot cron runs.
@@ -25,9 +27,11 @@ export const autoGenerateReportsJob = schedules.task({
   id: "auto-generate-reports",
   cron: "0 8 3 * *", // 3rd of every month at 08:00 UTC
   run: async () => {
-    const activeProjects = await db.query.projects.findMany({
+    const allActive = await db.query.projects.findMany({
       where: eq(projects.isActive, true),
     });
+    // Skip projects that are over the user's plan limit (post-downgrade).
+    const activeProjects = await filterEligibleProjects(allActive);
 
     const now = Date.now();
     const FRESH_SNAPSHOT_MAX_AGE_MS = 5 * 24 * 60 * 60 * 1000;
@@ -77,6 +81,18 @@ export const autoGenerateReportsJob = schedules.task({
 
         // Generate. Returns the saved record with id + status="draft".
         const report = await generateAndSaveReport(project.id, snapshot.id);
+
+        // Pre-render PDF so the founder gets an instant download from the
+        // email. Failure shouldn't block notification — /api/reports/[id]/pdf
+        // can fall back to on-demand generation.
+        try {
+          await renderAndStorePDF(report.id);
+        } catch (pdfErr) {
+          console.error(
+            `auto-generate-reports: PDF render failed for report ${report.id}:`,
+            pdfErr instanceof Error ? pdfErr.message : pdfErr
+          );
+        }
 
         // Look up founder email. Skip silently if user record vanished (cascade
         // would normally delete the project, so this is a paranoid guard).

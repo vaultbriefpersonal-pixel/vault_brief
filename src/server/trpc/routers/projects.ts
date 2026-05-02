@@ -5,6 +5,7 @@ import { projects } from "@/server/db/schema";
 import { slugify } from "@/lib/utils";
 import { TRPCError } from "@trpc/server";
 import { requireProject } from "../guards";
+import { checkLimit, projectCreateLimiter } from "@/server/lib/ratelimit";
 
 const PLAN_PROJECT_LIMITS: Record<string, number> = {
   free: 1,
@@ -37,6 +38,7 @@ export const projectsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id!;
+      await checkLimit(projectCreateLimiter, userId);
       const existing = await ctx.db.query.projects.findMany({
         where: eq(projects.userId, userId),
       });

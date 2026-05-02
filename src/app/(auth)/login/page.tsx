@@ -9,15 +9,29 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") ?? "/projects";
 
   async function handleEmailSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    await signIn("resend", { email, callbackUrl, redirect: false });
-    setSent(true);
+    setError(null);
+    const result = await signIn("resend", {
+      email,
+      callbackUrl,
+      redirect: false,
+    });
     setLoading(false);
+    if (result?.error) {
+      setError(
+        result.error === "EmailSignin"
+          ? "Could not send the magic link. Check the email address and try again."
+          : "Something went wrong. Please try again in a moment."
+      );
+      return;
+    }
+    setSent(true);
   }
 
   const inputStyle: React.CSSProperties = {
@@ -157,6 +171,20 @@ function LoginForm() {
                 >
                   {loading ? "Sending..." : "Send magic link"}
                 </button>
+                {error && (
+                  <p
+                    role="alert"
+                    style={{
+                      fontFamily: "var(--font-inter), Inter, sans-serif",
+                      fontSize: 13,
+                      color: "#f87171",
+                      margin: 0,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {error}
+                  </p>
+                )}
               </form>
 
               <div

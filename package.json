@@ -12,7 +12,6 @@
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.92.0",
     "@auth/core": "^0.41.2",
     "@auth/drizzle-adapter": "^1.11.2",
     "@neondatabase/serverless": "^1.1.0",
@@ -23,6 +22,9 @@
     "@trpc/client": "^11.17.0",
     "@trpc/react-query": "^11.17.0",
     "@trpc/server": "^11.17.0",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.37.0",
+    "@vercel/blob": "^2.3.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",

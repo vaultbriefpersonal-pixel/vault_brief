@@ -7,6 +7,7 @@ import {
   type RawTransaction,
 } from "./expense-classifier";
 import { tokenAmountToUsd } from "./price-resolver";
+import { fetchSolanaTransfers } from "./solana-sync";
 
 const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY!;
 
@@ -247,7 +248,6 @@ export async function fetchAndClassify(
       if (wallet.chain === "solana") {
         // Helius gives parsed token+native transfers in a single response, so
         // we don't need the from/to split that EVM requires.
-        const { fetchSolanaTransfers } = await import("./solana-sync");
         const transfers = await fetchSolanaTransfers(wallet.address, period);
         for (const t of transfers) {
           if (t.direction === "out") allOutgoing.push(t);

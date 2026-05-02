@@ -4,6 +4,7 @@ import { router, protectedProcedure } from "../trpc";
 import { wallets } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { requireProject } from "../guards";
+import { checkLimit, mutationLimiter } from "@/server/lib/ratelimit";
 
 const PLAN_WALLET_LIMITS: Record<string, number> = {
   free: 5,
@@ -50,6 +51,7 @@ export const walletsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await requireProject(ctx, input.projectId);
+      await checkLimit(mutationLimiter, `wallet-add:${ctx.session.user.id}`);
 
       if (!validateWalletAddress(input.address, input.chain)) {
         throw new TRPCError({

@@ -1,5 +1,6 @@
 import { CHAINS, STABLECOIN_SYMBOLS } from "@/lib/chains";
 import type { Wallet } from "@/server/db/schema";
+import { fetchSolanaBalance } from "./solana-sync";
 
 const DUNE_API_BASE = "https://api.sim.dune.com/v1/evm";
 const DUNE_API_KEY = process.env.DUNE_API_KEY!;
@@ -158,8 +159,6 @@ export async function fetchAllBalances(
 ): Promise<ProjectBalanceSummary> {
   // Solana goes through Helius; EVM through Dune Sim. Both produce the same
   // WalletBalanceSummary shape, so the rest of the function is chain-agnostic.
-  // Lazy import keeps Helius env-var checks out of the hot path for EVM-only deployments.
-  const { fetchSolanaBalance } = await import("./solana-sync");
   const results = await Promise.all(
     wallets.map((w) =>
       w.chain === "solana"
