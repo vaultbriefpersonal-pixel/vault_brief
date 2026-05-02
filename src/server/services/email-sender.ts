@@ -2,7 +2,19 @@ import { Resend } from "resend";
 import type { Report } from "@/server/db/schema";
 import { formatUsd, formatDate } from "@/lib/utils";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy init: Trigger.dev's deploy bundler imports task files at build time
+// when env vars aren't available. Constructing the Resend client at module
+// load would throw "Missing API key" during deploy. Defer until first use.
+let _resend: Resend | undefined;
+function getResend(): Resend {
+  if (!_resend) {
+    const key = process.env.RESEND_API_KEY;
+    if (!key) throw new Error("RESEND_API_KEY is not set");
+    _resend = new Resend(key);
+  }
+  return _resend;
+}
+
 const FROM = process.env.RESEND_FROM_EMAIL ?? "reports@vaultbrief.com";
 
 interface SendReportEmailParams {
@@ -67,7 +79,7 @@ export async function sendReportEmail(params: SendReportEmailParams) {
   const { to, projectName, report } = params;
   const period = formatDate(report.periodEnd);
 
-  const { data, error } = await resend.emails.send({
+  const { data, error } = await getResend().emails.send({
     from: FROM,
     to: `${to.name} <${to.email}>`,
     subject: `${projectName} — Monthly Update (${period})`,
@@ -141,7 +153,7 @@ export async function sendReportReadyForReviewEmail(
   const { to, projectName, report } = params;
   const period = formatDate(report.periodEnd);
 
-  const { data, error } = await resend.emails.send({
+  const { data, error } = await getResend().emails.send({
     from: FROM,
     to: `${to.name} <${to.email}>`,
     subject: `Your ${projectName} report is ready for review (${period})`,
@@ -153,7 +165,7 @@ export async function sendReportReadyForReviewEmail(
 }
 
 export async function sendMagicLinkEmail(to: string, url: string) {
-  const { error } = await resend.emails.send({
+  const { error } = await getResend().emails.send({
     from: FROM,
     to,
     subject: "Sign in to VaultBrief",
