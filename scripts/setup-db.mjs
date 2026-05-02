@@ -1,8 +1,14 @@
 import { neon } from "@neondatabase/serverless";
 
-const sql = neon(
-  "REDACTED_NEON_URL"
-);
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error(
+    "DATABASE_URL is not set. Export it or load .env.local before running this script."
+  );
+  process.exit(1);
+}
+
+const sql = neon(DATABASE_URL);
 
 async function run() {
   console.log("Dropping old tables...");
