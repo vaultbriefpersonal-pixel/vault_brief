@@ -8,6 +8,27 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  background: "#111111",
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: 8,
+  padding: "13px 16px",
+  fontSize: 15,
+  color: "#f0f0f0",
+  fontFamily: "var(--font-inter), Inter, sans-serif",
+  outline: "none",
+  boxSizing: "border-box",
+};
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: 14,
+  color: "#888888",
+  fontFamily: "var(--font-inter), Inter, sans-serif",
+  marginBottom: 8,
+};
+
 export default function ProjectSettingsPage({ params }: Props) {
   const { id } = use(params);
   const router = useRouter();
@@ -59,72 +80,145 @@ export default function ProjectSettingsPage({ params }: Props) {
     });
   }
 
-  const inputCls =
-    "w-full rounded-lg bg-slate-800 border border-slate-700 px-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500";
+  const FIELDS = [
+    ["name", "Project name", "text", true],
+    ["website", "Website", "url", false],
+    ["description", "Description", "text", false],
+    ["tokenSymbol", "Token symbol", "text", false],
+    ["githubOrg", "GitHub org", "text", false],
+    ["teamSize", "Team size", "number", false],
+  ] as const;
 
   return (
-    <div className="p-6 max-w-lg">
-      <h2 className="text-xl font-semibold text-white mb-6">
+    <div style={{ padding: "24px 28px", minHeight: "100vh" }}>
+      <h2
+        style={{
+          fontFamily:
+            "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+          fontSize: 18,
+          fontWeight: 700,
+          color: "#f0f0f0",
+          margin: "0 0 20px",
+          letterSpacing: "-0.02em",
+        }}
+      >
         Project settings
       </h2>
 
-      <form onSubmit={handleSubmit} className="space-y-4 mb-10">
-        {(
-          [
-            ["name", "Project name", "text", true],
-            ["website", "Website", "url", false],
-            ["description", "Description", "text", false],
-            ["tokenSymbol", "Token symbol", "text", false],
-            ["githubOrg", "GitHub org", "text", false],
-            ["teamSize", "Team size", "number", false],
-          ] as const
-        ).map(([key, label, type, required]) => (
-          <div key={key}>
-            <label className="block text-sm text-slate-400 mb-1">
+      <form
+        onSubmit={handleSubmit}
+        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 40 }}
+      >
+        {FIELDS.map(([key, label, type, required]) => (
+          <div
+            key={key}
+            style={
+              key === "name" || key === "description"
+                ? { gridColumn: "1 / -1" }
+                : undefined
+            }
+          >
+            <label style={labelStyle}>
               {label}
-              {required && <span className="text-red-400 ml-1">*</span>}
+              {required && (
+                <span style={{ color: "#f87171", marginLeft: 4 }}>*</span>
+              )}
             </label>
-            <input
-              type={type}
-              required={required}
-              className={inputCls}
-              value={form[key]}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, [key]: e.target.value }))
-              }
-            />
+            {key === "description" ? (
+              <textarea
+                rows={3}
+                style={{ ...inputStyle, resize: "vertical" }}
+                value={form[key]}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, [key]: e.target.value }))
+                }
+              />
+            ) : (
+              <input
+                type={type}
+                required={required}
+                style={inputStyle}
+                value={form[key]}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, [key]: e.target.value }))
+                }
+              />
+            )}
           </div>
         ))}
 
         <button
           type="submit"
           disabled={update.isPending}
-          className="w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-4 py-2.5 text-sm font-medium text-white transition-colors"
+          style={{
+            gridColumn: "1 / -1",
+            width: "100%",
+            background: saved ? "rgba(0,232,123,0.15)" : "#00e87b",
+            color: saved ? "#00e87b" : "#0a0a0a",
+            border: saved ? "1px solid rgba(0,232,123,0.3)" : "none",
+            borderRadius: 8,
+            padding: "14px 24px",
+            fontSize: 15,
+            fontWeight: 600,
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            cursor: update.isPending ? "not-allowed" : "pointer",
+            opacity: update.isPending ? 0.7 : 1,
+            transition: "background 0.3s, color 0.3s",
+          }}
         >
           {saved ? "Saved!" : update.isPending ? "Saving..." : "Save changes"}
         </button>
       </form>
 
-      <div className="rounded-xl border border-red-900 bg-red-950/30 p-5">
-        <h3 className="text-sm font-semibold text-red-400 mb-2">
+      <div
+        style={{
+          border: "1px solid rgba(248,113,113,0.2)",
+          background: "rgba(248,113,113,0.04)",
+          borderRadius: 12,
+          padding: 20,
+        }}
+      >
+        <h3
+          style={{
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "#f87171",
+            margin: "0 0 8px",
+          }}
+        >
           Danger zone
         </h3>
-        <p className="text-sm text-slate-400 mb-4">
+        <p
+          style={{
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            fontSize: 13,
+            color: "#888888",
+            margin: "0 0 16px",
+            lineHeight: 1.6,
+          }}
+        >
           Deleting this project will remove all wallets, snapshots, and reports
           permanently.
         </p>
         <button
           onClick={() => {
-            if (
-              window.confirm(
-                "Delete this project? This cannot be undone."
-              )
-            ) {
+            if (window.confirm("Delete this project? This cannot be undone.")) {
               deleteProject.mutate({ id });
             }
           }}
           disabled={deleteProject.isPending}
-          className="rounded-lg border border-red-700 text-red-400 hover:bg-red-900/50 disabled:opacity-50 px-4 py-2 text-sm transition-colors"
+          style={{
+            background: "transparent",
+            border: "1px solid rgba(248,113,113,0.3)",
+            borderRadius: 8,
+            padding: "9px 16px",
+            fontSize: 13,
+            color: "#f87171",
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            cursor: deleteProject.isPending ? "not-allowed" : "pointer",
+            opacity: deleteProject.isPending ? 0.6 : 1,
+          }}
         >
           {deleteProject.isPending ? "Deleting..." : "Delete project"}
         </button>

@@ -14,6 +14,42 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
+const statCard = (label: string, value: string, accent?: string) => (
+  <div
+    style={{
+      background: "#161616",
+      border: "1px solid rgba(255,255,255,0.08)",
+      borderRadius: 12,
+      padding: "18px 20px",
+    }}
+  >
+    <p
+      style={{
+        fontFamily: "var(--font-inter), Inter, sans-serif",
+        fontSize: 11,
+        color: "#555555",
+        textTransform: "uppercase",
+        letterSpacing: "0.07em",
+        margin: "0 0 8px",
+      }}
+    >
+      {label}
+    </p>
+    <p
+      style={{
+        fontFamily:
+          "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+        fontSize: 22,
+        fontWeight: 700,
+        color: accent ?? "#f0f0f0",
+        margin: 0,
+      }}
+    >
+      {value}
+    </p>
+  </div>
+);
+
 export default async function ProjectPage({ params }: Props) {
   const { id } = await params;
   const session = await auth();
@@ -33,138 +69,318 @@ export default async function ProjectPage({ params }: Props) {
 
   const latestSnapshot = snapshots[0];
 
-  const treasuryChartData = [...snapshots]
-    .reverse()
-    .map((s) => ({
-      date: formatDate(s.snapshotDate),
-      totalBalanceUsd: Number(s.totalBalanceUsd ?? 0),
-    }));
+  const treasuryChartData = [...snapshots].reverse().map((s) => ({
+    date: formatDate(s.snapshotDate),
+    totalBalanceUsd: Number(s.totalBalanceUsd ?? 0),
+  }));
 
-  const burnChartData = [...snapshots]
-    .reverse()
-    .map((s) => ({
-      date: formatDate(s.snapshotDate),
-      burnRateUsd: Number(s.burnRateUsd ?? 0),
-    }));
+  const burnChartData = [...snapshots].reverse().map((s) => ({
+    date: formatDate(s.snapshotDate),
+    burnRateUsd: Number(s.burnRateUsd ?? 0),
+  }));
 
   const expenseData =
     (latestSnapshot?.expensesByCategory as Record<string, number> | null) ?? {};
 
   const NAV = [
-    { href: `/projects/${id}/wallets`, label: "Wallets", icon: Wallet, count: project.wallets.length },
-    { href: `/projects/${id}/reports`, label: "Reports", icon: FileText, count: project.reports.length },
-    { href: `/projects/${id}/investors`, label: "Investors", icon: Users, count: project.investors.length },
-    { href: `/projects/${id}/settings`, label: "Settings", icon: Settings },
+    {
+      href: `/projects/${id}/wallets`,
+      label: "Wallets",
+      icon: Wallet,
+      count: project.wallets.length,
+    },
+    {
+      href: `/projects/${id}/reports`,
+      label: "Reports",
+      icon: FileText,
+      count: project.reports.length,
+    },
+    {
+      href: `/projects/${id}/investors`,
+      label: "Investors",
+      icon: Users,
+      count: project.investors.length,
+    },
+    {
+      href: `/projects/${id}/settings`,
+      label: "Settings",
+      icon: Settings,
+    },
   ];
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-white">{project.name}</h2>
+    <div style={{ padding: "24px 28px", minHeight: "100vh" }}>
+      <div style={{ marginBottom: 28 }}>
+        <h2
+          style={{
+            fontFamily:
+              "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+            fontSize: 18,
+            fontWeight: 700,
+            color: "#f0f0f0",
+            margin: "0 0 4px",
+            letterSpacing: "-0.02em",
+          }}
+        >
+          {project.name}
+        </h2>
         {project.description && (
-          <p className="mt-1 text-slate-400 text-sm">{project.description}</p>
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 14,
+              color: "#555555",
+              margin: 0,
+            }}
+          >
+            {project.description}
+          </p>
         )}
       </div>
 
-      {/* Quick stats */}
       {latestSnapshot && (
-        <div className="grid grid-cols-2 gap-4 mb-6 lg:grid-cols-4">
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <p className="text-xs text-slate-400 mb-1">Treasury</p>
-            <p className="text-xl font-bold text-white">
-              {formatUsd(Number(latestSnapshot.totalBalanceUsd ?? 0))}
-            </p>
-          </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <p className="text-xs text-slate-400 mb-1">Burn rate / mo</p>
-            <p className="text-xl font-bold text-amber-400">
-              {latestSnapshot.burnRateUsd
-                ? formatUsd(Number(latestSnapshot.burnRateUsd))
-                : "—"}
-            </p>
-          </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <p className="text-xs text-slate-400 mb-1">Runway</p>
-            <p className="text-xl font-bold text-green-400">
-              {latestSnapshot.runwayMonths
-                ? `${Number(latestSnapshot.runwayMonths).toFixed(0)} mo`
-                : "—"}
-            </p>
-          </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <p className="text-xs text-slate-400 mb-1">Stablecoins</p>
-            <p className="text-xl font-bold text-blue-400">
-              {formatUsd(Number(latestSnapshot.stablecoinsUsd ?? 0))}
-            </p>
-          </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            gap: 12,
+            marginBottom: 24,
+          }}
+        >
+          {statCard(
+            "Treasury",
+            formatUsd(Number(latestSnapshot.totalBalanceUsd ?? 0))
+          )}
+          {statCard(
+            "Burn / mo",
+            latestSnapshot.burnRateUsd
+              ? formatUsd(Number(latestSnapshot.burnRateUsd))
+              : "—",
+            "#f87171"
+          )}
+          {statCard(
+            "Runway",
+            latestSnapshot.runwayMonths
+              ? `${Number(latestSnapshot.runwayMonths).toFixed(0)} mo`
+              : "—",
+            "#00e87b"
+          )}
+          {statCard(
+            "Stablecoins",
+            formatUsd(Number(latestSnapshot.stablecoinsUsd ?? 0))
+          )}
         </div>
       )}
 
-      {/* Navigation cards */}
-      <div className="grid grid-cols-2 gap-4 mb-8 lg:grid-cols-4">
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 10,
+          marginBottom: 32,
+        }}
+      >
         {NAV.map(({ href, label, icon: Icon, count }) => (
           <Link
             key={href}
             href={href}
-            className="rounded-xl border border-slate-800 bg-slate-900 p-5 hover:border-slate-700 transition-colors"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              background: "#161616",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: 12,
+              padding: "16px 18px",
+              textDecoration: "none",
+            }}
           >
-            <div className="flex items-center gap-3">
-              <Icon className="h-5 w-5 text-indigo-400" />
-              <div>
-                <p className="text-xs text-slate-400">{label}</p>
-                {count !== undefined && (
-                  <p className="text-lg font-semibold text-white">{count}</p>
-                )}
-              </div>
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                background: "rgba(0,232,123,0.08)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <Icon size={15} color="#00e87b" />
+            </div>
+            <div>
+              <p
+                style={{
+                  fontFamily: "var(--font-inter), Inter, sans-serif",
+                  fontSize: 11,
+                  color: "#555555",
+                  margin: 0,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                }}
+              >
+                {label}
+              </p>
+              {count !== undefined && (
+                <p
+                  style={{
+                    fontFamily:
+                      "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                    fontSize: 18,
+                    fontWeight: 700,
+                    color: "#f0f0f0",
+                    margin: 0,
+                  }}
+                >
+                  {count}
+                </p>
+              )}
             </div>
           </Link>
         ))}
       </div>
 
-      {/* Charts */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-          <h3 className="text-sm font-semibold text-slate-300 mb-4">
+      <div
+        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}
+      >
+        <div
+          style={{
+            background: "#161616",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 12,
+            padding: 20,
+          }}
+        >
+          <h3
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#888888",
+              margin: "0 0 16px",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+            }}
+          >
             Treasury over time
           </h3>
           <TreasuryChart data={treasuryChartData} />
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-          <h3 className="text-sm font-semibold text-slate-300 mb-4">
+        <div
+          style={{
+            background: "#161616",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 12,
+            padding: 20,
+          }}
+        >
+          <h3
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#888888",
+              margin: "0 0 16px",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+            }}
+          >
             Monthly burn rate
           </h3>
           <BurnRateChart data={burnChartData} />
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-          <h3 className="text-sm font-semibold text-slate-300 mb-4">
+        <div
+          style={{
+            background: "#161616",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 12,
+            padding: 20,
+          }}
+        >
+          <h3
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#888888",
+              margin: "0 0 16px",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+            }}
+          >
             Expense breakdown
           </h3>
           <ExpenseBreakdown data={expenseData} />
         </div>
         {latestSnapshot?.githubCommitsCount !== null && (
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-            <h3 className="text-sm font-semibold text-slate-300 mb-4">
+          <div
+            style={{
+              background: "#161616",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: 12,
+              padding: 20,
+            }}
+          >
+            <h3
+              style={{
+                fontFamily: "var(--font-inter), Inter, sans-serif",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#888888",
+                margin: "0 0 16px",
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}
+            >
               Development activity
             </h3>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-white">
-                  {latestSnapshot?.githubCommitsCount ?? 0}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">Commits</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-white">
-                  {latestSnapshot?.githubPrsMerged ?? 0}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">PRs merged</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-white">
-                  {latestSnapshot?.githubContributorsActive ?? 0}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">Contributors</p>
-              </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(3, 1fr)",
+                gap: 16,
+              }}
+            >
+              {[
+                {
+                  val: latestSnapshot?.githubCommitsCount ?? 0,
+                  label: "Commits",
+                },
+                {
+                  val: latestSnapshot?.githubPrsMerged ?? 0,
+                  label: "PRs merged",
+                },
+                {
+                  val: latestSnapshot?.githubContributorsActive ?? 0,
+                  label: "Contributors",
+                },
+              ].map(({ val, label }) => (
+                <div key={label} style={{ textAlign: "center" }}>
+                  <p
+                    style={{
+                      fontFamily:
+                        "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                      fontSize: 28,
+                      fontWeight: 700,
+                      color: "#f0f0f0",
+                      margin: "0 0 4px",
+                    }}
+                  >
+                    {val}
+                  </p>
+                  <p
+                    style={{
+                      fontFamily: "var(--font-inter), Inter, sans-serif",
+                      fontSize: 12,
+                      color: "#555555",
+                      margin: 0,
+                    }}
+                  >
+                    {label}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         )}

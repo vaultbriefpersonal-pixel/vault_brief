@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/server/db";
 import { projects } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
-import { Plus, ExternalLink } from "lucide-react";
+import { Plus, ExternalLink, FolderOpen } from "lucide-react";
 
 export default async function ProjectsPage() {
   const session = await auth();
@@ -14,51 +14,201 @@ export default async function ProjectsPage() {
   });
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold text-white">Projects</h2>
+    <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 28,
+        }}
+      >
+        <h2
+          style={{
+            fontFamily:
+              "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+            fontSize: 18,
+            fontWeight: 700,
+            color: "#f0f0f0",
+            margin: 0,
+            letterSpacing: "-0.02em",
+          }}
+        >
+          Projects
+        </h2>
         <Link
           href="/projects/new"
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-sm font-medium text-white transition-colors"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            background: "#00e87b",
+            color: "#0a0a0a",
+            border: "none",
+            borderRadius: 8,
+            padding: "11px 20px",
+            fontSize: 14,
+            fontWeight: 600,
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            textDecoration: "none",
+          }}
         >
-          <Plus className="h-4 w-4" />
+          <Plus size={13} />
           New project
         </Link>
       </div>
 
       {userProjects.length === 0 ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900 p-12 text-center">
-          <p className="text-slate-400 mb-4">No projects yet.</p>
+        <div
+          style={{
+            border: "1px solid rgba(255,255,255,0.08)",
+            background: "#161616",
+            borderRadius: 14,
+            padding: "72px 24px",
+            textAlign: "center",
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 14,
+              background: "rgba(0,232,123,0.08)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 20px",
+            }}
+          >
+            <FolderOpen size={24} color="#00e87b" />
+          </div>
+          <p
+            style={{
+              fontFamily:
+                "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+              fontSize: 22,
+              fontWeight: 600,
+              color: "#f0f0f0",
+              margin: "0 0 10px",
+            }}
+          >
+            No projects yet
+          </p>
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 16,
+              color: "#555555",
+              margin: "0 0 28px",
+            }}
+          >
+            Create your first project to start generating reports.
+          </p>
           <Link
             href="/projects/new"
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-sm font-medium text-white transition-colors"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              background: "#00e87b",
+              color: "#0a0a0a",
+              borderRadius: 8,
+              padding: "14px 28px",
+              fontSize: 15,
+              fontWeight: 600,
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              textDecoration: "none",
+            }}
           >
-            <Plus className="h-4 w-4" />
+            <Plus size={15} />
             Create your first project
           </Link>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+            gap: 16,
+          }}
+        >
           {userProjects.map((project) => (
             <Link
               key={project.id}
               href={`/projects/${project.id}`}
-              className="rounded-xl border border-slate-800 bg-slate-900 p-6 hover:border-slate-700 transition-colors block"
+              style={{
+                display: "block",
+                border: "1px solid rgba(255,255,255,0.08)",
+                background: "#161616",
+                borderRadius: 14,
+                padding: 24,
+                textDecoration: "none",
+              }}
             >
-              <div className="flex items-start justify-between mb-3">
-                <h3 className="font-semibold text-white">{project.name}</h3>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "space-between",
+                  marginBottom: 10,
+                }}
+              >
+                <h3
+                  style={{
+                    fontFamily:
+                      "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                    fontSize: 15,
+                    fontWeight: 600,
+                    color: "#f0f0f0",
+                    margin: 0,
+                  }}
+                >
+                  {project.name}
+                </h3>
                 {project.website && (
-                  <ExternalLink className="h-4 w-4 text-slate-500 shrink-0" />
+                  <ExternalLink size={13} color="#555555" />
                 )}
               </div>
               {project.description && (
-                <p className="text-sm text-slate-400 mb-4 line-clamp-2">
+                <p
+                  style={{
+                    fontFamily: "var(--font-inter), Inter, sans-serif",
+                    fontSize: 13,
+                    color: "#888888",
+                    margin: "0 0 16px",
+                    lineHeight: 1.5,
+                  }}
+                >
                   {project.description}
                 </p>
               )}
-              <div className="flex items-center gap-4 text-xs text-slate-500">
-                <span>{project.wallets.length} wallet(s)</span>
-                {project.tokenSymbol && <span>${project.tokenSymbol}</span>}
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span
+                  style={{
+                    fontFamily: "var(--font-inter), Inter, sans-serif",
+                    fontSize: 12,
+                    color: "#555555",
+                  }}
+                >
+                  {project.wallets.length} wallet
+                  {project.wallets.length !== 1 ? "s" : ""}
+                </span>
+                {project.tokenSymbol && (
+                  <span
+                    style={{
+                      fontFamily: "var(--font-geist-mono), monospace",
+                      fontSize: 12,
+                      color: "#00e87b",
+                    }}
+                  >
+                    ${project.tokenSymbol}
+                  </span>
+                )}
               </div>
             </Link>
           ))}

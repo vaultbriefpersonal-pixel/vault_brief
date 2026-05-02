@@ -9,11 +9,37 @@ interface ReportEditorProps {
   onSave: (content: string, notes: string) => Promise<void>;
 }
 
-export function ReportEditor({
-  initialContent,
-  founderNotes,
-  onSave,
-}: ReportEditorProps) {
+function PaneHeader({ label, right }: { label: string; right?: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "10px 16px",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+        background: "#111111",
+        flexShrink: 0,
+      }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          fontSize: 11,
+          fontWeight: 600,
+          color: "#555555",
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+        }}
+      >
+        {label}
+      </span>
+      {right}
+    </div>
+  );
+}
+
+export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEditorProps) {
   const [content, setContent] = useState(initialContent);
   const [notes, setNotes] = useState(founderNotes ?? "");
   const [saving, setSaving] = useState(false);
@@ -37,19 +63,45 @@ export function ReportEditor({
   }, []);
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
       {/* Editor pane */}
-      <div className="w-1/2 flex flex-col border-r border-slate-800">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900">
-          <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-            Editor
-          </span>
-          {saving && (
-            <span className="text-xs text-slate-500">Saving...</span>
-          )}
-        </div>
+      <div
+        style={{
+          width: "50%",
+          display: "flex",
+          flexDirection: "column",
+          borderRight: "1px solid rgba(255,255,255,0.08)",
+        }}
+      >
+        <PaneHeader
+          label="Editor"
+          right={
+            saving ? (
+              <span
+                style={{
+                  fontFamily: "var(--font-inter), Inter, sans-serif",
+                  fontSize: 12,
+                  color: "#555555",
+                }}
+              >
+                Saving...
+              </span>
+            ) : undefined
+          }
+        />
         <textarea
-          className="flex-1 bg-slate-950 text-slate-200 text-sm font-mono p-4 resize-none focus:outline-none"
+          style={{
+            flex: 1,
+            background: "#0a0a0a",
+            color: "#cccccc",
+            fontSize: 13,
+            fontFamily: "var(--font-geist-mono), monospace",
+            padding: "20px",
+            resize: "none",
+            border: "none",
+            outline: "none",
+            lineHeight: 1.75,
+          }}
           value={content}
           onChange={(e) => {
             setContent(e.target.value);
@@ -57,13 +109,43 @@ export function ReportEditor({
           }}
           placeholder="Report content (Markdown)"
         />
-        <div className="border-t border-slate-800 p-4">
-          <label className="block text-xs text-slate-400 mb-2 font-medium uppercase tracking-wider">
-            Founder notes (private context for investors)
+        <div
+          style={{
+            borderTop: "1px solid rgba(255,255,255,0.08)",
+            padding: 16,
+            background: "#0a0a0a",
+            flexShrink: 0,
+          }}
+        >
+          <label
+            style={{
+              display: "block",
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#555555",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              marginBottom: 8,
+            }}
+          >
+            Founder notes
           </label>
           <textarea
             rows={3}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            style={{
+              width: "100%",
+              background: "#111111",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: 8,
+              fontSize: 13.5,
+              color: "#f0f0f0",
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              padding: "10px 12px",
+              resize: "none",
+              outline: "none",
+              boxSizing: "border-box",
+            }}
             placeholder="Add any qualitative context for this month..."
             value={notes}
             onChange={(e) => {
@@ -75,13 +157,9 @@ export function ReportEditor({
       </div>
 
       {/* Preview pane */}
-      <div className="w-1/2 flex flex-col">
-        <div className="px-4 py-2 border-b border-slate-800 bg-slate-900">
-          <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-            Preview
-          </span>
-        </div>
-        <div className="flex-1 overflow-auto bg-slate-950">
+      <div style={{ width: "50%", display: "flex", flexDirection: "column" }}>
+        <PaneHeader label="Preview" />
+        <div style={{ flex: 1, overflowY: "auto", background: "#0a0a0a" }}>
           <ReportPreview content={content} />
         </div>
       </div>

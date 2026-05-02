@@ -8,6 +8,19 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  background: "#111111",
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: 8,
+  padding: "13px 16px",
+  fontSize: 15,
+  color: "#f0f0f0",
+  fontFamily: "var(--font-inter), Inter, sans-serif",
+  outline: "none",
+  boxSizing: "border-box",
+};
+
 export default function InvestorsPage({ params }: Props) {
   const { id: projectId } = use(params);
   const [form, setForm] = useState({ name: "", email: "", firm: "", role: "" });
@@ -30,45 +43,93 @@ export default function InvestorsPage({ params }: Props) {
     onSuccess: () => refetch(),
   });
 
-  const inputCls =
-    "rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500";
-
   return (
-    <div className="p-6 max-w-2xl">
-      <h2 className="text-xl font-semibold text-white mb-6">Investors</h2>
+    <div style={{ padding: "24px 28px", minHeight: "100vh" }}>
+      <h2
+        style={{
+          fontFamily:
+            "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+          fontSize: 18,
+          fontWeight: 700,
+          color: "#f0f0f0",
+          margin: "0 0 24px",
+          letterSpacing: "-0.02em",
+        }}
+      >
+        Investors
+      </h2>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 mb-6">
-        <h3 className="text-sm font-medium text-slate-300 mb-4 flex items-center gap-2">
-          <UserPlus className="h-4 w-4" />
+      <div
+        style={{
+          background: "#161616",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 12,
+          padding: 20,
+          marginBottom: 24,
+        }}
+      >
+        <h3
+          style={{
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "#888888",
+            margin: "0 0 14px",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <UserPlus size={13} />
           Add investor
         </h3>
         {error && (
-          <div className="mb-3 rounded-lg bg-red-950 border border-red-800 p-3 text-sm text-red-300">
+          <div
+            style={{
+              marginBottom: 12,
+              background: "rgba(248,113,113,0.08)",
+              border: "1px solid rgba(248,113,113,0.2)",
+              borderRadius: 8,
+              padding: "10px 14px",
+              fontSize: 13,
+              color: "#f87171",
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+            }}
+          >
             {error}
           </div>
         )}
-        <div className="grid grid-cols-2 gap-2 mb-2">
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 8,
+            marginBottom: 12,
+          }}
+        >
           <input
-            className={inputCls}
+            style={inputStyle}
             placeholder="Full name *"
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
           />
           <input
             type="email"
-            className={inputCls}
+            style={inputStyle}
             placeholder="Email *"
             value={form.email}
             onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
           />
           <input
-            className={inputCls}
+            style={inputStyle}
             placeholder="Firm (e.g. a16z)"
             value={form.firm}
             onChange={(e) => setForm((f) => ({ ...f, firm: e.target.value }))}
           />
           <input
-            className={inputCls}
+            style={inputStyle}
             placeholder="Role (e.g. Lead Investor)"
             value={form.role}
             onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
@@ -85,27 +146,77 @@ export default function InvestorsPage({ params }: Props) {
             })
           }
           disabled={!form.name || !form.email || add.isPending}
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-4 py-2 text-sm font-medium text-white transition-colors"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 7,
+            background: "#00e87b",
+            color: "#0a0a0a",
+            border: "none",
+            borderRadius: 8,
+            padding: "13px 20px",
+            fontSize: 14,
+            fontWeight: 600,
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            cursor:
+              !form.name || !form.email || add.isPending
+                ? "not-allowed"
+                : "pointer",
+            opacity: !form.name || !form.email || add.isPending ? 0.6 : 1,
+          }}
         >
-          <Plus className="h-4 w-4" />
+          <Plus size={13} />
           Add investor
         </button>
       </div>
 
-      <div className="space-y-2">
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {investorList?.length === 0 && (
-          <p className="text-slate-500 text-sm text-center py-8">
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 14,
+              color: "#555555",
+              textAlign: "center",
+              padding: "40px 0",
+            }}
+          >
             No investors added yet.
           </p>
         )}
         {investorList?.map((inv) => (
           <div
             key={inv.id}
-            className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900 px-4 py-3"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              background: "#161616",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: 10,
+              padding: "12px 16px",
+            }}
           >
             <div>
-              <p className="font-medium text-white text-sm">{inv.name}</p>
-              <p className="text-xs text-slate-400">
+              <p
+                style={{
+                  fontFamily: "var(--font-inter), Inter, sans-serif",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  color: "#f0f0f0",
+                  margin: "0 0 3px",
+                }}
+              >
+                {inv.name}
+              </p>
+              <p
+                style={{
+                  fontFamily: "var(--font-inter), Inter, sans-serif",
+                  fontSize: 12,
+                  color: "#555555",
+                  margin: 0,
+                }}
+              >
                 {inv.email}
                 {inv.firm && ` · ${inv.firm}`}
                 {inv.role && ` · ${inv.role}`}
@@ -113,9 +224,17 @@ export default function InvestorsPage({ params }: Props) {
             </div>
             <button
               onClick={() => remove.mutate({ investorId: inv.id })}
-              className="p-1.5 rounded text-slate-500 hover:text-red-400 hover:bg-red-950 transition-colors"
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: "6px",
+                borderRadius: 6,
+                cursor: "pointer",
+                color: "#555555",
+                display: "flex",
+              }}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 size={15} />
             </button>
           </div>
         ))}

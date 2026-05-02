@@ -1,9 +1,15 @@
 import OpenAI from "openai";
 
-const openrouter = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY,
-  baseURL: "https://openrouter.ai/api/v1",
-});
+let _openrouter: OpenAI | undefined;
+function getOpenrouter() {
+  if (!_openrouter) {
+    _openrouter = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: "https://openrouter.ai/api/v1",
+    });
+  }
+  return _openrouter;
+}
 
 export type ExpenseCategory =
   | "payroll"
@@ -95,7 +101,7 @@ ${txList}
 Return ONLY a JSON array with this exact format (no markdown, no explanation):
 [{"index": 1, "category": "payroll", "confidence": 0.85}, ...]`;
 
-  const response = await openrouter.chat.completions.create({
+  const response = await getOpenrouter().chat.completions.create({
     model: "google/gemini-2.5-flash",
     max_tokens: 1000,
     messages: [{ role: "user", content: prompt }],

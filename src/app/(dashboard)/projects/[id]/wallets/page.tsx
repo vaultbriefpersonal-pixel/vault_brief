@@ -20,6 +20,17 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
+const inputStyle: React.CSSProperties = {
+  background: "#111111",
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: 8,
+  padding: "13px 16px",
+  fontSize: 15,
+  color: "#f0f0f0",
+  fontFamily: "var(--font-inter), Inter, sans-serif",
+  outline: "none",
+};
+
 export default function WalletsPage({ params }: Props) {
   const { id: projectId } = use(params);
   const [address, setAddress] = useState("");
@@ -27,7 +38,9 @@ export default function WalletsPage({ params }: Props) {
   const [label, setLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const { data: walletList, refetch } = trpc.wallets.list.useQuery({ projectId });
+  const { data: walletList, refetch } = trpc.wallets.list.useQuery({
+    projectId,
+  });
 
   const addWallet = trpc.wallets.add.useMutation({
     onSuccess: () => {
@@ -43,29 +56,69 @@ export default function WalletsPage({ params }: Props) {
     onSuccess: () => refetch(),
   });
 
-  const inputCls =
-    "rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500";
-
   return (
-    <div className="p-6 max-w-2xl">
-      <h2 className="text-xl font-semibold text-white mb-6">Wallets</h2>
+    <div style={{ padding: "24px 28px", minHeight: "100vh" }}>
+      <h2
+        style={{
+          fontFamily:
+            "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+          fontSize: 18,
+          fontWeight: 700,
+          color: "#f0f0f0",
+          margin: "0 0 24px",
+          letterSpacing: "-0.02em",
+        }}
+      >
+        Wallets
+      </h2>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 mb-6">
-        <h3 className="text-sm font-medium text-slate-300 mb-4">Add wallet</h3>
+      <div
+        style={{
+          background: "#161616",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 12,
+          padding: 20,
+          marginBottom: 24,
+        }}
+      >
+        <h3
+          style={{
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "#888888",
+            margin: "0 0 14px",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+          }}
+        >
+          Add wallet
+        </h3>
         {error && (
-          <div className="mb-3 rounded-lg bg-red-950 border border-red-800 p-3 text-sm text-red-300">
+          <div
+            style={{
+              marginBottom: 12,
+              background: "rgba(248,113,113,0.08)",
+              border: "1px solid rgba(248,113,113,0.2)",
+              borderRadius: 8,
+              padding: "10px 14px",
+              fontSize: 13,
+              color: "#f87171",
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+            }}
+          >
             {error}
           </div>
         )}
-        <div className="flex gap-2 flex-wrap">
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input
-            className={`${inputCls} flex-1 min-w-48`}
+            style={{ ...inputStyle, flex: 1, minWidth: 180 }}
             placeholder="0x... or Solana address"
             value={address}
             onChange={(e) => setAddress(e.target.value)}
           />
           <select
-            className={`${inputCls} bg-slate-800`}
+            style={{ ...inputStyle, background: "#111111" }}
             value={chain}
             onChange={(e) => setChain(e.target.value as Chain)}
           >
@@ -76,56 +129,114 @@ export default function WalletsPage({ params }: Props) {
             ))}
           </select>
           <input
-            className={`${inputCls} w-36`}
+            style={{ ...inputStyle, width: 140 }}
             placeholder="Label (optional)"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
           <button
             onClick={() =>
-              addWallet.mutate({
-                projectId,
-                address,
-                chain,
-                label: label || undefined,
-              })
+              addWallet.mutate({ projectId, address, chain, label: label || undefined })
             }
             disabled={!address || addWallet.isPending}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-4 py-2 text-sm font-medium text-white transition-colors"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              background: "#00e87b",
+              color: "#0a0a0a",
+              border: "none",
+              borderRadius: 8,
+              padding: "13px 20px",
+              fontSize: 14,
+              fontWeight: 600,
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              cursor: !address || addWallet.isPending ? "not-allowed" : "pointer",
+              opacity: !address || addWallet.isPending ? 0.6 : 1,
+            }}
           >
-            <Plus className="h-4 w-4" />
-            Add
+            <Plus size={14} />
+            Add wallet
           </button>
         </div>
       </div>
 
-      <div className="space-y-2">
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {walletList?.length === 0 && (
-          <p className="text-slate-500 text-sm text-center py-8">
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 14,
+              color: "#555555",
+              textAlign: "center",
+              padding: "40px 0",
+            }}
+          >
             No wallets added yet.
           </p>
         )}
         {walletList?.map((w) => (
           <div
             key={w.id}
-            className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900 px-4 py-3"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              background: "#161616",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: 10,
+              padding: "12px 16px",
+            }}
           >
             <div>
-              <p className="font-mono text-xs text-white break-all">{w.address}</p>
-              <div className="flex gap-2 mt-1">
-                <span className="text-xs text-slate-500 capitalize">{w.chain}</span>
+              <p
+                style={{
+                  fontFamily: "var(--font-geist-mono), monospace",
+                  fontSize: 12,
+                  color: "#f0f0f0",
+                  margin: "0 0 4px",
+                  wordBreak: "break-all",
+                }}
+              >
+                {w.address}
+              </p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <span
+                  style={{
+                    fontFamily: "var(--font-inter), Inter, sans-serif",
+                    fontSize: 12,
+                    color: "#555555",
+                    textTransform: "capitalize",
+                  }}
+                >
+                  {w.chain}
+                </span>
                 {w.label && (
-                  <span className="text-xs text-slate-400">· {w.label}</span>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-inter), Inter, sans-serif",
+                      fontSize: 12,
+                      color: "#888888",
+                    }}
+                  >
+                    · {w.label}
+                  </span>
                 )}
               </div>
             </div>
             <button
-              onClick={() =>
-                removeWallet.mutate({ projectId, walletId: w.id })
-              }
-              className="p-1.5 rounded text-slate-500 hover:text-red-400 hover:bg-red-950 transition-colors"
+              onClick={() => removeWallet.mutate({ projectId, walletId: w.id })}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: "6px",
+                borderRadius: 6,
+                cursor: "pointer",
+                color: "#555555",
+                display: "flex",
+              }}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 size={15} />
             </button>
           </div>
         ))}

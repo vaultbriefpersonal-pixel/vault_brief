@@ -17,85 +17,149 @@ const STATUS_LABELS: Record<string, string> = {
   sent: "Sent",
 };
 
+const STATUS_COLOR: Record<string, React.CSSProperties> = {
+  draft: { background: "rgba(255,255,255,0.06)", color: "#888888" },
+  review: { background: "rgba(251,191,36,0.12)", color: "#fbbf24" },
+  sent: { background: "rgba(0,232,123,0.12)", color: "#00e87b" },
+};
+
 export default function ReportEditorPage({ params }: Props) {
   const { id: projectId, reportId } = use(params);
   const { data: report, refetch } = trpc.reports.getById.useQuery({ reportId });
 
   const update = trpc.reports.update.useMutation({ onSuccess: () => refetch() });
-  const updateStatus = trpc.reports.updateStatus.useMutation({
-    onSuccess: () => refetch(),
-  });
-  const regenerate = trpc.reports.regenerate.useMutation({
-    onSuccess: () => refetch(),
-  });
+  const updateStatus = trpc.reports.updateStatus.useMutation({ onSuccess: () => refetch() });
+  const regenerate = trpc.reports.regenerate.useMutation({ onSuccess: () => refetch() });
   const downloadPdf = trpc.reports.downloadPdf.useMutation({
     onSuccess: ({ url }) => window.open(url, "_blank"),
   });
 
   if (!report) {
     return (
-      <div className="flex-1 flex items-center justify-center text-slate-500">
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          fontSize: 14,
+          color: "#555555",
+        }}
+      >
         Loading...
       </div>
     );
   }
 
   const nextStatus =
-    report.status === "draft"
-      ? "review"
-      : report.status === "review"
-      ? "sent"
-      : null;
+    report.status === "draft" ? "review" : report.status === "review" ? "sent" : null;
+
+  const btnBase: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "transparent",
+    color: "#888888",
+    borderRadius: 7,
+    padding: "7px 12px",
+    fontSize: 12,
+    fontFamily: "var(--font-inter), Inter, sans-serif",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  };
 
   return (
-    <div className="flex flex-col h-screen">
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       {/* Top bar */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800 bg-slate-900 shrink-0">
-        <div className="flex items-center gap-3">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 20px",
+          height: 52,
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          background: "#0a0a0a",
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Link
             href={`/projects/${projectId}/reports`}
-            className="text-slate-500 hover:text-slate-300 transition-colors"
+            style={{ color: "#555555", display: "flex", lineHeight: 1 }}
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft size={16} />
           </Link>
           <div>
-            <h2 className="text-sm font-semibold text-white">
-              Report: {formatDate(report.periodEnd)}
-            </h2>
-            <span className="text-xs text-slate-500 capitalize">
+            <p
+              style={{
+                fontFamily: "var(--font-inter), Inter, sans-serif",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#f0f0f0",
+                margin: 0,
+              }}
+            >
+              {formatDate(report.periodEnd)}
+            </p>
+            <span
+              style={{
+                display: "inline-block",
+                marginTop: 2,
+                padding: "1px 8px",
+                borderRadius: 4,
+                fontSize: 11,
+                fontFamily: "var(--font-inter), Inter, sans-serif",
+                fontWeight: 500,
+                textTransform: "capitalize",
+                ...(STATUS_COLOR[report.status] ?? STATUS_COLOR.draft),
+              }}
+            >
               {STATUS_LABELS[report.status] ?? report.status}
             </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
             onClick={() => regenerate.mutate({ reportId })}
             disabled={regenerate.isPending}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-50 transition-colors"
+            style={{ ...btnBase, opacity: regenerate.isPending ? 0.5 : 1 }}
           >
-            <RefreshCw className="h-3.5 w-3.5" />
+            <RefreshCw size={13} />
             {regenerate.isPending ? "Regenerating..." : "Regenerate"}
           </button>
 
           <button
             onClick={() => downloadPdf.mutate({ reportId })}
             disabled={downloadPdf.isPending}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-50 transition-colors"
+            style={{ ...btnBase, opacity: downloadPdf.isPending ? 0.5 : 1 }}
           >
-            <Download className="h-3.5 w-3.5" />
+            <Download size={13} />
             PDF
           </button>
 
           {nextStatus && (
             <button
               onClick={() =>
-                updateStatus.mutate({ reportId, status: nextStatus as "draft" | "review" | "sent" })
+                updateStatus.mutate({
+                  reportId,
+                  status: nextStatus as "draft" | "review" | "sent",
+                })
               }
               disabled={updateStatus.isPending}
-              className="flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-3 py-1.5 text-xs font-medium text-white transition-colors"
+              style={{
+                ...btnBase,
+                background: "#00e87b",
+                color: "#0a0a0a",
+                border: "none",
+                fontWeight: 600,
+                opacity: updateStatus.isPending ? 0.7 : 1,
+              }}
             >
-              <Send className="h-3.5 w-3.5" />
+              <Send size={13} />
               {nextStatus === "review" ? "Mark Ready" : "Send"}
             </button>
           )}
@@ -103,7 +167,7 @@ export default function ReportEditorPage({ params }: Props) {
       </div>
 
       {/* Editor */}
-      <div className="flex-1 overflow-hidden">
+      <div style={{ flex: 1, overflow: "hidden" }}>
         <ReportEditor
           initialContent={report.contentMd ?? ""}
           founderNotes={report.founderNotes}

@@ -15,13 +15,19 @@ import {
 
 const MODEL = "google/gemini-2.5-flash";
 
-const openrouter = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY,
-  baseURL: "https://openrouter.ai/api/v1",
-});
+let _openrouter: OpenAI | undefined;
+function getOpenrouter() {
+  if (!_openrouter) {
+    _openrouter = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: "https://openrouter.ai/api/v1",
+    });
+  }
+  return _openrouter;
+}
 
 async function callLLM(system: string, user: string): Promise<string> {
-  const response = await openrouter.chat.completions.create({
+  const response = await getOpenrouter().chat.completions.create({
     model: MODEL,
     max_tokens: 3000,
     messages: [

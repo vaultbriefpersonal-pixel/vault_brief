@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "vaultbrief",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd /d C:\\Users\\DEV\\PROJECTS\\VaultBrief\\vaultbrief && npm run dev"],
       "port": 3000
     }
   ]

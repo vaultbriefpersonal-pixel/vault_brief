@@ -11,9 +11,9 @@ export default async function DashboardLayout({
   if (!session?.user) redirect("/login");
 
   return (
-    <div className="flex min-h-screen bg-slate-950">
+    <div style={{ display: "flex", minHeight: "100vh", background: "#0a0a0a" }}>
       <Sidebar />
-      <main className="flex-1 overflow-auto">{children}</main>
+      <main style={{ flex: 1, overflow: "auto" }}>{children}</main>
     </div>
   );
 }
