@@ -40,6 +40,9 @@ export default function ProjectSettingsPage({ params }: Props) {
     tokenSymbol: "",
     githubOrg: "",
     teamSize: "",
+    foundedDate: "",
+    lastFundingRound: "",
+    lastFundingAmount: "",
   });
   const [saved, setSaved] = useState(false);
 
@@ -52,6 +55,9 @@ export default function ProjectSettingsPage({ params }: Props) {
         tokenSymbol: project.tokenSymbol ?? "",
         githubOrg: project.githubOrg ?? "",
         teamSize: project.teamSize?.toString() ?? "",
+        foundedDate: project.foundedDate ?? "",
+        lastFundingRound: project.lastFundingRound ?? "",
+        lastFundingAmount: project.lastFundingAmount?.toString() ?? "",
       });
     }
   }, [project]);
@@ -77,6 +83,11 @@ export default function ProjectSettingsPage({ params }: Props) {
       tokenSymbol: form.tokenSymbol || null,
       githubOrg: form.githubOrg || null,
       teamSize: form.teamSize ? parseInt(form.teamSize) : null,
+      foundedDate: form.foundedDate || null,
+      lastFundingRound: form.lastFundingRound || null,
+      lastFundingAmount: form.lastFundingAmount
+        ? parseFloat(form.lastFundingAmount)
+        : null,
     });
   }
 
@@ -87,6 +98,9 @@ export default function ProjectSettingsPage({ params }: Props) {
     ["tokenSymbol", "Token symbol", "text", false],
     ["githubOrg", "GitHub org", "text", false],
     ["teamSize", "Team size", "number", false],
+    ["foundedDate", "Founded date", "date", false],
+    ["lastFundingRound", "Last funding round", "text", false],
+    ["lastFundingAmount", "Last funding amount (USD)", "number", false],
   ] as const;
 
   return (

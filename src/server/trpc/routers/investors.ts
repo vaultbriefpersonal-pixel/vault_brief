@@ -181,6 +181,15 @@ export const investorsRouter = router({
         })
         .where(eq(reports.id, input.reportId));
 
+      // In-app inbox notification — mirrors what the founder just did.
+      const { notify } = await import("@/server/services/notifications");
+      await notify(ctx.session.user.id!, {
+        type: "report_sent",
+        title: `${project.name} report sent`,
+        body: `Delivered to ${sent} of ${activeInvestors.length} investors.`,
+        href: `/projects/${input.projectId}/reports/${input.reportId}`,
+      });
+
       return { sent, total: activeInvestors.length };
     }),
 });

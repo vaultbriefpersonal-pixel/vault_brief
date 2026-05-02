@@ -9,6 +9,7 @@ import {
 } from "@/server/db/schema";
 import { generateAndSaveReport } from "@/server/services/report-generator";
 import { sendReportReadyForReviewEmail } from "@/server/services/email-sender";
+import { notify } from "@/server/services/notifications";
 
 /**
  * Auto-generate the monthly draft report ~2 days after the snapshot cron runs.
@@ -84,12 +85,22 @@ export const autoGenerateReportsJob = schedules.task({
         }
 
         const reviewUrl = `${APP_URL}/projects/${project.id}/reports/${report.id}`;
+        const reviewPath = `/projects/${project.id}/reports/${report.id}`;
 
         await sendReportReadyForReviewEmail({
           to: { name: founder.name ?? "there", email: founder.email },
           projectName: project.name,
           report,
           reviewUrl,
+        });
+
+        // In-app notification mirrors the email so founders see the draft
+        // even if they ignore email.
+        await notify(project.userId, {
+          type: "report_generated",
+          title: `${project.name} draft report is ready`,
+          body: "Auto-generated from this month's snapshot. Review and edit before sending to investors.",
+          href: reviewPath,
         });
 
         generated++;
@@ -99,6 +110,12 @@ export const autoGenerateReportsJob = schedules.task({
           `auto-generate-reports: project ${project.id} (${project.name}) failed:`,
           err instanceof Error ? err.message : err
         );
+        await notify(project.userId, {
+          type: "sync_failed",
+          title: `Report generation failed for ${project.name}`,
+          body: err instanceof Error ? err.message.slice(0, 200) : "Unknown error",
+          href: `/projects/${project.id}`,
+        });
       }
     }
 

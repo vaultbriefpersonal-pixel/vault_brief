@@ -26,6 +26,7 @@ export const users = pgTable("user", {
   stripeCustomerId: text("stripe_customer_id"),
   plan: text("plan").notNull().default("free"),
   planExpiresAt: timestamp("plan_expires_at", { withTimezone: true }),
+  emailNotifications: boolean("email_notifications").default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -248,6 +249,24 @@ export const investors = pgTable("investors", {
 // =============================================
 // MILESTONES
 // =============================================
+// =============================================
+// IN-APP NOTIFICATIONS
+// Lightweight inbox: a row per event. Polled by the sidebar badge for the
+// unread count and listed on /notifications.
+// =============================================
+export const notifications = pgTable("notifications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // snapshot_ready | report_generated | report_sent | sync_failed
+  title: text("title").notNull(),
+  body: text("body"),
+  href: text("href"), // optional deep-link, e.g. /projects/:id/reports/:reportId
+  readAt: timestamp("read_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
 export const milestones = pgTable("milestones", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id")
@@ -295,5 +314,7 @@ export type Investor = typeof investors.$inferSelect;
 export type NewInvestor = typeof investors.$inferInsert;
 export type Milestone = typeof milestones.$inferSelect;
 export type NewMilestone = typeof milestones.$inferInsert;
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;
 export type TokenPrice = typeof tokenPrices.$inferSelect;
 export type NewTokenPrice = typeof tokenPrices.$inferInsert;

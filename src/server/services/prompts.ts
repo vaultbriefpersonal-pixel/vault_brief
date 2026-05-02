@@ -120,6 +120,7 @@ ${snapshot.tokenCirculatingSupply ? `- Circulating supply: ${Number(snapshot.tok
 ## Project Context
 - Project: ${project.name}
 - Team size: ${project.teamSize ?? "Not specified"}
+- Founded: ${project.foundedDate ?? "Not specified"}
 - Last funding round: ${project.lastFundingRound ?? "Not specified"}
 - Amount raised: ${project.lastFundingAmount ? formatUsd(Number(project.lastFundingAmount)) : "Not specified"}
 - Report period: ${formatDate(period)}`;

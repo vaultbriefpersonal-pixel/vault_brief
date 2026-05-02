@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { fetchAllBalances, fetchTokenMetrics } from "./wallet-sync";
 import { fetchAndClassify } from "./transaction-sync";
 import { fetchGitHubActivity } from "./github-sync";
+import { notify } from "./notifications";
 
 export function getLastMonthPeriod(): { start: Date; end: Date } {
   const now = new Date();
@@ -103,6 +104,30 @@ export async function syncAllProjects() {
 
   const results = await Promise.allSettled(
     activeProjects.map((p) => createMonthlySnapshot(p.id, period))
+  );
+
+  // Per-project notifications: success = inbox row, failure = sync_failed row.
+  await Promise.all(
+    results.map((r, i) => {
+      const project = activeProjects[i];
+      if (r.status === "fulfilled") {
+        return notify(project.userId, {
+          type: "snapshot_ready",
+          title: `${project.name} treasury snapshot is ready`,
+          body: "Generate this month's report or wait for the auto-run on the 3rd.",
+          href: `/projects/${project.id}/reports`,
+        });
+      }
+      return notify(project.userId, {
+        type: "sync_failed",
+        title: `Sync failed for ${project.name}`,
+        body:
+          r.reason instanceof Error
+            ? r.reason.message.slice(0, 200)
+            : "Unknown error",
+        href: `/projects/${project.id}`,
+      });
+    })
   );
 
   const succeeded = results.filter((r) => r.status === "fulfilled").length;

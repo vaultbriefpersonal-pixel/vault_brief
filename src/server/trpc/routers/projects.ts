@@ -95,6 +95,21 @@ export const projectsRouter = router({
         tokenChain: z.string().optional().nullable(),
         githubOrg: z.string().optional().nullable(),
         teamSize: z.number().int().positive().optional().nullable(),
+        foundedDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
+          .optional()
+          .nullable(),
+        lastFundingRound: z.string().max(50).optional().nullable(),
+        lastFundingAmount: z
+          .union([z.number().positive(), z.string()])
+          .optional()
+          .nullable()
+          .transform((v) => {
+            if (v === null || v === undefined || v === "") return null;
+            // Drizzle numeric columns accept strings; normalise to string for safety.
+            return typeof v === "number" ? v.toString() : v;
+          }),
         reportFrequency: z.enum(["monthly", "quarterly"]).optional(),
         reportDay: z.number().int().min(1).max(28).optional(),
         reportTimezone: z.string().optional(),

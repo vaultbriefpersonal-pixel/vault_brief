@@ -11,97 +11,121 @@ import {
   Settings,
   HelpCircle,
   Bell,
+  ExternalLink,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { Logo } from "@/components/marketing/Logo";
+import { trpc } from "@/lib/api";
 
-const NAV = [
-  { href: "/projects", label: "Projects", icon: FolderOpen },
-  { href: "/billing", label: "Billing", icon: CreditCard },
-];
-
-const SECONDARY = [
-  { key: "analytics", label: "Analytics", icon: BarChart3 },
-  { key: "notifications", label: "Notifications", icon: Bell },
-  { key: "settings", label: "Settings", icon: Settings },
-  { key: "help", label: "Help & Docs", icon: HelpCircle },
-];
-
-function NavLink({
-  href,
-  label,
-  icon: Icon,
-  active,
-}: {
+interface NavItem {
   href: string;
   label: string;
-  icon: React.ElementType;
-  active: boolean;
-}) {
-  const [hovered, setHovered] = useState(false);
+  icon: LucideIcon;
+  external?: boolean;
+  showUnread?: boolean;
+}
 
+const NAV: NavItem[] = [
+  { href: "/projects", label: "Projects", icon: FolderOpen },
+  { href: "/billing", label: "Billing", icon: CreditCard },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/notifications", label: "Notifications", icon: Bell, showUnread: true },
+  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/docs", label: "Help & Docs", icon: HelpCircle, external: true },
+];
+
+function UnreadBadge() {
+  // Polls every 60s — quiet enough to ignore, snappy enough to feel live.
+  const { data } = trpc.notifications.unreadCount.useQuery(undefined, {
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+  if (!data || data === 0) return null;
   return (
-    <Link
-      href={href}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+    <span
       style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "12px 16px",
-        borderRadius: 10,
-        fontSize: 16,
-        fontFamily: "var(--font-inter), Inter, sans-serif",
-        fontWeight: active ? 600 : 400,
-        color: active ? "#00e87b" : hovered ? "#f0f0f0" : "#888888",
-        background: active
-          ? "rgba(0,232,123,0.08)"
-          : hovered
-            ? "rgba(255,255,255,0.04)"
-            : "transparent",
-        textDecoration: "none",
-        transition: "all 0.2s ease",
-        transform: hovered && !active ? "translateX(2px)" : "none",
+        marginLeft: "auto",
+        background: "#00e87b",
+        color: "#0a0a0a",
+        fontSize: 11,
+        fontWeight: 700,
+        padding: "2px 7px",
+        borderRadius: 999,
+        minWidth: 20,
+        textAlign: "center",
       }}
     >
-      <Icon size={20} strokeWidth={active ? 2 : 1.5} />
-      {label}
-    </Link>
+      {data > 99 ? "99+" : data}
+    </span>
   );
 }
 
-function DisabledItem({
-  label,
-  icon: Icon,
+function NavLink({
+  item,
+  active,
 }: {
-  label: string;
-  icon: React.ElementType;
+  item: NavItem;
+  active: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
+  const Icon = item.icon;
+
+  const sharedStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "12px 16px",
+    borderRadius: 10,
+    fontSize: 16,
+    fontFamily: "var(--font-inter), Inter, sans-serif",
+    fontWeight: active ? 600 : 400,
+    color: active ? "#00e87b" : hovered ? "#f0f0f0" : "#888888",
+    background: active
+      ? "rgba(0,232,123,0.08)"
+      : hovered
+        ? "rgba(255,255,255,0.04)"
+        : "transparent",
+    textDecoration: "none",
+    transition: "all 0.2s ease",
+    transform: hovered && !active ? "translateX(2px)" : "none",
+  };
+
+  const inner = (
+    <>
+      <Icon size={20} strokeWidth={active ? 2 : 1.5} />
+      {item.label}
+      {item.external && (
+        <ExternalLink size={12} style={{ marginLeft: 4, opacity: 0.6 }} />
+      )}
+      {item.showUnread && <UnreadBadge />}
+    </>
+  );
+
+  if (item.external) {
+    return (
+      <a
+        href={item.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={sharedStyle}
+      >
+        {inner}
+      </a>
+    );
+  }
 
   return (
-    <div
+    <Link
+      href={item.href}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "12px 16px",
-        borderRadius: 10,
-        fontSize: 16,
-        fontFamily: "var(--font-inter), Inter, sans-serif",
-        fontWeight: 400,
-        color: hovered ? "#777777" : "#555555",
-        background: hovered ? "rgba(255,255,255,0.02)" : "transparent",
-        cursor: "default",
-        transition: "all 0.2s ease",
-      }}
+      style={sharedStyle}
     >
-      <Icon size={20} strokeWidth={1.5} />
-      {label}
-    </div>
+      {inner}
+    </Link>
   );
 }
 
@@ -150,45 +174,12 @@ export function Sidebar() {
           overflowY: "auto",
         }}
       >
-        {NAV.map(({ href, label, icon }) => {
-          const active = pathname === href || pathname.startsWith(href + "/");
-          return (
-            <NavLink
-              key={href}
-              href={href}
-              label={label}
-              icon={icon}
-              active={active}
-            />
-          );
+        {NAV.map((item) => {
+          const active =
+            !item.external &&
+            (pathname === item.href || pathname.startsWith(item.href + "/"));
+          return <NavLink key={item.href} item={item} active={active} />;
         })}
-
-        <div
-          style={{
-            height: 1,
-            background: "rgba(255,255,255,0.06)",
-            margin: "12px 6px",
-          }}
-        />
-
-        <p
-          style={{
-            fontFamily: "var(--font-inter), Inter, sans-serif",
-            fontSize: 12,
-            fontWeight: 600,
-            color: "#444444",
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            padding: "6px 16px 6px",
-            margin: 0,
-          }}
-        >
-          Coming soon
-        </p>
-
-        {SECONDARY.map(({ key, label, icon }) => (
-          <DisabledItem key={key} label={label} icon={icon} />
-        ))}
       </nav>
 
       <div
