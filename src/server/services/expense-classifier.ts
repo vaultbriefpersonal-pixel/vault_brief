@@ -30,6 +30,8 @@ export interface RawTransaction {
   valueUsd: number;
   timestamp: number;
   direction: "in" | "out";
+  /** True when no historical price could be resolved — valueUsd is 0 in that case. */
+  priceUnknown?: boolean;
 }
 
 export interface ClassifiedTransaction extends RawTransaction {

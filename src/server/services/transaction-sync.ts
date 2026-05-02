@@ -4,6 +4,7 @@ import {
   type ClassifiedTransaction,
   type RawTransaction,
 } from "./expense-classifier";
+import { tokenAmountToUsd } from "./price-resolver";
 
 const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY!;
 
@@ -201,22 +202,30 @@ async function fetchAlchemyTransfers(
   });
 }
 
-function transferToRaw(
+async function transferToRaw(
   t: AlchemyTransfer,
-  direction: "in" | "out",
-  estimatedUsdValue: number
-): RawTransaction {
+  direction: "in" | "out"
+): Promise<RawTransaction> {
+  const symbol = (t.asset ?? "ETH").toUpperCase();
+  const amount = parseFloat(t.value ?? "0");
+  const blockTs = t.metadata?.blockTimestamp
+    ? new Date(t.metadata.blockTimestamp)
+    : new Date();
+
+  // Resolve USD value at the actual block time. Caller can still see the raw
+  // token amount via the `value` field — `valueUsd` is now the real number.
+  const { usd, priceUnknown } = await tokenAmountToUsd(symbol, amount, blockTs);
+
   return {
     hash: t.hash,
     from: t.from,
     to: t.to ?? "",
     value: t.value ?? "0",
-    token: t.asset ?? "ETH",
-    valueUsd: estimatedUsdValue,
-    timestamp: t.metadata?.blockTimestamp
-      ? new Date(t.metadata.blockTimestamp).getTime()
-      : Date.now(),
+    token: symbol,
+    valueUsd: usd,
+    timestamp: blockTs.getTime(),
     direction,
+    priceUnknown,
   };
 }
 
@@ -237,15 +246,14 @@ export async function fetchAndClassify(
         fetchAlchemyTransfers(wallet.address, wallet.chain, period.start, period.end, "to"),
       ]);
 
-      for (const t of outgoing) {
-        // Estimate USD value — in production, use price at block time
-        const valueNum = parseFloat(t.value ?? "0");
-        allOutgoing.push(transferToRaw(t, "out", valueNum));
-      }
-      for (const t of incoming) {
-        const valueNum = parseFloat(t.value ?? "0");
-        allIncoming.push(transferToRaw(t, "in", valueNum));
-      }
+      // Resolve USD prices in parallel — price-resolver caches both in-memory
+      // and in Postgres, so repeated symbols on the same day cost one API call.
+      const [outgoingRaw, incomingRaw] = await Promise.all([
+        Promise.all(outgoing.map((t) => transferToRaw(t, "out"))),
+        Promise.all(incoming.map((t) => transferToRaw(t, "in"))),
+      ]);
+      allOutgoing.push(...outgoingRaw);
+      allIncoming.push(...incomingRaw);
     })
   );
 

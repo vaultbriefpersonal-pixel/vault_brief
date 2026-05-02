@@ -259,6 +259,25 @@ export const milestones = pgTable("milestones", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+// =============================================
+// TOKEN PRICE CACHE
+// Historical USD prices per (symbol, date). Historic prices never change,
+// so rows live forever and any future sync hits the cache instead of an API.
+// =============================================
+export const tokenPrices = pgTable(
+  "token_prices",
+  {
+    symbol: text("symbol").notNull(), // uppercase, e.g. "ETH", "USDC"
+    priceDate: date("price_date").notNull(), // YYYY-MM-DD UTC
+    usdPrice: numeric("usd_price", { precision: 24, scale: 8 }).notNull(),
+    source: text("source").notNull(), // "coingecko" | "dune" | "stable"
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.symbol, t.priceDate] }),
+  })
+);
+
 // Type exports
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -274,3 +293,5 @@ export type Investor = typeof investors.$inferSelect;
 export type NewInvestor = typeof investors.$inferInsert;
 export type Milestone = typeof milestones.$inferSelect;
 export type NewMilestone = typeof milestones.$inferInsert;
+export type TokenPrice = typeof tokenPrices.$inferSelect;
+export type NewTokenPrice = typeof tokenPrices.$inferInsert;
