@@ -15,37 +15,31 @@ const FEATURES = [
     icon: "⛓",
     title: "Multi-Chain Treasury Tracking",
     desc: "Connect wallets across Ethereum, Solana, Arbitrum, Base, and 15+ chains. Balances, token positions, and transaction history sync automatically.",
-    wide: true,
   },
   {
     icon: "🤖",
     title: "AI-Written Narratives",
     desc: "Claude turns raw numbers into investor-ready prose. Expense classification, burn analysis, and development summaries — all generated.",
-    wide: false,
   },
   {
     icon: "📄",
     title: "One-Click PDF Export",
     desc: "Branded reports with your logo, colors, and formatting. Download or send directly to your investor list.",
-    wide: false,
   },
   {
     icon: "💻",
     title: "GitHub Activity Reports",
     desc: "Commits, PRs merged, active contributors, and release notes pulled from your connected repos automatically.",
-    wide: false,
   },
   {
     icon: "📊",
     title: "Token Metrics Dashboard",
     desc: "Price, market cap, holder count, and vesting schedule tracked and included in every report.",
-    wide: false,
   },
   {
     icon: "📬",
     title: "Automated Distribution",
     desc: "Reports go out on the 1st of every month. Investors get email with PDF attached. Track opens and engagement.",
-    wide: true,
   },
 ];
 
@@ -433,7 +427,6 @@ export default function LandingPage() {
               key={f.title}
               className="card-hover"
               style={{
-                gridColumn: f.wide ? "span 2" : "span 1",
                 background: "#161616",
                 borderRadius: 14,
                 border: "1px solid rgba(255,255,255,0.08)",

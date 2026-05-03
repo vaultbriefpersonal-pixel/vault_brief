@@ -192,6 +192,7 @@ export default function DocsPage() {
             top: 72,
             height: "calc(100dvh - 72px)",
             overflowY: "auto",
+            overflowX: "hidden",
           }}
         >
           {SIDEBAR.map((group) => (
