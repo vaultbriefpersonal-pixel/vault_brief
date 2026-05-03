@@ -5,10 +5,18 @@ import { auth } from "@/lib/auth";
 const PUBLIC_PATHS = [
   "/",
   "/login",
+  "/register",
   "/pricing",
   "/blog",
   "/docs",
   "/about",
+  "/demo",
+  "/changelog",
+  "/security",
+  "/status",
+  "/privacy",
+  "/terms",
+  "/cookies",
   "/api/auth",
   // Webhooks (Stripe, Resend) authenticate via signed payloads, not session.
   "/api/webhooks",
