@@ -29,7 +29,7 @@ export default async function ProjectsPage() {
               "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
             fontSize: 18,
             fontWeight: 700,
-            color: "#f0f0f0",
+            color: "var(--vb-text)",
             margin: 0,
             letterSpacing: "-0.02em",
           }}
@@ -61,8 +61,8 @@ export default async function ProjectsPage() {
       {userProjects.length === 0 ? (
         <div
           style={{
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "#161616",
+            border: "1px solid var(--vb-border)",
+            background: "var(--vb-card)",
             borderRadius: 14,
             padding: "72px 24px",
             textAlign: "center",
@@ -93,7 +93,7 @@ export default async function ProjectsPage() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: 22,
               fontWeight: 600,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               margin: "0 0 10px",
             }}
           >
@@ -103,7 +103,7 @@ export default async function ProjectsPage() {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 16,
-              color: "#555555",
+              color: "var(--vb-dim)",
               margin: "0 0 28px",
             }}
           >
@@ -143,8 +143,8 @@ export default async function ProjectsPage() {
               href={`/projects/${project.id}`}
               style={{
                 display: "block",
-                border: "1px solid rgba(255,255,255,0.08)",
-                background: "#161616",
+                border: "1px solid var(--vb-border)",
+                background: "var(--vb-card)",
                 borderRadius: 14,
                 padding: 24,
                 textDecoration: "none",
@@ -164,7 +164,7 @@ export default async function ProjectsPage() {
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 15,
                     fontWeight: 600,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     margin: 0,
                   }}
                 >
@@ -179,7 +179,7 @@ export default async function ProjectsPage() {
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 13,
-                    color: "#888888",
+                    color: "var(--vb-muted)",
                     margin: "0 0 16px",
                     lineHeight: 1.5,
                   }}
@@ -192,7 +192,7 @@ export default async function ProjectsPage() {
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 12,
-                    color: "#555555",
+                    color: "var(--vb-dim)",
                   }}
                 >
                   {project.wallets.length} wallet
@@ -203,7 +203,7 @@ export default async function ProjectsPage() {
                     style={{
                       fontFamily: "var(--font-geist-mono), monospace",
                       fontSize: 12,
-                      color: "#00e87b",
+                      color: "var(--accent)",
                     }}
                   >
                     ${project.tokenSymbol}

@@ -10,12 +10,12 @@ interface Props {
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  background: "#111111",
-  border: "1px solid rgba(255,255,255,0.08)",
+  background: "var(--vb-alt)",
+  border: "1px solid var(--vb-border)",
   borderRadius: 8,
   padding: "13px 16px",
   fontSize: 15,
-  color: "#f0f0f0",
+  color: "var(--vb-text)",
   fontFamily: "var(--font-inter), Inter, sans-serif",
   outline: "none",
   boxSizing: "border-box",
@@ -51,7 +51,7 @@ export default function InvestorsPage({ params }: Props) {
             "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
           fontSize: 18,
           fontWeight: 700,
-          color: "#f0f0f0",
+          color: "var(--vb-text)",
           margin: "0 0 24px",
           letterSpacing: "-0.02em",
         }}
@@ -61,8 +61,8 @@ export default function InvestorsPage({ params }: Props) {
 
       <div
         style={{
-          background: "#161616",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "var(--vb-card)",
+          border: "1px solid var(--vb-border)",
           borderRadius: 12,
           padding: 20,
           marginBottom: 24,
@@ -73,7 +73,7 @@ export default function InvestorsPage({ params }: Props) {
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 13,
             fontWeight: 600,
-            color: "#888888",
+            color: "var(--vb-muted)",
             margin: "0 0 14px",
             textTransform: "uppercase",
             letterSpacing: "0.06em",
@@ -172,7 +172,7 @@ export default function InvestorsPage({ params }: Props) {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 14,
-              color: "#555555",
+              color: "var(--vb-dim)",
               textAlign: "center",
               padding: "40px 0",
             }}
@@ -187,8 +187,8 @@ export default function InvestorsPage({ params }: Props) {
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              background: "#161616",
-              border: "1px solid rgba(255,255,255,0.08)",
+              background: "var(--vb-card)",
+              border: "1px solid var(--vb-border)",
               borderRadius: 10,
               padding: "12px 16px",
             }}
@@ -199,7 +199,7 @@ export default function InvestorsPage({ params }: Props) {
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                   fontSize: 14,
                   fontWeight: 500,
-                  color: "#f0f0f0",
+                  color: "var(--vb-text)",
                   margin: "0 0 3px",
                 }}
               >
@@ -209,7 +209,7 @@ export default function InvestorsPage({ params }: Props) {
                 style={{
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                   fontSize: 12,
-                  color: "#555555",
+                  color: "var(--vb-dim)",
                   margin: 0,
                 }}
               >
@@ -226,7 +226,7 @@ export default function InvestorsPage({ params }: Props) {
                 padding: "6px",
                 borderRadius: 6,
                 cursor: "pointer",
-                color: "#555555",
+                color: "var(--vb-dim)",
                 display: "flex",
               }}
             >

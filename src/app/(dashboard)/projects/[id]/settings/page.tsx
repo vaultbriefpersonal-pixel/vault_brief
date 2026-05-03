@@ -10,12 +10,12 @@ interface Props {
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  background: "#111111",
-  border: "1px solid rgba(255,255,255,0.08)",
+  background: "var(--vb-alt)",
+  border: "1px solid var(--vb-border)",
   borderRadius: 8,
   padding: "13px 16px",
   fontSize: 15,
-  color: "#f0f0f0",
+  color: "var(--vb-text)",
   fontFamily: "var(--font-inter), Inter, sans-serif",
   outline: "none",
   boxSizing: "border-box",
@@ -24,7 +24,7 @@ const inputStyle: React.CSSProperties = {
 const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: 14,
-  color: "#888888",
+  color: "var(--vb-muted)",
   fontFamily: "var(--font-inter), Inter, sans-serif",
   marginBottom: 8,
 };
@@ -111,7 +111,7 @@ export default function ProjectSettingsPage({ params }: Props) {
             "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
           fontSize: 18,
           fontWeight: 700,
-          color: "#f0f0f0",
+          color: "var(--vb-text)",
           margin: "0 0 20px",
           letterSpacing: "-0.02em",
         }}
@@ -208,7 +208,7 @@ export default function ProjectSettingsPage({ params }: Props) {
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 13,
-            color: "#888888",
+            color: "var(--vb-muted)",
             margin: "0 0 16px",
             lineHeight: 1.6,
           }}

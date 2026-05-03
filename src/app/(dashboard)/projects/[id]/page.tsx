@@ -10,6 +10,7 @@ import { TreasuryChart } from "@/components/charts/TreasuryChart";
 import { BurnRateChart } from "@/components/charts/BurnRateChart";
 import { ExpenseBreakdown } from "@/components/charts/ExpenseBreakdown";
 import { IncomeBreakdown } from "@/components/charts/IncomeBreakdown";
+import { SyncNowButton } from "@/components/projects/SyncNowButton";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -18,8 +19,8 @@ interface Props {
 const statCard = (label: string, value: string, accent?: string) => (
   <div
     style={{
-      background: "#161616",
-      border: "1px solid rgba(255,255,255,0.08)",
+      background: "var(--vb-card)",
+      border: "1px solid var(--vb-border)",
       borderRadius: 12,
       padding: "18px 20px",
     }}
@@ -28,7 +29,7 @@ const statCard = (label: string, value: string, accent?: string) => (
       style={{
         fontFamily: "var(--font-inter), Inter, sans-serif",
         fontSize: 11,
-        color: "#555555",
+        color: "var(--vb-dim)",
         textTransform: "uppercase",
         letterSpacing: "0.07em",
         margin: "0 0 8px",
@@ -113,35 +114,47 @@ export default async function ProjectPage({ params }: Props) {
 
   return (
     <div style={{ padding: "24px 28px", minHeight: "100dvh" }}>
-      <div style={{ marginBottom: 28 }}>
-        <h2
-          style={{
-            fontFamily:
-              "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-            fontSize: 18,
-            fontWeight: 700,
-            color: "#f0f0f0",
-            margin: "0 0 4px",
-            letterSpacing: "-0.02em",
-          }}
-        >
-          {project.name}
-        </h2>
-        {project.description && (
-          <p
+      <div
+        style={{
+          marginBottom: 28,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 20,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+          <h2
             style={{
-              fontFamily: "var(--font-inter), Inter, sans-serif",
-              fontSize: 14,
-              color: "#555555",
-              margin: 0,
-              maxWidth: 720,
-              lineHeight: 1.5,
-              wordBreak: "break-word",
+              fontFamily:
+                "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+              fontSize: 18,
+              fontWeight: 700,
+              color: "var(--vb-text)",
+              margin: "0 0 4px",
+              letterSpacing: "-0.02em",
             }}
           >
-            {project.description}
-          </p>
-        )}
+            {project.name}
+          </h2>
+          {project.description && (
+            <p
+              style={{
+                fontFamily: "var(--font-inter), Inter, sans-serif",
+                fontSize: 14,
+                color: "var(--vb-dim)",
+                margin: 0,
+                maxWidth: 720,
+                lineHeight: 1.5,
+                wordBreak: "break-word",
+              }}
+            >
+              {project.description}
+            </p>
+          )}
+        </div>
+        <SyncNowButton projectId={id} />
       </div>
 
       {latestSnapshot && (
@@ -186,8 +199,8 @@ export default async function ProjectPage({ params }: Props) {
               display: "flex",
               alignItems: "center",
               gap: 12,
-              background: "#161616",
-              border: "1px solid rgba(255,255,255,0.08)",
+              background: "var(--vb-card)",
+              border: "1px solid var(--vb-border)",
               borderRadius: 12,
               padding: "16px 18px",
               textDecoration: "none",
@@ -212,7 +225,7 @@ export default async function ProjectPage({ params }: Props) {
                 style={{
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                   fontSize: 11,
-                  color: "#555555",
+                  color: "var(--vb-dim)",
                   margin: 0,
                   textTransform: "uppercase",
                   letterSpacing: "0.06em",
@@ -227,7 +240,7 @@ export default async function ProjectPage({ params }: Props) {
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 18,
                     fontWeight: 700,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     margin: 0,
                   }}
                 >
@@ -245,8 +258,8 @@ export default async function ProjectPage({ params }: Props) {
       >
         <div
           style={{
-            background: "#161616",
-            border: "1px solid rgba(255,255,255,0.08)",
+            background: "var(--vb-card)",
+            border: "1px solid var(--vb-border)",
             borderRadius: 12,
             padding: 20,
           }}
@@ -256,7 +269,7 @@ export default async function ProjectPage({ params }: Props) {
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 13,
               fontWeight: 600,
-              color: "#888888",
+              color: "var(--vb-muted)",
               margin: "0 0 16px",
               textTransform: "uppercase",
               letterSpacing: "0.06em",
@@ -268,8 +281,8 @@ export default async function ProjectPage({ params }: Props) {
         </div>
         <div
           style={{
-            background: "#161616",
-            border: "1px solid rgba(255,255,255,0.08)",
+            background: "var(--vb-card)",
+            border: "1px solid var(--vb-border)",
             borderRadius: 12,
             padding: 20,
           }}
@@ -279,7 +292,7 @@ export default async function ProjectPage({ params }: Props) {
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 13,
               fontWeight: 600,
-              color: "#888888",
+              color: "var(--vb-muted)",
               margin: "0 0 16px",
               textTransform: "uppercase",
               letterSpacing: "0.06em",
@@ -291,8 +304,8 @@ export default async function ProjectPage({ params }: Props) {
         </div>
         <div
           style={{
-            background: "#161616",
-            border: "1px solid rgba(255,255,255,0.08)",
+            background: "var(--vb-card)",
+            border: "1px solid var(--vb-border)",
             borderRadius: 12,
             padding: 20,
           }}
@@ -302,7 +315,7 @@ export default async function ProjectPage({ params }: Props) {
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 13,
               fontWeight: 600,
-              color: "#888888",
+              color: "var(--vb-muted)",
               margin: "0 0 16px",
               textTransform: "uppercase",
               letterSpacing: "0.06em",
@@ -314,8 +327,8 @@ export default async function ProjectPage({ params }: Props) {
         </div>
         <div
           style={{
-            background: "#161616",
-            border: "1px solid rgba(255,255,255,0.08)",
+            background: "var(--vb-card)",
+            border: "1px solid var(--vb-border)",
             borderRadius: 12,
             padding: 20,
           }}
@@ -325,7 +338,7 @@ export default async function ProjectPage({ params }: Props) {
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 13,
               fontWeight: 600,
-              color: "#888888",
+              color: "var(--vb-muted)",
               margin: "0 0 16px",
               textTransform: "uppercase",
               letterSpacing: "0.06em",
@@ -338,8 +351,8 @@ export default async function ProjectPage({ params }: Props) {
         {latestSnapshot?.githubCommitsCount !== null && (
           <div
             style={{
-              background: "#161616",
-              border: "1px solid rgba(255,255,255,0.08)",
+              background: "var(--vb-card)",
+              border: "1px solid var(--vb-border)",
               borderRadius: 12,
               padding: 20,
             }}
@@ -349,7 +362,7 @@ export default async function ProjectPage({ params }: Props) {
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 fontSize: 13,
                 fontWeight: 600,
-                color: "#888888",
+                color: "var(--vb-muted)",
                 margin: "0 0 16px",
                 textTransform: "uppercase",
                 letterSpacing: "0.06em",
@@ -382,7 +395,7 @@ export default async function ProjectPage({ params }: Props) {
                         "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                       fontSize: 28,
                       fontWeight: 700,
-                      color: "#f0f0f0",
+                      color: "var(--vb-text)",
                       margin: "0 0 4px",
                     }}
                   >
@@ -392,7 +405,7 @@ export default async function ProjectPage({ params }: Props) {
                     style={{
                       fontFamily: "var(--font-inter), Inter, sans-serif",
                       fontSize: 12,
-                      color: "#555555",
+                      color: "var(--vb-dim)",
                       margin: 0,
                     }}
                   >

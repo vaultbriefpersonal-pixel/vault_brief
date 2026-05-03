@@ -18,9 +18,9 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, React.CSSProperties> = {
-  draft: { background: "rgba(255,255,255,0.06)", color: "#888888" },
+  draft: { background: "rgba(255,255,255,0.06)", color: "var(--vb-muted)" },
   review: { background: "rgba(251,191,36,0.12)", color: "#fbbf24" },
-  sent: { background: "rgba(0,232,123,0.12)", color: "#00e87b" },
+  sent: { background: "rgba(0,232,123,0.12)", color: "var(--accent)" },
 };
 
 export default function ReportEditorPage({ params }: Props) {
@@ -62,7 +62,7 @@ export default function ReportEditorPage({ params }: Props) {
           justifyContent: "center",
           fontFamily: "var(--font-inter), Inter, sans-serif",
           fontSize: 14,
-          color: "#555555",
+          color: "var(--vb-dim)",
         }}
       >
         Loading...
@@ -77,9 +77,9 @@ export default function ReportEditorPage({ params }: Props) {
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
-    border: "1px solid rgba(255,255,255,0.08)",
+    border: "1px solid var(--vb-border)",
     background: "transparent",
-    color: "#888888",
+    color: "var(--vb-muted)",
     borderRadius: 7,
     // 44px tap target on phones; padding alone keeps the visual pill compact.
     minHeight: 36,
@@ -100,15 +100,15 @@ export default function ReportEditorPage({ params }: Props) {
           justifyContent: "space-between",
           padding: "0 20px",
           height: 52,
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
-          background: "#0a0a0a",
+          borderBottom: "1px solid var(--vb-border)",
+          background: "var(--vb-bg)",
           flexShrink: 0,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Link
             href={`/projects/${projectId}/reports`}
-            style={{ color: "#555555", display: "flex", lineHeight: 1 }}
+            style={{ color: "var(--vb-dim)", display: "flex", lineHeight: 1 }}
           >
             <ChevronLeft size={16} />
           </Link>
@@ -118,7 +118,7 @@ export default function ReportEditorPage({ params }: Props) {
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 fontSize: 13,
                 fontWeight: 600,
-                color: "#f0f0f0",
+                color: "var(--vb-text)",
                 margin: 0,
               }}
             >
@@ -227,7 +227,7 @@ export default function ReportEditorPage({ params }: Props) {
                 <span
                   style={{
                     fontSize: 11,
-                    color: "#00e87b",
+                    color: "var(--accent)",
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                   }}
                 >

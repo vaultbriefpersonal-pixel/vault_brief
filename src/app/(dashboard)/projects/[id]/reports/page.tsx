@@ -12,12 +12,12 @@ interface Props {
 }
 
 const STATUS_STYLE: Record<string, React.CSSProperties> = {
-  draft: { background: "rgba(255,255,255,0.06)", color: "#888888" },
+  draft: { background: "rgba(255,255,255,0.06)", color: "var(--vb-muted)" },
   review: {
     background: "rgba(251,191,36,0.12)",
     color: "#fbbf24",
   },
-  sent: { background: "rgba(0,232,123,0.12)", color: "#00e87b" },
+  sent: { background: "rgba(0,232,123,0.12)", color: "var(--accent)" },
 };
 
 export default async function ReportsPage({ params }: Props) {
@@ -55,7 +55,7 @@ export default async function ReportsPage({ params }: Props) {
             "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
           fontSize: 18,
           fontWeight: 700,
-          color: "#f0f0f0",
+          color: "var(--vb-text)",
           margin: "0 0 24px",
           letterSpacing: "-0.02em",
         }}
@@ -83,8 +83,8 @@ export default async function ReportsPage({ params }: Props) {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                background: "#161616",
-                border: "1px solid rgba(255,255,255,0.08)",
+                background: "var(--vb-card)",
+                border: "1px solid var(--vb-border)",
                 borderRadius: 12,
                 padding: "16px 20px",
                 textDecoration: "none",
@@ -97,7 +97,7 @@ export default async function ReportsPage({ params }: Props) {
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 15,
                     fontWeight: 600,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     margin: "0 0 3px",
                   }}
                 >
@@ -108,7 +108,7 @@ export default async function ReportsPage({ params }: Props) {
                     style={{
                       fontFamily: "var(--font-inter), Inter, sans-serif",
                       fontSize: 13,
-                      color: "#555555",
+                      color: "var(--vb-dim)",
                       margin: 0,
                       overflow: "hidden",
                       textOverflow: "ellipsis",
@@ -133,7 +133,7 @@ export default async function ReportsPage({ params }: Props) {
                     style={{
                       fontFamily: "var(--font-inter), Inter, sans-serif",
                       fontSize: 12,
-                      color: "#555555",
+                      color: "var(--vb-dim)",
                     }}
                   >
                     Sent to {report.sentToCount} · {report.openedCount ?? 0}{" "}
