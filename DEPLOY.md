@@ -60,6 +60,22 @@ npx drizzle-kit push
 
 ---
 
+## Step 4b: Crypto Payments (ATLOS)
+
+VaultBrief accepts USDC subscriptions through ATLOS in addition to Stripe. To enable:
+
+1. Sign up at [merchants.atlos.io](https://merchants.atlos.io/signup) → copy the `Merchant ID` shown in the dashboard.
+2. Settings → API Secret → reveal/copy → this is the HMAC secret used to sign postbacks.
+3. Settings → Postback URL → set to `https://www.vaultbrief.io/api/webhooks/atlos`.
+4. Set in Vercel:
+   - `NEXT_PUBLIC_ATLOS_MERCHANT_ID` — public merchant ID (used by atlos.js widget)
+   - `ATLOS_API_SECRET` — server-only HMAC secret (verifies postbacks)
+5. Plan→price mapping is hard-coded in `src/lib/atlos.ts` (`ATLOS_PLAN_AMOUNTS`). Keep these in sync with Stripe price amounts on `/pricing`.
+
+The widget loads on `/billing` for logged-in free-plan users. Each successful postback (Status 100) extends the user's plan by 30 days; missed renewals expire automatically. The webhook is idempotent on `TransactionId` — replays from the merchant panel are safe.
+
+---
+
 ## Step 5: Trigger.dev
 
 ```bash
@@ -108,6 +124,8 @@ Required env vars for production:
 - `STRIPE_PRICE_GROWTH`
 - `STRIPE_PRICE_VC_SUITE`
 - `TRIGGER_SECRET_KEY`
+- `NEXT_PUBLIC_ATLOS_MERCHANT_ID` — required to render the "Pay with USDC" button on `/billing`. Without it the button no-ops with a console warning.
+- `ATLOS_API_SECRET` — required to verify ATLOS postback signatures. Without it the webhook returns 500 and crypto payments will not activate plans even if money was received (though postbacks log on the ATLOS side and are replayable).
 - `GITHUB_TOKEN` — recommended; without it GitHub API caps at 60 req/hr per IP and snapshots record zeros for any project syncing GitHub data. Read-only `public_repo` scope is sufficient.
 - `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN` — optional; sets up server + browser error tracking. Without these the SDK silently no-ops (app behaves identically). To enable: create a project at sentry.io, copy the DSN to both vars, redeploy.
 - `STRIPE_PRICE_*_ANNUAL` — optional. To enable annual billing for the /pricing toggle: in Stripe Dashboard create three additional recurring prices (annual interval, 20% discount on the monthly amount), copy the IDs into `STRIPE_PRICE_STARTER_ANNUAL` / `STRIPE_PRICE_GROWTH_ANNUAL` / `STRIPE_PRICE_VC_SUITE_ANNUAL`. Without them checkout falls back to the monthly variant when "Annual" is selected.

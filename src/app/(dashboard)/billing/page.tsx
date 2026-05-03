@@ -4,6 +4,8 @@ import { users, projects } from "@/server/db/schema";
 import { eq, count } from "drizzle-orm";
 import Link from "next/link";
 import { Check } from "lucide-react";
+import { PayWithUsdcButton } from "@/components/billing/PayWithUsdcButton";
+import { ATLOS_PLAN_AMOUNTS, type AtlosPlan } from "@/lib/atlos";
 
 const PLAN_DETAILS: Record<
   string,
@@ -44,7 +46,13 @@ export default async function BillingPage() {
   const userId = session!.user!.id!;
 
   const [user] = await db
-    .select({ plan: users.plan, planExpiresAt: users.planExpiresAt })
+    .select({
+      plan: users.plan,
+      planExpiresAt: users.planExpiresAt,
+      paymentProvider: users.paymentProvider,
+      email: users.email,
+      name: users.name,
+    })
     .from(users)
     .where(eq(users.id, userId));
 
@@ -196,7 +204,9 @@ export default async function BillingPage() {
                 >
                   {currentPlan === "free"
                     ? "No payment method on file"
-                    : "Managed via Stripe"}
+                    : user?.paymentProvider === "atlos"
+                      ? "Crypto (USDC via ATLOS)"
+                      : "Managed via Stripe"}
                 </p>
               </div>
               {currentPlan !== "free" && (
@@ -270,24 +280,49 @@ export default async function BillingPage() {
             </ul>
 
             {currentPlan === "free" && (
-              <Link
-                href="/pricing"
-                style={{
-                  display: "block",
-                  background: "#00e87b",
-                  color: "#0a0a0a",
-                  borderRadius: 8,
-                  padding: "14px 24px",
-                  fontSize: 15,
-                  fontWeight: 600,
-                  fontFamily: "var(--font-inter), Inter, sans-serif",
-                  textDecoration: "none",
-                  textAlign: "center",
-                  marginTop: 20,
-                }}
-              >
-                Upgrade plan
-              </Link>
+              <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 10 }}>
+                <p
+                  style={{
+                    fontFamily: "var(--font-inter), Inter, sans-serif",
+                    fontSize: 12,
+                    color: "var(--vb-dim)",
+                    margin: "0 0 4px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.07em",
+                    fontWeight: 600,
+                  }}
+                >
+                  Pay with USDC — any chain
+                </p>
+                {(["starter", "growth", "vc_suite"] as AtlosPlan[]).map((p) => (
+                  <PayWithUsdcButton
+                    key={p}
+                    userId={userId}
+                    userEmail={user?.email ?? undefined}
+                    userName={user?.name ?? undefined}
+                    plan={p}
+                    amount={ATLOS_PLAN_AMOUNTS[p]}
+                    variant={p === "growth" ? "primary" : "secondary"}
+                  >
+                    {p === "starter" && "Seed — $99/mo"}
+                    {p === "growth" && "Growth — $299/mo"}
+                    {p === "vc_suite" && "VC Suite — $799/mo"}
+                  </PayWithUsdcButton>
+                ))}
+                <Link
+                  href="/pricing"
+                  style={{
+                    fontFamily: "var(--font-inter), Inter, sans-serif",
+                    fontSize: 13,
+                    color: "var(--vb-dim)",
+                    textAlign: "center",
+                    textDecoration: "none",
+                    marginTop: 4,
+                  }}
+                >
+                  Or pay with card →
+                </Link>
+              </div>
             )}
           </div>
 

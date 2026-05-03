@@ -24,6 +24,14 @@ export const users = pgTable("user", {
   image: text("image"),
   avatarUrl: text("avatar_url"),
   stripeCustomerId: text("stripe_customer_id"),
+  // Crypto subscription identifier returned by ATLOS in the postback. Lets us
+  // map renewals → user without an extra "customer" table. Null until first
+  // successful crypto payment.
+  atlosSubscriptionId: text("atlos_subscription_id"),
+  // Which provider activated the current plan: "stripe" | "atlos" | null.
+  // Read on the /billing page to render the right "Manage" affordance, and
+  // by the cancel-flow to know which API to call.
+  paymentProvider: text("payment_provider"),
   plan: text("plan").notNull().default("free"),
   planExpiresAt: timestamp("plan_expires_at", { withTimezone: true }),
   emailNotifications: boolean("email_notifications").default(true),
@@ -347,6 +355,27 @@ export const stripeProcessedEvents = pgTable("stripe_processed_events", {
   processedAt: timestamp("processed_at", { withTimezone: true }).defaultNow(),
 });
 
+// =============================================
+// ATLOS PROCESSED EVENTS
+// Idempotency log for the ATLOS webhook. ATLOS retries postbacks on non-2xx
+// and will replay completed transactions if you click "Resend" in their
+// merchant panel — same hazard as Stripe. PK on TransactionId because that's
+// the unique on-chain settlement ID, monotonic per payment. We also pin the
+// orderId / blockchain / asset for forensics: a single subscription can be
+// renewed across multiple chains over its lifetime.
+// =============================================
+export const atlosProcessedEvents = pgTable("atlos_processed_events", {
+  transactionId: text("transaction_id").primaryKey(),
+  subscriptionId: text("subscription_id"),
+  orderId: text("order_id").notNull(),
+  amount: numeric("amount").notNull(),
+  asset: text("asset").notNull(),
+  blockchain: text("blockchain").notNull(),
+  blockchainHash: text("blockchain_hash").notNull(),
+  status: integer("status").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }).defaultNow(),
+});
+
 // Type exports
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -368,6 +397,8 @@ export type TokenPrice = typeof tokenPrices.$inferSelect;
 export type NewTokenPrice = typeof tokenPrices.$inferInsert;
 export type StripeProcessedEvent = typeof stripeProcessedEvents.$inferSelect;
 export type NewStripeProcessedEvent = typeof stripeProcessedEvents.$inferInsert;
+export type AtlosProcessedEvent = typeof atlosProcessedEvents.$inferSelect;
+export type NewAtlosProcessedEvent = typeof atlosProcessedEvents.$inferInsert;
 export type LlmCacheRow = typeof llmCache.$inferSelect;
 export type NewLlmCacheRow = typeof llmCache.$inferInsert;
 export type ReportEngagement = typeof reportEngagements.$inferSelect;
