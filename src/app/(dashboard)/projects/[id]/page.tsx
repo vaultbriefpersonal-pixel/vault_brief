@@ -112,7 +112,7 @@ export default async function ProjectPage({ params }: Props) {
   ];
 
   return (
-    <div style={{ padding: "24px 28px", minHeight: "100vh" }}>
+    <div style={{ padding: "24px 28px", minHeight: "100dvh" }}>
       <div style={{ marginBottom: 28 }}>
         <h2
           style={{

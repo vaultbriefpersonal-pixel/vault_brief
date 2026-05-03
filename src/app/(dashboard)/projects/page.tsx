@@ -14,7 +14,7 @@ export default async function ProjectsPage() {
   });
 
   return (
-    <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+    <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", minHeight: "100dvh" }}>
       <div
         style={{
           display: "flex",

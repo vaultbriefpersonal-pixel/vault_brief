@@ -143,10 +143,10 @@ export function Sidebar() {
         flexDirection: "column",
         background: "#111111",
         borderRight: "1px solid rgba(255,255,255,0.08)",
-        minHeight: "100vh",
+        minHeight: "100dvh",
         position: "sticky",
         top: 0,
-        height: "100vh",
+        height: "100dvh",
       }}
     >
       <Link

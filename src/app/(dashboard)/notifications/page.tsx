@@ -66,7 +66,7 @@ export default function NotificationsPage() {
   const unreadCount = list?.filter((n) => !n.readAt).length ?? 0;
 
   return (
-    <div style={{ padding: "24px 28px", minHeight: "100vh" }}>
+    <div style={{ padding: "24px 28px", minHeight: "100dvh" }}>
       <div
         style={{
           display: "flex",

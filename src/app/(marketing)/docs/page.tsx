@@ -173,7 +173,7 @@ function EndpointBadge({ method, path }: { method: string; path: string }) {
 
 export default function DocsPage() {
   return (
-    <div style={{ paddingTop: 72, minHeight: "100vh" }}>
+    <div style={{ paddingTop: 72, minHeight: "100dvh" }}>
       <div
         className="vb-stack-mobile vb-pad-x"
         style={{
@@ -190,7 +190,7 @@ export default function DocsPage() {
             borderRight: "1px solid rgba(255,255,255,0.08)",
             position: "sticky",
             top: 72,
-            height: "calc(100vh - 72px)",
+            height: "calc(100dvh - 72px)",
             overflowY: "auto",
           }}
         >

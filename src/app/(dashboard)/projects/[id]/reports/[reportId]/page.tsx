@@ -81,7 +81,9 @@ export default function ReportEditorPage({ params }: Props) {
     background: "transparent",
     color: "#888888",
     borderRadius: 7,
-    padding: "7px 12px",
+    // 44px tap target on phones; padding alone keeps the visual pill compact.
+    minHeight: 36,
+    padding: "8px 12px",
     fontSize: 12,
     fontFamily: "var(--font-inter), Inter, sans-serif",
     cursor: "pointer",
@@ -89,7 +91,7 @@ export default function ReportEditorPage({ params }: Props) {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100dvh" }}>
       {/* Top bar */}
       <div
         style={{

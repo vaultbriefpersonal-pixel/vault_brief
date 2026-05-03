@@ -94,14 +94,14 @@ const LOGOS = ["Meridian Protocol", "Lattice DAO", "Prism Finance", "Atlas Labs"
 
 export default function LandingPage() {
   return (
-    <div style={{ background: "#0a0a0a", minHeight: "100vh" }}>
+    <div style={{ background: "#0a0a0a", minHeight: "100dvh" }}>
       <Nav />
 
       {/* Hero */}
       <section
         className="vb-section-hero"
         style={{
-          minHeight: "100vh",
+          minHeight: "100dvh",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",

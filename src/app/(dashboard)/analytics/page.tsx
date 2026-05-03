@@ -90,7 +90,7 @@ export default async function AnalyticsPage() {
     : null;
 
   return (
-    <div style={{ padding: "24px 28px", minHeight: "100vh" }}>
+    <div style={{ padding: "24px 28px", minHeight: "100dvh" }}>
       <h2 style={titleStyle}>Analytics</h2>
       <p style={subtitleStyle}>
         How your projects are performing across treasury, reports, and investor

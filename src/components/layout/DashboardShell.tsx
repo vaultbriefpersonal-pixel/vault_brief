@@ -41,7 +41,7 @@ export function DashboardShell({
   // Desktop: original layout, sidebar is rendered inline.
   if (!isMobile) {
     return (
-      <div style={{ display: "flex", minHeight: "100vh", background: "#0a0a0a" }}>
+      <div style={{ display: "flex", minHeight: "100dvh", background: "#0a0a0a" }}>
         {sidebar}
         <main style={{ flex: 1, overflow: "auto" }}>{children}</main>
       </div>
@@ -50,7 +50,7 @@ export function DashboardShell({
 
   // Mobile: drawer + backdrop + main with a top burger bar.
   return (
-    <div style={{ minHeight: "100vh", background: "#0a0a0a" }}>
+    <div style={{ minHeight: "100dvh", background: "#0a0a0a" }}>
       {/* Top bar with burger */}
       <div
         style={{
@@ -74,8 +74,8 @@ export function DashboardShell({
             border: "1px solid rgba(255,255,255,0.08)",
             borderRadius: 8,
             color: "#f0f0f0",
-            width: 36,
-            height: 36,
+            width: 44,
+            height: 44,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",

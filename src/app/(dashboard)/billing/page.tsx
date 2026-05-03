@@ -82,7 +82,7 @@ export default async function BillingPage() {
   };
 
   return (
-    <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+    <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", minHeight: "100dvh" }}>
       <h2
         style={{
           fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",

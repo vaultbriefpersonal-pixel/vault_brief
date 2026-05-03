@@ -48,7 +48,7 @@ export default async function ReportsPage({ params }: Props) {
     : false;
 
   return (
-    <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+    <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", minHeight: "100dvh" }}>
       <h2
         style={{
           fontFamily:

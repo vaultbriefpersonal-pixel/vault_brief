@@ -63,7 +63,7 @@ export default function NewProjectPage() {
   }
 
   return (
-    <div style={{ padding: "24px 28px", minHeight: "100vh" }}>
+    <div style={{ padding: "24px 28px", minHeight: "100dvh" }}>
       <h2
         style={{
           fontFamily:

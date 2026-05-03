@@ -9,7 +9,7 @@ export default function MarketingLayout({
   return (
     <>
       <Nav />
-      <main style={{ background: "#0a0a0a", minHeight: "100vh" }}>
+      <main style={{ background: "#0a0a0a", minHeight: "100dvh" }}>
         {children}
       </main>
       <Footer />

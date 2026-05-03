@@ -61,7 +61,7 @@ export default function GlobalSettingsPage() {
   }
 
   return (
-    <div style={{ padding: "24px 28px", minHeight: "100vh", maxWidth: 720 }}>
+    <div style={{ padding: "24px 28px", minHeight: "100dvh", maxWidth: 720 }}>
       <h2
         style={{
           fontFamily:
