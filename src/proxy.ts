@@ -20,6 +20,8 @@ const PUBLIC_PATHS = [
   "/api/auth",
   // Webhooks (Stripe, Resend) authenticate via signed payloads, not session.
   "/api/webhooks",
+  // Public health endpoint — used by /status page and external uptime monitors.
+  "/api/health",
 ];
 
 export default auth((req: NextRequest & { auth: unknown }) => {

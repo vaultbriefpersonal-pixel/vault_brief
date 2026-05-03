@@ -1,29 +1,15 @@
 import type { Metadata } from "next";
+import { runHealthChecks, type ServiceCheck } from "@/server/services/health-checks";
 
 export const metadata: Metadata = {
   title: "Status — VaultBrief",
   description: "Real-time status of VaultBrief services.",
 };
 
-// Services we report on. Status is currently a placeholder ("operational" by
-// assumption — if the site loads, the API and dashboard are up). Replace this
-// list with a fetch from a real monitoring backend (Better Stack / Statuspage /
-// OneUptime / Vercel checks) when one is wired up; uptime % values were
-// removed because publishing fake numbers misleads investors.
-const SERVICES: { name: string; status: "operational" | "degraded" | "outage" }[] = [
-  { name: "API", status: "operational" },
-  { name: "Dashboard", status: "operational" },
-  { name: "Report Generation", status: "operational" },
-  { name: "PDF Export", status: "operational" },
-  { name: "Monthly Sync Jobs", status: "operational" },
-  { name: "Email Delivery", status: "operational" },
-  { name: "Investor Portal", status: "operational" },
-  { name: "Webhook Delivery", status: "operational" },
-];
-
-// Source-of-truth list of public incidents. Empty by default — populate when
-// something actually goes wrong, with the date and resolution.
-const INCIDENTS: { date: string; title: string; status: string; desc: string }[] = [];
+// Re-run checks at most once per minute. Each render hits external APIs
+// (Resend, Stripe, OpenRouter, Dune, Alchemy) so we don't want to ping
+// upstream on every page load.
+export const revalidate = 60;
 
 const STATUS_COLOR: Record<string, string> = {
   operational: "#00e87b",
@@ -37,8 +23,35 @@ const STATUS_LABEL: Record<string, string> = {
   outage: "Outage",
 };
 
-export default function StatusPage() {
-  const allOperational = SERVICES.every((s) => s.status === "operational");
+const INCIDENTS: { date: string; title: string; status: string; desc: string }[] = [];
+
+function formatLatency(check: ServiceCheck): string {
+  if (check.detail === "not configured") return "—";
+  if (check.latencyMs === null) return "—";
+  return `${check.latencyMs} ms`;
+}
+
+export default async function StatusPage() {
+  const health = await runHealthChecks();
+  const allOperational = health.overall === "operational";
+
+  const headlineLabel =
+    health.overall === "operational"
+      ? "All systems operational"
+      : health.overall === "degraded"
+        ? "Some systems degraded"
+        : "Service disruption";
+
+  const ringColor = allOperational
+    ? "rgba(0,232,123,0.3)"
+    : health.overall === "degraded"
+      ? "rgba(240,184,71,0.3)"
+      : "rgba(248,113,113,0.3)";
+  const ringBg = allOperational
+    ? "rgba(0,232,123,0.12)"
+    : health.overall === "degraded"
+      ? "rgba(240,184,71,0.12)"
+      : "rgba(248,113,113,0.12)";
 
   return (
     <div style={{ paddingTop: 72 }}>
@@ -57,12 +70,8 @@ export default function StatusPage() {
               width: 56,
               height: 56,
               borderRadius: "50%",
-              background: allOperational
-                ? "rgba(0,232,123,0.12)"
-                : "rgba(248,113,113,0.12)",
-              border: allOperational
-                ? "2px solid rgba(0,232,123,0.3)"
-                : "2px solid rgba(248,113,113,0.3)",
+              background: ringBg,
+              border: `2px solid ${ringColor}`,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -78,25 +87,25 @@ export default function StatusPage() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: 36,
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               letterSpacing: "-0.03em",
               margin: "0 0 10px",
             }}
           >
-            {allOperational ? "All systems operational" : "Service disruption"}
+            {headlineLabel}
           </h1>
           <p
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 15,
-              color: "#888888",
+              color: "var(--vb-muted)",
               margin: 0,
             }}
           >
             For real-time issues, email{" "}
             <a
               href="mailto:support@vaultbrief.io"
-              style={{ color: "#00e87b", textDecoration: "none" }}
+              style={{ color: "var(--accent)", textDecoration: "none" }}
             >
               support@vaultbrief.io
             </a>
@@ -106,14 +115,14 @@ export default function StatusPage() {
         {/* Services */}
         <div
           style={{
-            background: "#161616",
-            border: "1px solid rgba(255,255,255,0.08)",
+            background: "var(--vb-card)",
+            border: "1px solid var(--vb-border)",
             borderRadius: 14,
             overflow: "hidden",
-            marginBottom: 48,
+            marginBottom: 24,
           }}
         >
-          {SERVICES.map((svc, i) => (
+          {health.checks.map((svc, i) => (
             <div
               key={svc.name}
               style={{
@@ -122,7 +131,7 @@ export default function StatusPage() {
                 alignItems: "center",
                 padding: "16px 24px",
                 borderBottom:
-                  i < SERVICES.length - 1
+                  i < health.checks.length - 1
                     ? "1px solid rgba(255,255,255,0.06)"
                     : "none",
               }}
@@ -137,43 +146,80 @@ export default function StatusPage() {
                     display: "inline-block",
                   }}
                 />
-                <span
+                <div>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-inter), Inter, sans-serif",
+                      fontSize: 15,
+                      color: "var(--vb-text)",
+                    }}
+                  >
+                    {svc.name}
+                  </div>
+                  {svc.detail && (
+                    <div
+                      style={{
+                        fontFamily: "var(--font-inter), Inter, sans-serif",
+                        fontSize: 11.5,
+                        color: "#666666",
+                        marginTop: 2,
+                      }}
+                    >
+                      {svc.detail}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
-                    fontSize: 14.5,
-                    color: "#f0f0f0",
+                    fontSize: 13,
+                    color: STATUS_COLOR[svc.status],
+                    fontWeight: 500,
                   }}
                 >
-                  {svc.name}
-                </span>
+                  {STATUS_LABEL[svc.status]}
+                </div>
+                <div
+                  style={{
+                    fontFamily:
+                      "var(--font-jetbrains-mono), 'JetBrains Mono', monospace",
+                    fontSize: 11,
+                    color: "var(--vb-dim)",
+                    marginTop: 2,
+                  }}
+                >
+                  {formatLatency(svc)}
+                </div>
               </div>
-              <span
-                style={{
-                  fontFamily: "var(--font-inter), Inter, sans-serif",
-                  fontSize: 13,
-                  color: STATUS_COLOR[svc.status],
-                  fontWeight: 500,
-                }}
-              >
-                {STATUS_LABEL[svc.status]}
-              </span>
             </div>
           ))}
         </div>
 
-        {/* Uptime disclosure — be honest until real monitoring is plugged in. */}
         <p
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
-            fontSize: 13,
-            color: "#555555",
+            fontSize: 12,
+            color: "var(--vb-dim)",
             margin: "0 0 48px",
             lineHeight: 1.6,
             textAlign: "center",
           }}
         >
-          Detailed uptime metrics will appear here once the monitoring backend
-          is connected. We don&apos;t publish numbers we can&apos;t back up.
+          Checks performed{" "}
+          {new Date(health.checkedAt).toLocaleString("en-US", {
+            timeZone: "UTC",
+            dateStyle: "medium",
+            timeStyle: "medium",
+          })}{" "}
+          UTC · cached up to 60s · machine-readable JSON at{" "}
+          <a
+            href="/api/health"
+            style={{ color: "var(--vb-muted)", textDecoration: "underline" }}
+          >
+            /api/health
+          </a>
         </p>
 
         {/* Incidents */}
@@ -182,7 +228,7 @@ export default function StatusPage() {
             fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
             fontSize: 22,
             fontWeight: 600,
-            color: "#f0f0f0",
+            color: "var(--vb-text)",
             margin: "0 0 24px",
             letterSpacing: "-0.02em",
           }}
@@ -194,7 +240,7 @@ export default function StatusPage() {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 14,
-              color: "#555555",
+              color: "var(--vb-dim)",
             }}
           >
             No incidents reported.
@@ -204,8 +250,8 @@ export default function StatusPage() {
             <div
               key={inc.title}
               style={{
-                background: "#161616",
-                border: "1px solid rgba(255,255,255,0.08)",
+                background: "var(--vb-card)",
+                border: "1px solid var(--vb-border)",
                 borderRadius: 12,
                 padding: 24,
               }}
@@ -223,7 +269,7 @@ export default function StatusPage() {
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 16,
                     fontWeight: 600,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     margin: 0,
                   }}
                 >
@@ -233,7 +279,7 @@ export default function StatusPage() {
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 12,
-                    color: "#00e87b",
+                    color: "var(--accent)",
                     fontWeight: 600,
                   }}
                 >
@@ -244,7 +290,7 @@ export default function StatusPage() {
                 style={{
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                   fontSize: 12,
-                  color: "#555555",
+                  color: "var(--vb-dim)",
                   margin: "0 0 10px",
                 }}
               >
@@ -254,7 +300,7 @@ export default function StatusPage() {
                 style={{
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                   fontSize: 14,
-                  color: "#888888",
+                  color: "var(--vb-muted)",
                   lineHeight: 1.65,
                   margin: 0,
                 }}
