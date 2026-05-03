@@ -31,9 +31,10 @@ export default async function BlogPostPage({ params }: Props) {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 13,
-              color: "#555555",
+              color: "var(--vb-dim)",
               textDecoration: "none",
-              display: "inline-flex",
+              display: "flex",
+              width: "fit-content",
               alignItems: "center",
               gap: 6,
               marginBottom: 40,
@@ -47,7 +48,7 @@ export default async function BlogPostPage({ params }: Props) {
               display: "inline-block",
               padding: "4px 12px",
               background: "rgba(0,232,123,0.12)",
-              color: "#00e87b",
+              color: "var(--accent)",
               borderRadius: 100,
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 11,
@@ -66,7 +67,7 @@ export default async function BlogPostPage({ params }: Props) {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: "clamp(28px, 4vw, 40px)",
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               letterSpacing: "-0.03em",
               margin: "0 0 16px",
               lineHeight: 1.15,
@@ -79,9 +80,9 @@ export default async function BlogPostPage({ params }: Props) {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 13,
-              color: "#555555",
+              color: "var(--vb-dim)",
               marginBottom: 48,
-              borderBottom: "1px solid rgba(255,255,255,0.08)",
+              borderBottom: "1px solid var(--vb-border)",
               paddingBottom: 24,
             }}
           >
@@ -92,7 +93,7 @@ export default async function BlogPostPage({ params }: Props) {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 16,
-              color: "#888888",
+              color: "var(--vb-muted)",
               lineHeight: 1.8,
             }}
           >
@@ -116,7 +117,7 @@ export default async function BlogPostPage({ params }: Props) {
                         "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                       fontSize: 24,
                       fontWeight: 600,
-                      color: "#f0f0f0",
+                      color: "var(--vb-text)",
                       margin: "40px 0 16px",
                       letterSpacing: "-0.02em",
                     }}
@@ -130,14 +131,14 @@ export default async function BlogPostPage({ params }: Props) {
                   <div
                     key={i}
                     style={{
-                      background: "#161616",
-                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "var(--vb-card)",
+                      border: "1px solid var(--vb-border)",
                       borderRadius: 10,
                       padding: 24,
                       margin: "24px 0",
                       fontFamily: "var(--font-geist-mono), monospace",
-                      fontSize: 13.5,
-                      color: "#00e87b",
+                      fontSize: 13,
+                      color: "var(--accent)",
                       lineHeight: 1.65,
                       whiteSpace: "pre",
                       overflowX: "auto",
@@ -159,8 +160,8 @@ export default async function BlogPostPage({ params }: Props) {
             style={{
               marginTop: 64,
               padding: 32,
-              background: "#161616",
-              border: "1px solid rgba(255,255,255,0.08)",
+              background: "var(--vb-card)",
+              border: "1px solid var(--vb-border)",
               borderRadius: 14,
               textAlign: "center",
             }}
@@ -171,7 +172,7 @@ export default async function BlogPostPage({ params }: Props) {
                   "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                 fontSize: 22,
                 fontWeight: 600,
-                color: "#f0f0f0",
+                color: "var(--vb-text)",
                 margin: "0 0 8px",
               }}
             >
@@ -181,7 +182,7 @@ export default async function BlogPostPage({ params }: Props) {
               style={{
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 fontSize: 14,
-                color: "#888888",
+                color: "var(--vb-muted)",
                 margin: "0 0 20px",
               }}
             >

@@ -49,7 +49,7 @@ const h1Style: React.CSSProperties = {
   fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
   fontSize: 40,
   fontWeight: 700,
-  color: "#f0f0f0",
+  color: "var(--vb-text)",
   letterSpacing: "-0.03em",
   margin: "12px 0 16px",
 };
@@ -58,7 +58,7 @@ const h2Style: React.CSSProperties = {
   fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
   fontSize: 24,
   fontWeight: 600,
-  color: "#f0f0f0",
+  color: "var(--vb-text)",
   letterSpacing: "-0.02em",
   margin: "48px 0 14px",
 };
@@ -67,14 +67,14 @@ const h3Style: React.CSSProperties = {
   fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
   fontSize: 18,
   fontWeight: 600,
-  color: "#f0f0f0",
+  color: "var(--vb-text)",
   margin: "28px 0 10px",
 };
 
 const pStyle: React.CSSProperties = {
   fontFamily: "var(--font-inter), Inter, sans-serif",
   fontSize: 15,
-  color: "#888888",
+  color: "var(--vb-muted)",
   lineHeight: 1.75,
   margin: "0 0 16px",
   maxWidth: 680,
@@ -84,13 +84,13 @@ const labelStyle: React.CSSProperties = {
   fontFamily: "var(--font-inter), Inter, sans-serif",
   fontSize: 11,
   fontWeight: 600,
-  color: "#00e87b",
+  color: "var(--accent)",
   textTransform: "uppercase",
   letterSpacing: "0.09em",
 };
 
 const dividerStyle: React.CSSProperties = {
-  borderTop: "1px solid rgba(255,255,255,0.08)",
+  borderTop: "1px solid var(--vb-border)",
   margin: "64px 0 0",
   paddingTop: 64,
 };
@@ -100,7 +100,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
     <div
       style={{
         background: "#0d0d0d",
-        border: "1px solid rgba(255,255,255,0.08)",
+        border: "1px solid var(--vb-border)",
         borderRadius: 12,
         overflow: "hidden",
         margin: "16px 0 24px",
@@ -109,14 +109,14 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
       <div
         style={{
           padding: "10px 20px",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          borderBottom: "1px solid var(--vb-border)",
         }}
       >
         <span
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 12,
-            color: "#555555",
+            color: "var(--vb-dim)",
             textTransform: "uppercase",
             letterSpacing: "0.06em",
             fontWeight: 600,
@@ -156,17 +156,17 @@ function EndpointBadge({ method, path }: { method: string; path: string }) {
         display: "inline-flex",
         alignItems: "center",
         gap: 10,
-        background: "#161616",
-        border: "1px solid rgba(255,255,255,0.08)",
+        background: "var(--vb-card)",
+        border: "1px solid var(--vb-border)",
         borderRadius: 8,
         padding: "10px 16px",
         margin: "10px 0 20px",
         fontFamily: "var(--font-geist-mono), monospace",
-        fontSize: 13.5,
+        fontSize: 13,
       }}
     >
       <span style={{ color: colors[method] ?? "#888888", fontWeight: 700 }}>{method}</span>
-      <span style={{ color: "#f0f0f0" }}>{path}</span>
+      <span style={{ color: "var(--vb-text)" }}>{path}</span>
     </div>
   );
 }
@@ -178,16 +178,20 @@ export default function DocsPage() {
         className="vb-stack-mobile vb-pad-x"
         style={{
           display: "grid",
-          gridTemplateColumns: "260px 1fr",
+          gridTemplateColumns: "240px 1fr",
+          // Gap separates the sidebar's scrollbar (overlay or otherwise) from
+          // the main content; without it the bar sits on top of the article.
+          columnGap: 56,
           maxWidth: 1200,
           margin: "0 auto",
         }}
       >
         {/* Sidebar */}
         <aside
+          className="vb-sidebar-mobile-flow"
           style={{
-            padding: "48px 0",
-            borderRight: "1px solid rgba(255,255,255,0.08)",
+            padding: "48px 16px 48px 0",
+            borderRight: "1px solid var(--vb-border)",
             position: "sticky",
             top: 72,
             height: "calc(100dvh - 72px)",
@@ -202,7 +206,7 @@ export default function DocsPage() {
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                   fontSize: 11,
                   fontWeight: 600,
-                  color: "#555555",
+                  color: "var(--vb-dim)",
                   textTransform: "uppercase",
                   letterSpacing: "0.09em",
                   margin: "0 0 10px",
@@ -220,7 +224,7 @@ export default function DocsPage() {
                     padding: "7px 16px 7px 0",
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 14,
-                    color: "#888888",
+                    color: "var(--vb-muted)",
                     textDecoration: "none",
                     borderRight: "2px solid transparent",
                     marginRight: -1,
@@ -262,18 +266,18 @@ export default function DocsPage() {
                   href={card.href}
                   style={{
                     display: "block",
-                    background: "#161616",
-                    border: "1px solid rgba(255,255,255,0.08)",
+                    background: "var(--vb-card)",
+                    border: "1px solid var(--vb-border)",
                     borderRadius: 12,
                     padding: 24,
                     textDecoration: "none",
                   }}
                 >
                   <span style={{ fontSize: 24, display: "block", marginBottom: 12 }}>{card.icon}</span>
-                  <h3 style={{ fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif", fontSize: 16, fontWeight: 600, color: "#f0f0f0", margin: "0 0 6px" }}>
+                  <h3 style={{ fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif", fontSize: 16, fontWeight: 600, color: "var(--vb-text)", margin: "0 0 6px" }}>
                     {card.title}
                   </h3>
-                  <p style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13.5, color: "#888888", margin: 0, lineHeight: 1.5 }}>
+                  <p style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "var(--vb-muted)", margin: 0, lineHeight: 1.5 }}>
                     {card.desc}
                   </p>
                 </Link>
@@ -283,13 +287,13 @@ export default function DocsPage() {
             <h2 style={h2Style}>Base URL</h2>
             <div
               style={{
-                background: "#161616",
-                border: "1px solid rgba(255,255,255,0.08)",
+                background: "var(--vb-card)",
+                border: "1px solid var(--vb-border)",
                 borderRadius: 10,
                 padding: "14px 20px",
                 fontFamily: "var(--font-geist-mono), monospace",
                 fontSize: 14,
-                color: "#00e87b",
+                color: "var(--accent)",
                 marginBottom: 16,
               }}
             >
@@ -350,7 +354,7 @@ export default function DocsPage() {
                     fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 14,
                     fontWeight: 700,
-                    color: "#00e87b",
+                    color: "var(--accent)",
                     flexShrink: 0,
                     marginTop: 2,
                   }}
@@ -392,8 +396,8 @@ export default function DocsPage() {
             <h2 style={h2Style}>Key types</h2>
             <div
               style={{
-                background: "#161616",
-                border: "1px solid rgba(255,255,255,0.08)",
+                background: "var(--vb-card)",
+                border: "1px solid var(--vb-border)",
                 borderRadius: 12,
                 overflow: "hidden",
                 marginBottom: 24,
@@ -414,9 +418,9 @@ export default function DocsPage() {
                     alignItems: "center",
                   }}
                 >
-                  <code style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "#00e87b" }}>{k.prefix}…</code>
-                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "#f0f0f0", fontWeight: 500 }}>{k.label}</span>
-                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "#888888" }}>{k.desc}</span>
+                  <code style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "var(--accent)" }}>{k.prefix}…</code>
+                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "var(--vb-text)", fontWeight: 500 }}>{k.label}</span>
+                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "var(--vb-muted)" }}>{k.desc}</span>
                 </div>
               ))}
             </div>
@@ -424,8 +428,8 @@ export default function DocsPage() {
             <h2 style={h2Style}>Rate limits</h2>
             <div
               style={{
-                background: "#161616",
-                border: "1px solid rgba(255,255,255,0.08)",
+                background: "var(--vb-card)",
+                border: "1px solid var(--vb-border)",
                 borderRadius: 12,
                 overflow: "hidden",
                 marginBottom: 24,
@@ -445,12 +449,12 @@ export default function DocsPage() {
                     borderBottom: i < 2 ? "1px solid rgba(255,255,255,0.06)" : "none",
                   }}
                 >
-                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 14, color: "#888888" }}>{r.plan}</span>
-                  <span style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "#f0f0f0" }}>{r.limit}</span>
+                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 14, color: "var(--vb-muted)" }}>{r.plan}</span>
+                  <span style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "var(--vb-text)" }}>{r.limit}</span>
                 </div>
               ))}
             </div>
-            <p style={pStyle}>Rate limit headers are included in every response: <code style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "#00e87b" }}>X-RateLimit-Remaining</code> and <code style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "#00e87b" }}>X-RateLimit-Reset</code>.</p>
+            <p style={pStyle}>Rate limit headers are included in every response: <code style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "var(--accent)" }}>X-RateLimit-Remaining</code> and <code style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "var(--accent)" }}>X-RateLimit-Reset</code>.</p>
           </div>
 
           {/* Connect Wallets */}
@@ -467,13 +471,13 @@ export default function DocsPage() {
                 <div
                   key={chain}
                   style={{
-                    background: "#161616",
-                    border: "1px solid rgba(255,255,255,0.08)",
+                    background: "var(--vb-card)",
+                    border: "1px solid var(--vb-border)",
                     borderRadius: 8,
                     padding: "12px 16px",
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 14,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                   }}
                 >
                   {chain}
@@ -526,15 +530,15 @@ export default function DocsPage() {
               "VaultBrief requests read-only access to repository metadata and commit history. We do not read code contents.",
             ].map((step, i) => (
               <p key={i} style={{ ...pStyle, paddingLeft: 0 }}>
-                <strong style={{ color: "#f0f0f0" }}>{i + 1}.</strong> {step}
+                <strong style={{ color: "var(--vb-text)" }}>{i + 1}.</strong> {step}
               </p>
             ))}
 
             <h2 style={h2Style}>What gets pulled</h2>
             <div
               style={{
-                background: "#161616",
-                border: "1px solid rgba(255,255,255,0.08)",
+                background: "var(--vb-card)",
+                border: "1px solid var(--vb-border)",
                 borderRadius: 12,
                 overflow: "hidden",
                 marginBottom: 24,
@@ -555,8 +559,8 @@ export default function DocsPage() {
                     borderBottom: i < 3 ? "1px solid rgba(255,255,255,0.06)" : "none",
                   }}
                 >
-                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 14, color: "#f0f0f0", fontWeight: 500 }}>{row.metric}</span>
-                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 14, color: "#888888" }}>{row.desc}</span>
+                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 14, color: "var(--vb-text)", fontWeight: 500 }}>{row.metric}</span>
+                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 14, color: "var(--vb-muted)" }}>{row.desc}</span>
                 </div>
               ))}
             </div>
@@ -582,7 +586,7 @@ export default function DocsPage() {
               "Paste it in VaultBrief → Settings → API Keys → Alchemy.",
             ].map((step, i) => (
               <p key={i} style={pStyle}>
-                <strong style={{ color: "#f0f0f0" }}>{i + 1}.</strong> {step}
+                <strong style={{ color: "var(--vb-text)" }}>{i + 1}.</strong> {step}
               </p>
             ))}
 
@@ -613,8 +617,8 @@ export default function DocsPage() {
                 "Protocol TVL if your token contract is indexed on Dune",
               ].map((item) => (
                 <div key={item} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                  <span style={{ color: "#00e87b", flexShrink: 0, marginTop: 2 }}>→</span>
-                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 14.5, color: "#888888", lineHeight: 1.6 }}>{item}</span>
+                  <span style={{ color: "var(--accent)", flexShrink: 0, marginTop: 2 }}>→</span>
+                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 15, color: "var(--vb-muted)", lineHeight: 1.6 }}>{item}</span>
                 </div>
               ))}
             </div>
@@ -706,8 +710,8 @@ const report = await res.json();
             <h3 style={h3Style}>Report status values</h3>
             <div
               style={{
-                background: "#161616",
-                border: "1px solid rgba(255,255,255,0.08)",
+                background: "var(--vb-card)",
+                border: "1px solid var(--vb-border)",
                 borderRadius: 12,
                 overflow: "hidden",
                 marginBottom: 16,
@@ -728,8 +732,8 @@ const report = await res.json();
                     borderBottom: i < 3 ? "1px solid rgba(255,255,255,0.06)" : "none",
                   }}
                 >
-                  <code style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "#00e87b" }}>{row.status}</code>
-                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 14, color: "#888888" }}>{row.desc}</span>
+                  <code style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "var(--accent)" }}>{row.status}</code>
+                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 14, color: "var(--vb-muted)" }}>{row.desc}</span>
                 </div>
               ))}
             </div>
@@ -826,8 +830,8 @@ const { investors } = await res.json();
             <h2 style={h2Style}>Event types</h2>
             <div
               style={{
-                background: "#161616",
-                border: "1px solid rgba(255,255,255,0.08)",
+                background: "var(--vb-card)",
+                border: "1px solid var(--vb-border)",
                 borderRadius: 12,
                 overflow: "hidden",
                 marginBottom: 24,
@@ -848,8 +852,8 @@ const { investors } = await res.json();
                     borderBottom: i < 3 ? "1px solid rgba(255,255,255,0.06)" : "none",
                   }}
                 >
-                  <code style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "#00e87b" }}>{row.event}</code>
-                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 14, color: "#888888" }}>{row.desc}</span>
+                  <code style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "var(--accent)" }}>{row.event}</code>
+                  <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 14, color: "var(--vb-muted)" }}>{row.desc}</span>
                 </div>
               ))}
             </div>
@@ -872,7 +876,7 @@ const { investors } = await res.json();
 
             <h2 style={h2Style}>Verifying signatures</h2>
             <p style={pStyle}>
-              Every webhook request includes a <code style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "#00e87b" }}>X-VaultBrief-Signature</code> header containing an HMAC-SHA256 signature of the raw request body. Verify it using your webhook signing secret from Settings.
+              Every webhook request includes a <code style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: 13, color: "var(--accent)" }}>X-VaultBrief-Signature</code> header containing an HMAC-SHA256 signature of the raw request body. Verify it using your webhook signing secret from Settings.
             </p>
             <CodeBlock
               lang="javascript"
