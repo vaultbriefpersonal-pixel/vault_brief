@@ -8,7 +8,16 @@ interface GitHubRepo {
   name: string;
   full_name: string;
   private: boolean;
+  pushed_at: string | null;
+  fork?: boolean;
+  archived?: boolean;
 }
+
+// Hard cap on repos to inspect per sync — for orgs like `vercel` (hundreds of
+// repos) iterating every one with paginated /commits + /pulls easily burns
+// 5000 req/hr per project. Top-N most-recently-pushed gives 99% of the
+// signal; archived/forks are dropped before slicing.
+const MAX_REPOS_PER_SYNC = 25;
 
 interface GitHubCommit {
   sha: string;
@@ -61,7 +70,31 @@ export async function fetchGitHubActivity(
   token?: string | null,
   period?: { start: Date; end: Date }
 ): Promise<GitHubActivity> {
-  const repos = await githubFetch<GitHubRepo>(`/orgs/${org}/repos`, token);
+  // Per-project token > global env fallback. Without either we'd hit the
+  // unauthenticated 60 req/hr ceiling and silently lose data.
+  const effectiveToken = token ?? process.env.GITHUB_TOKEN ?? null;
+  if (!effectiveToken) {
+    console.warn(
+      `[github-sync] no token for org "${org}" — unauthenticated requests are limited to 60/hr; metrics will be incomplete`
+    );
+  }
+
+  const allRepos = await githubFetch<GitHubRepo>(
+    `/orgs/${org}/repos?sort=pushed&direction=desc`,
+    effectiveToken
+  );
+
+  // Drop forks and archived repos, then take the most-recently-pushed N.
+  // The API already sorts by pushed (params above) but we re-sort defensively
+  // in case GitHub ignores the param for some org types.
+  const repos = allRepos
+    .filter((r) => !r.fork && !r.archived)
+    .sort((a, b) => {
+      const at = a.pushed_at ? new Date(a.pushed_at).getTime() : 0;
+      const bt = b.pushed_at ? new Date(b.pushed_at).getTime() : 0;
+      return bt - at;
+    })
+    .slice(0, MAX_REPOS_PER_SYNC);
 
   const sinceParam = period
     ? `&since=${period.start.toISOString()}`
@@ -78,11 +111,11 @@ export async function fetchGitHubActivity(
           `/repos/${org}/${repo.name}/commits?since=${
             period?.start.toISOString() ?? new Date(Date.now() - 30 * 86400_000).toISOString()
           }&until=${period?.end.toISOString() ?? new Date().toISOString()}`,
-          token
+          effectiveToken
         ).catch(() => [] as GitHubCommit[]),
         githubFetch<GitHubPR>(
           `/repos/${org}/${repo.name}/pulls?state=closed&sort=updated${sinceParam}`,
-          token
+          effectiveToken
         ).catch(() => [] as GitHubPR[]),
       ]);
 

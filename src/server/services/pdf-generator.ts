@@ -1,7 +1,15 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { renderToBuffer } = require("@react-pdf/renderer");
 import React from "react";
+import type { DocumentProps } from "@react-pdf/renderer";
 import { VaultBriefPDF, parseMarkdown } from "./pdf-template";
+
+// @react-pdf/renderer is ESM-only and listed in Next.js 16's default
+// serverExternalPackages, so a top-level `require()` returns an empty module
+// at runtime and renderToBuffer crashes inside its internals. Dynamic import
+// resolves the real module both in Turbopack dev and in the prod build.
+async function getRenderToBuffer() {
+  const mod = await import("@react-pdf/renderer");
+  return mod.renderToBuffer;
+}
 import { db } from "@/server/db";
 import { reports, projects } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
@@ -36,8 +44,10 @@ export async function generatePDF(
     primaryColor: branding?.primaryColor,
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-  const buffer = await renderToBuffer(element as React.ReactElement);
+  const renderToBuffer = await getRenderToBuffer();
+  const buffer = await renderToBuffer(
+    element as React.ReactElement<DocumentProps>
+  );
   const filename = `${project.name.replace(/\s+/g, "-").toLowerCase()}-report-${report.periodEnd}.pdf`;
 
   return { buffer: Buffer.from(buffer), filename };

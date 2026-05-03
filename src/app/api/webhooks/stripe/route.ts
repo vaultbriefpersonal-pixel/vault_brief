@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import Stripe from "stripe";
 import { db } from "@/server/db";
-import { users } from "@/server/db/schema";
+import { users, stripeProcessedEvents } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -35,6 +35,19 @@ export async function POST(req: NextRequest) {
     return new Response("Webhook signature verification failed", {
       status: 400,
     });
+  }
+
+  // Idempotency guard: Stripe re-delivers events on cold-start timeouts and
+  // dashboard "Resend" clicks. The PK on event_id makes the insert atomic;
+  // if returning() yields no row the event was already processed and we
+  // short-circuit before any side-effect.
+  const inserted = await db
+    .insert(stripeProcessedEvents)
+    .values({ eventId: event.id, eventType: event.type })
+    .onConflictDoNothing()
+    .returning({ eventId: stripeProcessedEvents.eventId });
+  if (inserted.length === 0) {
+    return new Response("Event already processed", { status: 200 });
   }
 
   switch (event.type) {
