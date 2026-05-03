@@ -125,6 +125,16 @@ export const investorsRouter = router({
           message: "Report has no content to send",
         });
       }
+      // Approval gate: must be marked Ready (status='review') before sending.
+      // Prevents accidental sends of unreviewed drafts. Already-sent reports
+      // can be re-sent (e.g. to add an investor) without re-marking.
+      if (report.status !== "review" && report.status !== "sent") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Report must be marked Ready before sending. Click 'Mark Ready' in the editor first.",
+        });
+      }
 
       const activeInvestors = await ctx.db.query.investors.findMany({
         where: and(

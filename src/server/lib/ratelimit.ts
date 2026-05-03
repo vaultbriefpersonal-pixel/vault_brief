@@ -22,7 +22,7 @@ function getRedis(): Redis | null {
   return _redis;
 }
 
-function makeLimiter(tokens: number, window: `${number} ${"s" | "m" | "h"}`, prefix: string) {
+function makeLimiter(tokens: number, window: `${number} ${"s" | "m" | "h" | "d"}`, prefix: string) {
   return () => {
     const redis = getRedis();
     if (!redis) return null;
@@ -40,6 +40,12 @@ export const mutationLimiter = makeLimiter(20, "1 h", "rl:mutation");
 export const sendReportLimiter = makeLimiter(10, "1 h", "rl:send-report");
 export const bulkImportLimiter = makeLimiter(5, "1 h", "rl:bulk-import");
 export const projectCreateLimiter = makeLimiter(5, "1 h", "rl:proj-create");
+// Manual "Sync now" — keyed by projectId, not userId, so a vc_suite user with
+// 30 projects can refresh each one a few times without hitting one global cap.
+export const syncLimiter = makeLimiter(3, "1 h", "rl:sync");
+// Backfill (>1 month at once) is much more expensive — one trigger spans
+// dozens of API calls per month × N months. Keep it rare.
+export const backfillLimiter = makeLimiter(2, "1 d", "rl:backfill");
 
 type LimiterFactory = () => Ratelimit | null;
 

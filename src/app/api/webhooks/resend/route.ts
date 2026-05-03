@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import crypto from "node:crypto";
 import { sql, eq } from "drizzle-orm";
 import { db } from "@/server/db";
-import { reports } from "@/server/db/schema";
+import { reports, reportEngagements } from "@/server/db/schema";
 
 /**
  * Resend webhooks are signed via Svix. Verify the signature and increment
@@ -14,8 +14,29 @@ import { reports } from "@/server/db/schema";
 interface ResendEvent {
   type: string;
   data?: {
+    to?: string | string[];
+    email_id?: string;
     tags?: Record<string, string> | Array<{ name: string; value: string }>;
   };
+}
+
+const TRACKED_EVENTS = new Set([
+  "email.sent",
+  "email.delivered",
+  "email.opened",
+  "email.clicked",
+  "email.bounced",
+  "email.complained",
+]);
+
+function getRecipientEmail(data: ResendEvent["data"]): string | null {
+  if (!data?.to) return null;
+  return Array.isArray(data.to) ? data.to[0] ?? null : data.to;
+}
+
+function eventTypeShort(type: string): string {
+  // "email.opened" → "opened"
+  return type.replace(/^email\./, "");
 }
 
 function getReportIdFromTags(tags: ResendEvent["data"]): string | null {
@@ -78,20 +99,35 @@ export async function POST(req: NextRequest) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  // Only opens bump the counter today. Add `email.clicked` here when we wire
-  // a clickedCount column.
-  if (event.type !== "email.opened") {
+  // Skip events we don't track (e.g. email.delivery_delayed) without
+  // ack-failing — Resend stops retrying on 200.
+  if (!TRACKED_EVENTS.has(event.type)) {
     return new Response("OK", { status: 200 });
   }
 
   const reportId = getReportIdFromTags(event.data);
   if (!reportId) return new Response("OK", { status: 200 });
 
+  const recipientEmail = getRecipientEmail(event.data);
+
   try {
-    await db
-      .update(reports)
-      .set({ openedCount: sql`COALESCE(${reports.openedCount}, 0) + 1` })
-      .where(eq(reports.id, reportId));
+    // Per-recipient log — feeds the engagement table on the report page.
+    if (recipientEmail) {
+      await db.insert(reportEngagements).values({
+        reportId,
+        recipientEmail,
+        eventType: eventTypeShort(event.type),
+      });
+    }
+
+    // Aggregate counter (legacy, used by analytics/list views). Only opened
+    // events bump it for now — keeps backward compatibility with existing UI.
+    if (event.type === "email.opened") {
+      await db
+        .update(reports)
+        .set({ openedCount: sql`COALESCE(${reports.openedCount}, 0) + 1` })
+        .where(eq(reports.id, reportId));
+    }
   } catch (err) {
     console.error("resend webhook: update failed", err);
     // 500 lets Resend retry on transient DB errors.

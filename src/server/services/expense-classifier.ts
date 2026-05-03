@@ -29,7 +29,15 @@ export type IncomeCategory =
   | "airdrop" // Tokens received from external airdrops
   | "other_income"; // Catch-all for unclassified inflows
 
-export type AnyCategory = ExpenseCategory | IncomeCategory;
+/**
+ * Direction-agnostic category for transfers between wallets owned by the
+ * same project. Excluded from burn rate, expense breakdown, and inflows —
+ * these are treasury movements, not real spend or income.
+ */
+export const INTERNAL_TRANSFER_CATEGORY = "internal_transfer" as const;
+export type InternalCategory = typeof INTERNAL_TRANSFER_CATEGORY;
+
+export type AnyCategory = ExpenseCategory | IncomeCategory | InternalCategory;
 
 export const INCOME_CATEGORIES: IncomeCategory[] = [
   "revenue",

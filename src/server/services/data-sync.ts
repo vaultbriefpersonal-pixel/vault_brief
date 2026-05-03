@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/nextjs";
 import { db } from "@/server/db";
 import { projects, wallets, treasurySnapshots } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
@@ -98,6 +99,13 @@ export async function createMonthlySnapshot(
     tokenPriceUsd: tokenMetrics?.tokenPriceUsd?.toFixed(8) ?? null,
     tokenMarketCapUsd: tokenMetrics?.tokenMarketCapUsd?.toFixed(2) ?? null,
     tokenCirculatingSupply: tokenMetrics?.tokenCirculatingSupply?.toFixed(2) ?? null,
+
+    // Combined wallet-level sync failures (balance fetch + tx fetch).
+    // Empty array means all wallets succeeded for this snapshot.
+    syncWarnings: ((): unknown => {
+      const all = [...balances.warnings, ...(txResult?.warnings ?? [])];
+      return all.length > 0 ? (all as unknown as Record<string, unknown>[]) : null;
+    })(),
   };
 
   const [snapshot] = await db
@@ -141,6 +149,9 @@ export async function syncAllProjects() {
           href: `/projects/${project.id}/reports`,
         });
       }
+      Sentry.captureException(r.reason, {
+        tags: { area: "monthly-sync", projectId: project.id },
+      });
       return notify(project.userId, {
         type: "sync_failed",
         title: `Sync failed for ${project.name}`,

@@ -189,6 +189,11 @@ export const treasurySnapshots = pgTable(
     // Raw transaction data
     transactionsRaw: jsonb("transactions_raw"),
 
+    // Per-wallet sync failures (RPC timeout, bogus address, etc). Empty array
+    // when all wallets succeeded. UI shows a badge if non-empty so founders
+    // know the snapshot is partial.
+    syncWarnings: jsonb("sync_warnings"),
+
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
@@ -299,6 +304,49 @@ export const tokenPrices = pgTable(
   })
 );
 
+// =============================================
+// REPORT ENGAGEMENTS
+// Per-recipient email events from Resend webhooks (sent / opened / clicked /
+// bounced). Enables "Investor X opened twice, never clicked" UI on report
+// page — far more useful than the aggregate openedCount on reports.
+// =============================================
+export const reportEngagements = pgTable("report_engagements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  reportId: uuid("report_id")
+    .notNull()
+    .references(() => reports.id, { onDelete: "cascade" }),
+  recipientEmail: text("recipient_email").notNull(),
+  eventType: text("event_type").notNull(), // sent | opened | clicked | bounced | complained
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow(),
+});
+
+// =============================================
+// LLM RESPONSE CACHE
+// Keyed by sha256(systemPrompt + userPrompt + model). A Regenerate against
+// the same snapshot with unchanged prompts hits cache for free — no $$
+// burned on idempotent calls. Old entries linger as audit/replay trail.
+// =============================================
+export const llmCache = pgTable("llm_cache", {
+  cacheKey: text("cache_key").primaryKey(),
+  snapshotId: uuid("snapshot_id"),
+  model: text("model").notNull(),
+  output: text("output").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// =============================================
+// STRIPE PROCESSED EVENTS
+// Idempotency log for the Stripe webhook handler. Stripe re-delivers events
+// on cold-start timeouts, retries 3xx, and after dashboard "Resend" clicks;
+// without this guard `customer.subscription.deleted` retried after a manual
+// reactivation could downgrade a paying user back to "free".
+// =============================================
+export const stripeProcessedEvents = pgTable("stripe_processed_events", {
+  eventId: text("event_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }).defaultNow(),
+});
+
 // Type exports
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -318,3 +366,9 @@ export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
 export type TokenPrice = typeof tokenPrices.$inferSelect;
 export type NewTokenPrice = typeof tokenPrices.$inferInsert;
+export type StripeProcessedEvent = typeof stripeProcessedEvents.$inferSelect;
+export type NewStripeProcessedEvent = typeof stripeProcessedEvents.$inferInsert;
+export type LlmCacheRow = typeof llmCache.$inferSelect;
+export type NewLlmCacheRow = typeof llmCache.$inferInsert;
+export type ReportEngagement = typeof reportEngagements.$inferSelect;
+export type NewReportEngagement = typeof reportEngagements.$inferInsert;

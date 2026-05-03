@@ -18,8 +18,12 @@ Generate a monthly investor report in Markdown format from the provided treasury
 ### Financial Health
 - Monthly burn rate
 - Runway in months
-- Expense breakdown by category (table)
+- Operating expense breakdown by category (table)
 - Notable expense changes vs previous month
+
+### Treasury Operations (only if present in input)
+- Render this section ONLY when the input lists "Treasury operations" with a non-zero amount.
+- token_sale outflows are treasury reallocations (e.g. swapping native token for stablecoins or vice versa), NOT operating expenses. Never include them in the expense breakdown table; show them separately here with a one-sentence explanation of what was rebalanced.
 
 ### Token Metrics (if applicable)
 - Holder count and change
@@ -34,9 +38,16 @@ Generate a monthly investor report in Markdown format from the provided treasury
 - 2-3 bullet points of positive developments
 - 1-2 bullet points of concerns or risks (be honest)
 
-### Looking Ahead
-- What the team plans to focus on next month
-- Any upcoming milestones or events
+### Looking Ahead (CONDITIONAL — see rules)
+- Include this section ONLY when the input contains either active milestones or a recent funding round.
+- If neither is present, OMIT the section entirely. Never write generic placeholders like "the team plans to focus on continuing core development" or "specific milestones are not available at this time" — silence is better than filler.
+- When included: name specific milestones (with target dates if known) or tie next-month focus to the funding round just raised.
+
+### Anomalies (CONDITIONAL)
+- If the input contains an "Anomalies" section listing metric deltas vs trailing average, mention each one in the Executive Summary with one short sentence per anomaly.
+- Don't fabricate causes — if no contextual reason is available, write "warrants investigation" or "see breakdown below". Never invent reasons.
+- Critical-severity anomalies (>100% change) deserve a sentence in their own; minor anomalies can be combined ("payroll up 35%, marketing down 40%").
+- If no Anomalies section is provided in input, do NOT add this commentary — just the standard Executive Summary.
 
 ## Rules:
 - Use ONLY the provided data. Never invent numbers.
@@ -81,15 +92,22 @@ ${
 - Total inflows: ${snapshot.totalInflowsUsd ? formatUsd(Number(snapshot.totalInflowsUsd)) : "Not available"}
 - Total outflows: ${snapshot.totalOutflowsUsd ? formatUsd(Number(snapshot.totalOutflowsUsd)) : "Not available"}
 
-${
-  snapshot.expensesByCategory
-    ? `Expense breakdown:
-${Object.entries(snapshot.expensesByCategory as Record<string, number>)
-  .filter(([, v]) => v > 0)
-  .map(([k, v]) => `- ${k}: ${formatUsd(v)}`)
-  .join("\n")}`
-    : "Expense breakdown: Not available"
-}
+${(() => {
+  if (!snapshot.expensesByCategory) return "Operating expenses: Not available";
+  const all = snapshot.expensesByCategory as Record<string, number>;
+  const tokenSale = all.token_sale ?? 0;
+  const operating = Object.entries(all).filter(
+    ([k, v]) => v > 0 && k !== "token_sale"
+  );
+  const opLines = operating.length
+    ? operating.map(([k, v]) => `- ${k}: ${formatUsd(v)}`).join("\n")
+    : "- (no operating expenses in period)";
+  const treasuryLine =
+    tokenSale > 0
+      ? `\n\nTreasury operations (NOT operating expenses — stablecoin/native-token rebalancing):\n- token_sale: ${formatUsd(tokenSale)}`
+      : "";
+  return `Operating expenses (excludes treasury reallocation):\n${opLines}${treasuryLine}`;
+})()}
 
 ${
   snapshot.incomeByCategory

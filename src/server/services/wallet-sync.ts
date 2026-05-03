@@ -49,6 +49,12 @@ export interface WalletBalanceSummary {
   otherAssetsUsd: number;
 }
 
+export interface BalanceWarning {
+  walletAddress: string;
+  chain: string;
+  error: string;
+}
+
 export interface ProjectBalanceSummary {
   totalBalanceUsd: number;
   stablecoinsUsd: number;
@@ -56,6 +62,7 @@ export interface ProjectBalanceSummary {
   nativeTokenUsd: number;
   otherAssetsUsd: number;
   balancesDetail: WalletBalanceSummary[];
+  warnings: BalanceWarning[];
 }
 
 async function fetchDuneBalances(
@@ -157,15 +164,32 @@ export async function fetchAllBalances(
   wallets: Wallet[],
   projectTokenSymbol?: string | null
 ): Promise<ProjectBalanceSummary> {
-  // Solana goes through Helius; EVM through Dune Sim. Both produce the same
-  // WalletBalanceSummary shape, so the rest of the function is chain-agnostic.
-  const results = await Promise.all(
+  // allSettled: Solana (Helius) and EVM (Dune Sim) both can timeout or 5xx
+  // independently. Failed wallet → warning, snapshot still has partial data
+  // from the others.
+  const settled = await Promise.allSettled(
     wallets.map((w) =>
       w.chain === "solana"
         ? fetchSolanaBalance(w.address)
         : fetchWalletBalance(w, projectTokenSymbol)
     )
   );
+
+  const results: WalletBalanceSummary[] = [];
+  const warnings: BalanceWarning[] = [];
+  settled.forEach((res, i) => {
+    if (res.status === "fulfilled") {
+      results.push(res.value);
+    } else {
+      const w = wallets[i];
+      warnings.push({
+        walletAddress: w.address,
+        chain: w.chain,
+        error: res.reason instanceof Error ? res.reason.message : String(res.reason),
+      });
+      console.warn(`[balances] wallet ${w.address} (${w.chain}) failed:`, res.reason);
+    }
+  });
 
   const summary: ProjectBalanceSummary = {
     totalBalanceUsd: 0,
@@ -174,6 +198,7 @@ export async function fetchAllBalances(
     nativeTokenUsd: 0,
     otherAssetsUsd: 0,
     balancesDetail: results,
+    warnings,
   };
 
   for (const r of results) {

@@ -173,6 +173,32 @@ async function run() {
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`;
 
+  console.log("Creating stripe_processed_events table...");
+  await sql`CREATE TABLE IF NOT EXISTS stripe_processed_events (
+    event_id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    processed_at TIMESTAMPTZ DEFAULT NOW()
+  )`;
+
+  console.log("Creating llm_cache table...");
+  await sql`CREATE TABLE IF NOT EXISTS llm_cache (
+    cache_key TEXT PRIMARY KEY,
+    snapshot_id UUID,
+    model TEXT NOT NULL,
+    output TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`;
+
+  console.log("Creating report_engagements table...");
+  await sql`CREATE TABLE IF NOT EXISTS report_engagements (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    report_id UUID NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+    recipient_email TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    occurred_at TIMESTAMPTZ DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_report_engagements_report_id ON report_engagements(report_id)`;
+
   console.log("✓ All tables created successfully");
 }
 

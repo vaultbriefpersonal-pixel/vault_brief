@@ -108,6 +108,9 @@ Required env vars for production:
 - `STRIPE_PRICE_GROWTH`
 - `STRIPE_PRICE_VC_SUITE`
 - `TRIGGER_SECRET_KEY`
+- `GITHUB_TOKEN` — recommended; without it GitHub API caps at 60 req/hr per IP and snapshots record zeros for any project syncing GitHub data. Read-only `public_repo` scope is sufficient.
+- `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN` — optional; sets up server + browser error tracking. Without these the SDK silently no-ops (app behaves identically). To enable: create a project at sentry.io, copy the DSN to both vars, redeploy.
+- `STRIPE_PRICE_*_ANNUAL` — optional. To enable annual billing for the /pricing toggle: in Stripe Dashboard create three additional recurring prices (annual interval, 20% discount on the monthly amount), copy the IDs into `STRIPE_PRICE_STARTER_ANNUAL` / `STRIPE_PRICE_GROWTH_ANNUAL` / `STRIPE_PRICE_VC_SUITE_ANNUAL`. Without them checkout falls back to the monthly variant when "Annual" is selected.
 - `NEXT_PUBLIC_APP_URL=https://vaultbrief.com`
 
 ---

@@ -2,6 +2,7 @@ import type { Wallet } from "@/server/db/schema";
 import {
   classifyTransactions,
   INCOME_CATEGORIES,
+  INTERNAL_TRANSFER_CATEGORY,
   type ClassifiedTransaction,
   type IncomeCategory,
   type RawTransaction,
@@ -143,6 +144,12 @@ export interface ExpenseSummary {
 
 export type IncomeSummary = Record<IncomeCategory, number>;
 
+export interface SyncWarning {
+  walletAddress: string;
+  chain: string;
+  error: string;
+}
+
 export interface TransactionSyncResult {
   transactions: ClassifiedTransaction[];
   totalInflowsUsd: number;
@@ -152,6 +159,7 @@ export interface TransactionSyncResult {
   runwayMonths: number | null;
   expensesByCategory: ExpenseSummary;
   incomeByCategory: IncomeSummary;
+  warnings: SyncWarning[];
 }
 
 async function fetchAlchemyTransfers(
@@ -252,44 +260,87 @@ export async function fetchAndClassify(
 ): Promise<TransactionSyncResult> {
   const allOutgoing: RawTransaction[] = [];
   const allIncoming: RawTransaction[] = [];
+  const warnings: SyncWarning[] = [];
 
-  await Promise.all(
+  // allSettled instead of all — one bad wallet (RPC down, bogus address)
+  // shouldn't kill the whole snapshot. Failed wallets surface as warnings.
+  const walletResults = await Promise.allSettled(
     wallets.map(async (wallet) => {
       if (wallet.chain === "solana") {
-        // Helius gives parsed token+native transfers in a single response, so
-        // we don't need the from/to split that EVM requires.
         const transfers = await fetchSolanaTransfers(wallet.address, period);
-        for (const t of transfers) {
-          if (t.direction === "out") allOutgoing.push(t);
-          else allIncoming.push(t);
-        }
-        return;
+        return { wallet, outgoing: [] as RawTransaction[], incoming: [] as RawTransaction[], solana: transfers };
       }
-
       const [outgoing, incoming] = await Promise.all([
         fetchAlchemyTransfers(wallet.address, wallet.chain, period.start, period.end, "from"),
         fetchAlchemyTransfers(wallet.address, wallet.chain, period.start, period.end, "to"),
       ]);
-
-      // Resolve USD prices in parallel — price-resolver caches both in-memory
-      // and in Postgres, so repeated symbols on the same day cost one API call.
       const [outgoingRaw, incomingRaw] = await Promise.all([
         Promise.all(outgoing.map((t) => transferToRaw(t, "out"))),
         Promise.all(incoming.map((t) => transferToRaw(t, "in"))),
       ]);
-      allOutgoing.push(...outgoingRaw);
-      allIncoming.push(...incomingRaw);
+      return { wallet, outgoing: outgoingRaw, incoming: incomingRaw, solana: null as RawTransaction[] | null };
     })
   );
+  walletResults.forEach((res, i) => {
+    const wallet = wallets[i];
+    if (res.status === "rejected") {
+      warnings.push({
+        walletAddress: wallet.address,
+        chain: wallet.chain,
+        error: res.reason instanceof Error ? res.reason.message : String(res.reason),
+      });
+      console.warn(`[sync] wallet ${wallet.address} (${wallet.chain}) failed:`, res.reason);
+      return;
+    }
+    if (res.value.solana) {
+      for (const t of res.value.solana) {
+        if (t.direction === "out") allOutgoing.push(t);
+        else allIncoming.push(t);
+      }
+    } else {
+      allOutgoing.push(...res.value.outgoing);
+      allIncoming.push(...res.value.incoming);
+    }
+  });
+
+  // Internal transfers — wallets that belong to this same project. Tx between
+  // them are treasury movements (hot→cold, payroll multisig→ops) and must
+  // never inflate burn or inflows. Classified pre-LLM by exact address match,
+  // skipping the AI fallback entirely.
+  const internalAddressSet = new Set(
+    wallets.map((w) => w.address.toLowerCase())
+  );
+  const isInternal = (tx: RawTransaction) =>
+    internalAddressSet.has((tx.from ?? "").toLowerCase()) &&
+    internalAddressSet.has((tx.to ?? "").toLowerCase());
+
+  const internalOut = allOutgoing.filter(isInternal);
+  const externalOut = allOutgoing.filter((t) => !isInternal(t));
+  const internalIn = allIncoming.filter(isInternal);
+  const externalIn = allIncoming.filter((t) => !isInternal(t));
 
   // Classify both directions. classifyTransactions splits internally and uses
   // direction-aware rules + prompts (see expense-classifier.ts).
-  const allClassified = await classifyTransactions([
-    ...allOutgoing,
-    ...allIncoming,
+  const externalClassified = await classifyTransactions([
+    ...externalOut,
+    ...externalIn,
   ]);
-  const classifiedOutgoing = allClassified.filter((t) => t.direction === "out");
-  const classifiedIncoming = allClassified.filter((t) => t.direction === "in");
+  const internalClassified: ClassifiedTransaction[] = [
+    ...internalOut.map((t) => ({
+      ...t,
+      category: INTERNAL_TRANSFER_CATEGORY,
+      confidence: 1,
+    })),
+    ...internalIn.map((t) => ({
+      ...t,
+      category: INTERNAL_TRANSFER_CATEGORY,
+      confidence: 1,
+    })),
+  ];
+  const allClassified = [...externalClassified, ...internalClassified];
+  // Burn / inflows / category breakdowns are computed from EXTERNAL only.
+  const classifiedOutgoing = externalClassified.filter((t) => t.direction === "out");
+  const classifiedIncoming = externalClassified.filter((t) => t.direction === "in");
 
   const totalOutflowsUsd = classifiedOutgoing.reduce(
     (sum, t) => sum + t.valueUsd,
@@ -301,7 +352,8 @@ export async function fetchAndClassify(
   );
   const netFlowUsd = totalInflowsUsd - totalOutflowsUsd;
 
-  // Burn rate excludes token sales (treasury management, not expenses)
+  // Burn rate excludes token sales (treasury management, not expenses).
+  // Internal transfers are already filtered out via externalClassified above.
   const burnRateUsd = classifiedOutgoing
     .filter((t) => t.category !== "token_sale")
     .reduce((sum, t) => sum + t.valueUsd, 0);
@@ -346,5 +398,6 @@ export async function fetchAndClassify(
     runwayMonths,
     expensesByCategory,
     incomeByCategory,
+    warnings,
   };
 }

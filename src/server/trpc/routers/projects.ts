@@ -1,11 +1,18 @@
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
-import { projects } from "@/server/db/schema";
+import { projects, reports } from "@/server/db/schema";
 import { slugify } from "@/lib/utils";
 import { TRPCError } from "@trpc/server";
 import { requireProject } from "../guards";
-import { checkLimit, projectCreateLimiter } from "@/server/lib/ratelimit";
+import {
+  checkLimit,
+  projectCreateLimiter,
+  syncLimiter,
+  backfillLimiter,
+} from "@/server/lib/ratelimit";
+import { createMonthlySnapshot, getLastMonthPeriod } from "@/server/services/data-sync";
+import { generateAndSaveReport } from "@/server/services/report-generator";
 
 const PLAN_PROJECT_LIMITS: Record<string, number> = {
   free: 1,
@@ -34,6 +41,20 @@ export const projectsRouter = router({
         tokenChain: z.string().optional(),
         githubOrg: z.string().optional(),
         teamSize: z.number().int().positive().optional(),
+        // Optional onboarding context — surfaced in the report prompt and
+        // makes the LLM narrative materially less generic on first runs.
+        foundedDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
+          .optional(),
+        lastFundingRound: z.string().max(50).optional(),
+        lastFundingAmount: z
+          .union([z.number().positive(), z.string()])
+          .optional()
+          .transform((v) => {
+            if (v === undefined || v === "") return undefined;
+            return typeof v === "number" ? v.toString() : v;
+          }),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -136,5 +157,108 @@ export const projectsRouter = router({
       await requireProject(ctx, input.id);
       await ctx.db.delete(projects).where(eq(projects.id, input.id));
       return { success: true };
+    }),
+
+  /**
+   * Manual sync trigger — runs the same path as the monthly cron, but on-demand.
+   * Default: last completed month. With months > 1, walks N most recent months
+   * (oldest first so prev-month comparisons resolve correctly). Only the most
+   * recent period triggers a report — backfill snapshots are data-only,
+   * keeping LLM spend bounded.
+   *
+   * Rate limits:
+   *   - 1-month sync: 3/hr per project (syncLimiter)
+   *   - backfill (>1 month): additionally 2/day per project (backfillLimiter)
+   */
+  sync: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        months: z.number().int().min(1).max(12).default(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await requireProject(ctx, input.projectId);
+      await checkLimit(syncLimiter, input.projectId);
+      if (input.months > 1) {
+        await checkLimit(backfillLimiter, input.projectId);
+      }
+
+      // Build periods oldest → newest. getLastMonthPeriod() returns the most
+      // recent fully-closed month; walk back from there.
+      const periods: Array<{ start: Date; end: Date }> = [];
+      const now = new Date();
+      for (let i = input.months - 1; i >= 0; i--) {
+        // i months back from "last completed month" — for i=0 → last month
+        const start = new Date(now.getFullYear(), now.getMonth() - 1 - i, 1);
+        const end = new Date(now.getFullYear(), now.getMonth() - i, 0, 23, 59, 59);
+        periods.push({ start, end });
+      }
+
+      const snapshotIds: string[] = [];
+      const errors: Array<{ period: string; error: string }> = [];
+      for (const period of periods) {
+        try {
+          const snap = await createMonthlySnapshot(input.projectId, period);
+          snapshotIds.push(snap.id);
+        } catch (err) {
+          errors.push({
+            period: period.end.toISOString().slice(0, 10),
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      const latestSnapshotId = snapshotIds[snapshotIds.length - 1];
+      if (!latestSnapshotId) {
+        return {
+          snapshotIds,
+          reportId: null,
+          reportGenerated: false,
+          errors,
+        };
+      }
+
+      // Only generate a report for the most recent period. Older periods
+      // remain data-only — comparisons surface them anyway.
+      const latestPeriod = periods[periods.length - 1];
+      const periodEndStr = latestPeriod.end.toISOString().split("T")[0];
+      const periodStartStr = latestPeriod.start.toISOString().split("T")[0];
+      const existing = await ctx.db.query.reports.findFirst({
+        where: and(
+          eq(reports.projectId, input.projectId),
+          gte(reports.periodEnd, periodStartStr),
+          lte(reports.periodEnd, periodEndStr)
+        ),
+      });
+
+      if (existing) {
+        return {
+          snapshotIds,
+          reportId: existing.id,
+          reportGenerated: false,
+          errors,
+        };
+      }
+
+      try {
+        const report = await generateAndSaveReport(input.projectId, latestSnapshotId);
+        return {
+          snapshotIds,
+          reportId: report.id,
+          reportGenerated: true,
+          errors,
+        };
+      } catch (err) {
+        console.error("sync: report generation failed:", err);
+        return {
+          snapshotIds,
+          reportId: null,
+          reportGenerated: false,
+          reportError:
+            err instanceof Error ? err.message : "Report generation failed",
+          errors,
+        };
+      }
     }),
 });
