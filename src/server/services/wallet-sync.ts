@@ -216,18 +216,32 @@ export async function fetchTokenMetrics(
       headers: { "X-Sim-Api-Key": DUNE_API_KEY },
     });
     if (!res.ok) return EMPTY_METRICS;
-    const data = (await res.json()) as {
-      price_usd?: number;
-      total_supply?: string | number;
-      fully_diluted_value?: number;
+    // Sim wraps data in `tokens[]` (one entry per chain queried). For our
+    // single-chain query we always read tokens[0].
+    const payload = (await res.json()) as {
+      tokens?: Array<{
+        price_usd?: number;
+        total_supply?: string | number;
+        fully_diluted_value?: number;
+        decimals?: number;
+      }>;
     };
+    const data = payload.tokens?.[0];
+    if (!data) return EMPTY_METRICS;
 
-    const totalSupply =
+    // total_supply comes back as a raw integer string in base units; divide
+    // by 10^decimals to get the human-readable circulating figure.
+    const rawSupply =
       typeof data.total_supply === "string"
         ? parseFloat(data.total_supply)
         : typeof data.total_supply === "number"
           ? data.total_supply
           : null;
+    const decimals = typeof data.decimals === "number" ? data.decimals : 0;
+    const adjustedSupply =
+      rawSupply !== null && Number.isFinite(rawSupply)
+        ? rawSupply / Math.pow(10, decimals)
+        : null;
 
     return {
       tokenPriceUsd: typeof data.price_usd === "number" ? data.price_usd : null,
@@ -235,8 +249,7 @@ export async function fetchTokenMetrics(
         typeof data.fully_diluted_value === "number"
           ? data.fully_diluted_value
           : null,
-      tokenCirculatingSupply:
-        totalSupply !== null && Number.isFinite(totalSupply) ? totalSupply : null,
+      tokenCirculatingSupply: adjustedSupply,
       // Holders count requires paginating /token-holders — too expensive for
       // a monthly sync. Left null until we add a dedicated holder-count job.
       tokenHoldersCount: null,

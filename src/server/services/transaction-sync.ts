@@ -208,6 +208,13 @@ async function fetchAlchemyTransfers(
   });
 }
 
+// Sanity cap per tx. Scam-airdrop tokens often spoof real symbols (fake "USDC")
+// so symbol-based pricing returns a real price, multiplied by a huge supply
+// blows totals into the trillions. Real DAO/SaaS treasury moves rarely exceed
+// $50M in a single tx; we treat anything beyond as poisoned and zero it out.
+// Better miss a real whale tx than report fake quintillions.
+const MAX_REASONABLE_TX_USD = 50_000_000;
+
 async function transferToRaw(
   t: AlchemyTransfer,
   direction: "in" | "out"
@@ -221,6 +228,7 @@ async function transferToRaw(
   // Resolve USD value at the actual block time. Caller can still see the raw
   // token amount via the `value` field — `valueUsd` is now the real number.
   const { usd, priceUnknown } = await tokenAmountToUsd(symbol, amount, blockTs);
+  const cleanUsd = usd > MAX_REASONABLE_TX_USD ? 0 : usd;
 
   return {
     hash: t.hash,
@@ -228,10 +236,12 @@ async function transferToRaw(
     to: t.to ?? "",
     value: t.value ?? "0",
     token: symbol,
-    valueUsd: usd,
+    valueUsd: cleanUsd,
     timestamp: blockTs.getTime(),
     direction,
-    priceUnknown,
+    // Flag suspiciously-priced rows as priceUnknown so they don't poison
+    // burn-rate downstream and can be inspected separately.
+    priceUnknown: priceUnknown || usd > MAX_REASONABLE_TX_USD,
   };
 }
 
