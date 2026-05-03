@@ -118,7 +118,10 @@ async function checkDuneSim(): Promise<ServiceCheck> {
 async function checkAlchemy(): Promise<ServiceCheck> {
   const key = process.env.ALCHEMY_API_KEY;
   if (!key || key.includes("placeholder")) {
-    return { name: "EVM RPC", status: "operational", latencyMs: null, detail: "not configured" };
+    const debug = !key
+      ? "missing"
+      : `len=${key.length} hasPlaceholder=${key.includes("placeholder")} preview=${key.slice(0, 4)}...${key.slice(-4)}`;
+    return { name: "EVM RPC", status: "operational", latencyMs: null, detail: `not configured (${debug})` };
   }
   return timed("EVM RPC", async () => {
     const res = await fetch(`https://eth-mainnet.alchemyapi.io/v2/${key}`, {
