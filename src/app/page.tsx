@@ -88,7 +88,7 @@ const LOGOS = ["Meridian Protocol", "Lattice DAO", "Prism Finance", "Atlas Labs"
 
 export default function LandingPage() {
   return (
-    <div style={{ background: "#0a0a0a", minHeight: "100dvh" }}>
+    <div style={{ background: "var(--vb-bg)", minHeight: "100dvh" }}>
       <Nav />
 
       {/* Hero */}
@@ -135,7 +135,7 @@ export default function LandingPage() {
               marginBottom: 32,
               fontSize: 13,
               fontFamily: "var(--font-inter), Inter, sans-serif",
-              color: "#00e87b",
+              color: "var(--accent)",
               fontWeight: 500,
             }}
           >
@@ -157,7 +157,7 @@ export default function LandingPage() {
               fontWeight: 700,
               fontSize: "clamp(40px, 5.5vw, 76px)",
               lineHeight: 1.05,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               maxWidth: 800,
               margin: "0 auto 24px",
               letterSpacing: "-0.035em",
@@ -173,7 +173,7 @@ export default function LandingPage() {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               lineHeight: 1.6,
-              color: "#888888",
+              color: "var(--vb-muted)",
               maxWidth: 540,
               margin: "0 auto 44px",
             }}
@@ -219,9 +219,9 @@ export default function LandingPage() {
         >
           <div
             style={{
-              background: "#161616",
+              background: "var(--vb-card)",
               borderRadius: 16,
-              border: "1px solid rgba(255,255,255,0.08)",
+              border: "1px solid var(--vb-border)",
               padding: 32,
               boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
             }}
@@ -238,7 +238,7 @@ export default function LandingPage() {
                 <div
                   style={{
                     fontSize: 11,
-                    color: "#555555",
+                    color: "var(--vb-dim)",
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     marginBottom: 4,
                     textTransform: "uppercase",
@@ -250,7 +250,7 @@ export default function LandingPage() {
                 <div
                   style={{
                     fontSize: 20,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     fontFamily:
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontWeight: 600,
@@ -263,7 +263,7 @@ export default function LandingPage() {
                 style={{
                   padding: "5px 12px",
                   background: "rgba(0,232,123,0.12)",
-                  color: "#00e87b",
+                  color: "var(--accent)",
                   borderRadius: 6,
                   fontSize: 12,
                   fontWeight: 600,
@@ -287,16 +287,16 @@ export default function LandingPage() {
                 <div
                   key={d.label}
                   style={{
-                    background: "#0a0a0a",
+                    background: "var(--vb-bg)",
                     borderRadius: 10,
                     padding: "18px 16px",
-                    border: "1px solid rgba(255,255,255,0.08)",
+                    border: "1px solid var(--vb-border)",
                   }}
                 >
                   <div
                     style={{
                       fontSize: 11,
-                      color: "#555555",
+                      color: "var(--vb-dim)",
                       fontFamily: "var(--font-inter), Inter, sans-serif",
                       marginBottom: 8,
                       textTransform: "uppercase",
@@ -309,7 +309,7 @@ export default function LandingPage() {
                     style={{
                       fontSize: 24,
                       fontWeight: 700,
-                      color: "#f0f0f0",
+                      color: "var(--vb-text)",
                       fontFamily:
                         "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     }}
@@ -339,14 +339,14 @@ export default function LandingPage() {
         className="vb-section-sm"
         style={{
           textAlign: "center",
-          borderTop: "1px solid rgba(255,255,255,0.08)",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          borderTop: "1px solid var(--vb-border)",
+          borderBottom: "1px solid var(--vb-border)",
         }}
       >
         <p
           style={{
             fontSize: 12,
-            color: "#555555",
+            color: "var(--vb-dim)",
             fontFamily: "var(--font-inter), Inter, sans-serif",
             marginBottom: 32,
             textTransform: "uppercase",
@@ -373,7 +373,7 @@ export default function LandingPage() {
                   "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                 fontSize: 15,
                 fontWeight: 600,
-                color: "#555555",
+                color: "var(--vb-dim)",
                 letterSpacing: "-0.01em",
               }}
             >
@@ -393,7 +393,7 @@ export default function LandingPage() {
           <p
             style={{
               fontSize: 13,
-              color: "#00e87b",
+              color: "var(--accent)",
               fontFamily: "var(--font-inter), Inter, sans-serif",
               marginBottom: 12,
               textTransform: "uppercase",
@@ -409,7 +409,7 @@ export default function LandingPage() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: "clamp(32px, 4vw, 44px)",
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               letterSpacing: "-0.03em",
               margin: 0,
             }}
@@ -427,9 +427,9 @@ export default function LandingPage() {
               key={f.title}
               className="card-hover"
               style={{
-                background: "#161616",
+                background: "var(--vb-card)",
                 borderRadius: 14,
-                border: "1px solid rgba(255,255,255,0.08)",
+                border: "1px solid var(--vb-border)",
                 padding: 32,
               }}
             >
@@ -454,7 +454,7 @@ export default function LandingPage() {
                     "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                   fontSize: 19,
                   fontWeight: 600,
-                  color: "#f0f0f0",
+                  color: "var(--vb-text)",
                   margin: "0 0 8px",
                   letterSpacing: "-0.01em",
                 }}
@@ -464,8 +464,8 @@ export default function LandingPage() {
               <p
                 style={{
                   fontFamily: "var(--font-inter), Inter, sans-serif",
-                  fontSize: 14.5,
-                  color: "#888888",
+                  fontSize: 15,
+                  color: "var(--vb-muted)",
                   lineHeight: 1.6,
                   margin: 0,
                 }}
@@ -478,13 +478,13 @@ export default function LandingPage() {
       </section>
 
       {/* How It Works */}
-      <section className="vb-section" style={{ background: "#111111" }}>
+      <section className="vb-section" style={{ background: "var(--vb-alt)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 72 }}>
             <p
               style={{
                 fontSize: 13,
-                color: "#00e87b",
+                color: "var(--accent)",
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 marginBottom: 12,
                 textTransform: "uppercase",
@@ -500,7 +500,7 @@ export default function LandingPage() {
                   "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                 fontSize: "clamp(32px, 4vw, 44px)",
                 fontWeight: 700,
-                color: "#f0f0f0",
+                color: "var(--vb-text)",
                 letterSpacing: "-0.03em",
                 margin: 0,
               }}
@@ -521,7 +521,7 @@ export default function LandingPage() {
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 64,
                     fontWeight: 700,
-                    color: "#00e87b",
+                    color: "var(--accent)",
                     opacity: 0.25,
                     lineHeight: 1,
                     marginBottom: 16,
@@ -535,7 +535,7 @@ export default function LandingPage() {
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 20,
                     fontWeight: 600,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     margin: "0 0 10px",
                   }}
                 >
@@ -544,8 +544,8 @@ export default function LandingPage() {
                 <p
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
-                    fontSize: 14.5,
-                    color: "#888888",
+                    fontSize: 15,
+                    color: "var(--vb-muted)",
                     lineHeight: 1.6,
                     margin: 0,
                   }}
@@ -559,13 +559,13 @@ export default function LandingPage() {
       </section>
 
       {/* Testimonials */}
-      <section className="vb-section" style={{ background: "#111111" }}>
+      <section className="vb-section" style={{ background: "var(--vb-alt)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 64 }}>
             <p
               style={{
                 fontSize: 13,
-                color: "#00e87b",
+                color: "var(--accent)",
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 marginBottom: 12,
                 textTransform: "uppercase",
@@ -581,7 +581,7 @@ export default function LandingPage() {
                   "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                 fontSize: "clamp(32px, 4vw, 44px)",
                 fontWeight: 700,
-                color: "#f0f0f0",
+                color: "var(--vb-text)",
                 letterSpacing: "-0.03em",
                 margin: 0,
               }}
@@ -599,16 +599,16 @@ export default function LandingPage() {
                 key={q.author}
                 className="card-hover"
                 style={{
-                  background: "#161616",
+                  background: "var(--vb-card)",
                   borderRadius: 14,
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  border: "1px solid var(--vb-border)",
                   padding: 32,
                 }}
               >
                 <div
                   style={{
                     fontSize: 28,
-                    color: "#00e87b",
+                    color: "var(--accent)",
                     marginBottom: 16,
                     lineHeight: 1,
                   }}
@@ -619,7 +619,7 @@ export default function LandingPage() {
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 15,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     lineHeight: 1.65,
                     margin: "0 0 24px",
                   }}
@@ -633,7 +633,7 @@ export default function LandingPage() {
                         "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                       fontSize: 14,
                       fontWeight: 600,
-                      color: "#f0f0f0",
+                      color: "var(--vb-text)",
                     }}
                   >
                     {q.author}
@@ -642,7 +642,7 @@ export default function LandingPage() {
                     style={{
                       fontFamily: "var(--font-inter), Inter, sans-serif",
                       fontSize: 13,
-                      color: "#555555",
+                      color: "var(--vb-dim)",
                     }}
                   >
                     {q.role}
@@ -662,7 +662,7 @@ export default function LandingPage() {
         className="vb-section-cta"
         style={{
           textAlign: "center",
-          background: "#111111",
+          background: "var(--vb-alt)",
           position: "relative",
           overflow: "hidden",
         }}
@@ -689,7 +689,7 @@ export default function LandingPage() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: "clamp(32px, 4vw, 44px)",
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               letterSpacing: "-0.03em",
               margin: "0 0 16px",
             }}
@@ -700,7 +700,7 @@ export default function LandingPage() {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 17,
-              color: "#888888",
+              color: "var(--vb-muted)",
               maxWidth: 480,
               margin: "0 auto 36px",
               lineHeight: 1.6,

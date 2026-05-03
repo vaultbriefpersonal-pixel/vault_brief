@@ -63,7 +63,7 @@ export default function AboutPage() {
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 13,
-            color: "#00e87b",
+            color: "var(--accent)",
             textTransform: "uppercase",
             letterSpacing: "0.1em",
             fontWeight: 600,
@@ -78,7 +78,7 @@ export default function AboutPage() {
               "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
             fontSize: "clamp(36px, 5vw, 56px)",
             fontWeight: 700,
-            color: "#f0f0f0",
+            color: "var(--vb-text)",
             letterSpacing: "-0.035em",
             margin: "0 0 24px",
             lineHeight: 1.1,
@@ -90,7 +90,7 @@ export default function AboutPage() {
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 18,
-            color: "#888888",
+            color: "var(--vb-muted)",
             lineHeight: 1.7,
             margin: 0,
           }}
@@ -105,7 +105,7 @@ export default function AboutPage() {
       {/* Story */}
       <section
         className="vb-section-sm"
-        style={{ background: "#111111" }}
+        style={{ background: "var(--vb-alt)" }}
       >
         <div
           style={{
@@ -113,7 +113,7 @@ export default function AboutPage() {
             margin: "0 auto",
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 16,
-            color: "#888888",
+            color: "var(--vb-muted)",
             lineHeight: 1.8,
           }}
         >
@@ -123,7 +123,7 @@ export default function AboutPage() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: "clamp(28px, 3vw, 36px)",
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               letterSpacing: "-0.03em",
               margin: "0 0 24px",
             }}
@@ -161,7 +161,7 @@ export default function AboutPage() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: "clamp(28px, 3vw, 36px)",
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               letterSpacing: "-0.03em",
               margin: "0 0 48px",
               textAlign: "center",
@@ -178,9 +178,9 @@ export default function AboutPage() {
                 key={v.title}
                 className="card-hover"
                 style={{
-                  background: "#161616",
+                  background: "var(--vb-card)",
                   borderRadius: 14,
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  border: "1px solid var(--vb-border)",
                   padding: 32,
                 }}
               >
@@ -190,7 +190,7 @@ export default function AboutPage() {
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 19,
                     fontWeight: 600,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     margin: "0 0 12px",
                   }}
                 >
@@ -199,8 +199,8 @@ export default function AboutPage() {
                 <p
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
-                    fontSize: 14.5,
-                    color: "#888888",
+                    fontSize: 15,
+                    color: "var(--vb-muted)",
                     lineHeight: 1.65,
                     margin: 0,
                   }}
@@ -214,7 +214,7 @@ export default function AboutPage() {
       </section>
 
       {/* Team */}
-      <section className="vb-section-sm" style={{ background: "#111111" }}>
+      <section className="vb-section-sm" style={{ background: "var(--vb-alt)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <h2
             style={{
@@ -222,7 +222,7 @@ export default function AboutPage() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: "clamp(28px, 3vw, 36px)",
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               letterSpacing: "-0.03em",
               margin: "0 0 48px",
               textAlign: "center",
@@ -239,9 +239,9 @@ export default function AboutPage() {
                 key={person.name}
                 className="card-hover"
                 style={{
-                  background: "#161616",
+                  background: "var(--vb-card)",
                   borderRadius: 14,
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  border: "1px solid var(--vb-border)",
                   padding: 32,
                 }}
               >
@@ -259,7 +259,7 @@ export default function AboutPage() {
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 16,
                     fontWeight: 700,
-                    color: "#00e87b",
+                    color: "var(--accent)",
                     marginBottom: 20,
                   }}
                 >
@@ -271,7 +271,7 @@ export default function AboutPage() {
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 18,
                     fontWeight: 600,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     margin: "0 0 4px",
                   }}
                 >
@@ -281,7 +281,7 @@ export default function AboutPage() {
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 13,
-                    color: "#00e87b",
+                    color: "var(--accent)",
                     margin: "0 0 14px",
                     fontWeight: 500,
                   }}
@@ -292,7 +292,7 @@ export default function AboutPage() {
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 14,
-                    color: "#888888",
+                    color: "var(--vb-muted)",
                     lineHeight: 1.6,
                     margin: 0,
                   }}
@@ -316,7 +316,7 @@ export default function AboutPage() {
               "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
             fontSize: "clamp(28px, 3vw, 36px)",
             fontWeight: 700,
-            color: "#f0f0f0",
+            color: "var(--vb-text)",
             letterSpacing: "-0.03em",
             margin: "0 0 16px",
           }}
@@ -327,7 +327,7 @@ export default function AboutPage() {
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 16,
-            color: "#888888",
+            color: "var(--vb-muted)",
             margin: "0 0 28px",
           }}
         >

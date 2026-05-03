@@ -60,7 +60,7 @@ export default async function BillingPage() {
     fontFamily: "var(--font-inter), Inter, sans-serif",
     fontSize: 12,
     fontWeight: 600,
-    color: "#555555",
+    color: "var(--vb-dim)",
     textTransform: "uppercase",
     letterSpacing: "0.07em",
     margin: "0 0 8px",
@@ -70,13 +70,13 @@ export default async function BillingPage() {
     fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
     fontSize: 24,
     fontWeight: 700,
-    color: "#f0f0f0",
+    color: "var(--vb-text)",
     margin: 0,
   };
 
   const cardStyle: React.CSSProperties = {
-    background: "#161616",
-    border: "1px solid rgba(255,255,255,0.08)",
+    background: "var(--vb-card)",
+    border: "1px solid var(--vb-border)",
     borderRadius: 12,
     padding: "28px",
   };
@@ -88,7 +88,7 @@ export default async function BillingPage() {
           fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
           fontSize: 18,
           fontWeight: 700,
-          color: "#f0f0f0",
+          color: "var(--vb-text)",
           margin: "0 0 20px",
           letterSpacing: "-0.02em",
         }}
@@ -117,7 +117,7 @@ export default async function BillingPage() {
                     style={{
                       fontFamily: "var(--font-geist-mono), monospace",
                       fontSize: 15,
-                      color: "#00e87b",
+                      color: "var(--accent)",
                     }}
                   >
                     {planInfo.price}/mo
@@ -128,13 +128,13 @@ export default async function BillingPage() {
                 href="/pricing"
                 style={{
                   background: "transparent",
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  border: "1px solid var(--vb-border)",
                   borderRadius: 6,
                   padding: "9px 18px",
                   fontSize: 14,
                   fontWeight: 500,
                   fontFamily: "var(--font-inter), Inter, sans-serif",
-                  color: "#888888",
+                  color: "var(--vb-muted)",
                   textDecoration: "none",
                 }}
               >
@@ -145,7 +145,7 @@ export default async function BillingPage() {
             <div className="vb-grid-2" style={{ gap: 14 }}>
               <div
                 style={{
-                  background: "#0a0a0a",
+                  background: "var(--vb-bg)",
                   borderRadius: 10,
                   padding: "18px 20px",
                   border: "1px solid rgba(255,255,255,0.06)",
@@ -154,14 +154,14 @@ export default async function BillingPage() {
                 <p style={labelStyle}>Projects used</p>
                 <p style={{ ...valStyle, fontSize: 20 }}>
                   {projectCount?.value ?? 0}
-                  <span style={{ color: "#555555", fontSize: 15, fontWeight: 400 }}>
+                  <span style={{ color: "var(--vb-dim)", fontSize: 15, fontWeight: 400 }}>
                     {" "}/ {planInfo.projectLimit}
                   </span>
                 </p>
               </div>
               <div
                 style={{
-                  background: "#0a0a0a",
+                  background: "var(--vb-bg)",
                   borderRadius: 10,
                   padding: "18px 20px",
                   border: "1px solid rgba(255,255,255,0.06)",
@@ -190,7 +190,7 @@ export default async function BillingPage() {
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 15,
-                    color: "#888888",
+                    color: "var(--vb-muted)",
                     margin: 0,
                   }}
                 >
@@ -203,13 +203,13 @@ export default async function BillingPage() {
                 <button
                   style={{
                     background: "transparent",
-                    border: "1px solid rgba(255,255,255,0.08)",
+                    border: "1px solid var(--vb-border)",
                     borderRadius: 6,
                     padding: "9px 18px",
                     fontSize: 14,
                     fontWeight: 500,
                     fontFamily: "var(--font-inter), Inter, sans-serif",
-                    color: "#888888",
+                    color: "var(--vb-muted)",
                     cursor: "pointer",
                   }}
                 >
@@ -226,7 +226,7 @@ export default async function BillingPage() {
               style={{
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 fontSize: 15,
-                color: "#555555",
+                color: "var(--vb-dim)",
                 margin: 0,
               }}
             >
@@ -260,7 +260,7 @@ export default async function BillingPage() {
                     gap: 10,
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 15,
-                    color: "#888888",
+                    color: "var(--vb-muted)",
                   }}
                 >
                   <Check size={15} color="#00e87b" style={{ flexShrink: 0 }} />
@@ -304,7 +304,7 @@ export default async function BillingPage() {
                 fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                 fontSize: 16,
                 fontWeight: 600,
-                color: "#f0f0f0",
+                color: "var(--vb-text)",
                 margin: "0 0 10px",
               }}
             >
@@ -314,7 +314,7 @@ export default async function BillingPage() {
               style={{
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 fontSize: 15,
-                color: "#888888",
+                color: "var(--vb-muted)",
                 margin: "0 0 6px",
                 lineHeight: 1.6,
               }}
@@ -326,7 +326,7 @@ export default async function BillingPage() {
               style={{
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 fontSize: 15,
-                color: "#00e87b",
+                color: "var(--accent)",
                 textDecoration: "none",
                 fontWeight: 500,
                 display: "inline-block",

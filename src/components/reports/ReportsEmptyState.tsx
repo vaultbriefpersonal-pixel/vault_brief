@@ -16,8 +16,8 @@ interface Props {
 }
 
 const cardStyle: React.CSSProperties = {
-  border: "1px solid rgba(255,255,255,0.08)",
-  background: "#161616",
+  border: "1px solid var(--vb-border)",
+  background: "var(--vb-card)",
   borderRadius: 14,
   padding: "64px 24px",
   textAlign: "center",
@@ -43,14 +43,14 @@ const titleStyle: React.CSSProperties = {
   fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
   fontSize: 16,
   fontWeight: 600,
-  color: "#f0f0f0",
+  color: "var(--vb-text)",
   margin: "0 0 8px",
 };
 
 const bodyStyle: React.CSSProperties = {
   fontFamily: "var(--font-inter), Inter, sans-serif",
   fontSize: 13,
-  color: "#888888",
+  color: "var(--vb-muted)",
   margin: 0,
   lineHeight: 1.6,
   maxWidth: 380,
@@ -76,7 +76,7 @@ const primaryBtn: React.CSSProperties = {
 const secondaryBtn: React.CSSProperties = {
   ...primaryBtn,
   background: "transparent",
-  color: "#888888",
+  color: "var(--vb-muted)",
   border: "1px solid rgba(255,255,255,0.12)",
 };
 

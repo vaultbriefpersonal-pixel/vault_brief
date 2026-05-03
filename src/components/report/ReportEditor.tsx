@@ -18,8 +18,8 @@ function PaneHeader({ label, right }: { label: string; right?: React.ReactNode }
         alignItems: "center",
         justifyContent: "space-between",
         padding: "10px 16px",
-        borderBottom: "1px solid rgba(255,255,255,0.08)",
-        background: "#111111",
+        borderBottom: "1px solid var(--vb-border)",
+        background: "var(--vb-alt)",
         flexShrink: 0,
       }}
     >
@@ -28,7 +28,7 @@ function PaneHeader({ label, right }: { label: string; right?: React.ReactNode }
           fontFamily: "var(--font-inter), Inter, sans-serif",
           fontSize: 11,
           fontWeight: 600,
-          color: "#555555",
+          color: "var(--vb-dim)",
           textTransform: "uppercase",
           letterSpacing: "0.08em",
         }}
@@ -84,8 +84,8 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
         <div
           style={{
             display: "flex",
-            background: "#0a0a0a",
-            borderBottom: "1px solid rgba(255,255,255,0.08)",
+            background: "var(--vb-bg)",
+            borderBottom: "1px solid var(--vb-border)",
             flexShrink: 0,
           }}
         >
@@ -141,7 +141,7 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
                 style={{
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                   fontSize: 12,
-                  color: "#555555",
+                  color: "var(--vb-dim)",
                 }}
               >
                 Saving...
@@ -152,7 +152,7 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
         <textarea
           style={{
             flex: 1,
-            background: "#0a0a0a",
+            background: "var(--vb-bg)",
             color: "#cccccc",
             fontSize: 13,
             fontFamily: "var(--font-geist-mono), monospace",
@@ -171,9 +171,9 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
         />
         <div
           style={{
-            borderTop: "1px solid rgba(255,255,255,0.08)",
+            borderTop: "1px solid var(--vb-border)",
             padding: 16,
-            background: "#0a0a0a",
+            background: "var(--vb-bg)",
             flexShrink: 0,
           }}
         >
@@ -183,7 +183,7 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 11,
               fontWeight: 600,
-              color: "#555555",
+              color: "var(--vb-dim)",
               textTransform: "uppercase",
               letterSpacing: "0.08em",
               marginBottom: 8,
@@ -195,11 +195,11 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
             rows={3}
             style={{
               width: "100%",
-              background: "#111111",
-              border: "1px solid rgba(255,255,255,0.08)",
+              background: "var(--vb-alt)",
+              border: "1px solid var(--vb-border)",
               borderRadius: 8,
-              fontSize: 13.5,
-              color: "#f0f0f0",
+              fontSize: 13,
+              color: "var(--vb-text)",
               fontFamily: "var(--font-inter), Inter, sans-serif",
               padding: "10px 12px",
               resize: "none",
@@ -227,7 +227,7 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
       >
         {/* PaneHeader hidden on mobile — the tab switcher already labels it. */}
         {!isMobile && <PaneHeader label="Preview" />}
-        <div style={{ flex: 1, overflowY: "auto", background: "#0a0a0a" }}>
+        <div style={{ flex: 1, overflowY: "auto", background: "var(--vb-bg)" }}>
           <ReportPreview content={content} />
         </div>
       </div>

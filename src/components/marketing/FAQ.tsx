@@ -39,7 +39,7 @@ export function FAQ() {
           <p
             style={{
               fontSize: 13,
-              color: "#00e87b",
+              color: "var(--accent)",
               fontFamily: "var(--font-inter), Inter, sans-serif",
               marginBottom: 12,
               textTransform: "uppercase",
@@ -55,7 +55,7 @@ export function FAQ() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: "clamp(32px, 4vw, 44px)",
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               letterSpacing: "-0.03em",
               margin: 0,
             }}
@@ -68,7 +68,7 @@ export function FAQ() {
           {ITEMS.map((item, i) => (
             <div
               key={i}
-              style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}
+              style={{ borderBottom: "1px solid var(--vb-border)" }}
             >
               <button
                 onClick={() => setOpen(open === i ? null : i)}
@@ -92,7 +92,7 @@ export function FAQ() {
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 15.5,
                     fontWeight: 500,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                   }}
                 >
                   {item.q}
@@ -128,8 +128,8 @@ export function FAQ() {
                 <p
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
-                    fontSize: 14.5,
-                    color: "#888888",
+                    fontSize: 15,
+                    color: "var(--vb-muted)",
                     lineHeight: 1.65,
                     margin: "0 0 20px",
                     paddingRight: 36,

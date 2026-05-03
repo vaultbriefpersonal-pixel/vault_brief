@@ -15,10 +15,10 @@ const BALANCES = [
 ];
 
 const BREAKDOWN = [
-  { label: "Stablecoins (USDC, USDT)", pct: 42, usd: "$1,015,703", color: "#00e87b" },
+  { label: "Stablecoins (USDC, USDT)", pct: 42, usd: "$1,015,703", color: "var(--accent)" },
   { label: "ETH", pct: 28, usd: "$677,135", color: "#4f9cf9" },
   { label: "Native Token (PROJ)", pct: 22, usd: "$532,035", color: "#a78bfa" },
-  { label: "Other Assets", pct: 8, usd: "$193,467", color: "#555555" },
+  { label: "Other Assets", pct: 8, usd: "$193,467", color: "var(--vb-dim)" },
 ];
 
 const EXPENSES = [
@@ -47,14 +47,14 @@ export default function DemoPage() {
           textAlign: "center",
           background:
             "linear-gradient(180deg, rgba(0,232,123,0.04) 0%, transparent 100%)",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          borderBottom: "1px solid var(--vb-border)",
         }}
       >
         <p
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 13,
-            color: "#00e87b",
+            color: "var(--accent)",
             textTransform: "uppercase",
             letterSpacing: "0.1em",
             fontWeight: 600,
@@ -69,7 +69,7 @@ export default function DemoPage() {
               "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
             fontSize: "clamp(32px, 4vw, 48px)",
             fontWeight: 700,
-            color: "#f0f0f0",
+            color: "var(--vb-text)",
             letterSpacing: "-0.03em",
             margin: "0 0 12px",
           }}
@@ -80,7 +80,7 @@ export default function DemoPage() {
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 16,
-            color: "#888888",
+            color: "var(--vb-muted)",
             margin: "0 0 28px",
           }}
         >
@@ -101,9 +101,9 @@ export default function DemoPage() {
           style={{
             maxWidth: 900,
             margin: "0 auto",
-            background: "#161616",
+            background: "var(--vb-card)",
             borderRadius: 16,
-            border: "1px solid rgba(255,255,255,0.08)",
+            border: "1px solid var(--vb-border)",
             overflow: "hidden",
           }}
         >
@@ -111,7 +111,7 @@ export default function DemoPage() {
           <div
             style={{
               padding: "32px 40px",
-              borderBottom: "1px solid rgba(255,255,255,0.08)",
+              borderBottom: "1px solid var(--vb-border)",
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
@@ -122,7 +122,7 @@ export default function DemoPage() {
                 style={{
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                   fontSize: 11,
-                  color: "#555555",
+                  color: "var(--vb-dim)",
                   textTransform: "uppercase",
                   letterSpacing: "0.09em",
                   margin: "0 0 6px",
@@ -136,7 +136,7 @@ export default function DemoPage() {
                     "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                   fontSize: 26,
                   fontWeight: 700,
-                  color: "#f0f0f0",
+                  color: "var(--vb-text)",
                   margin: "0 0 4px",
                   letterSpacing: "-0.02em",
                 }}
@@ -147,7 +147,7 @@ export default function DemoPage() {
                 style={{
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                   fontSize: 13,
-                  color: "#888888",
+                  color: "var(--vb-muted)",
                   margin: 0,
                 }}
               >
@@ -158,7 +158,7 @@ export default function DemoPage() {
               style={{
                 padding: "6px 14px",
                 background: "rgba(0,232,123,0.12)",
-                color: "#00e87b",
+                color: "var(--accent)",
                 borderRadius: 6,
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 fontSize: 12,
@@ -179,17 +179,17 @@ export default function DemoPage() {
                 <div
                   key={b.label}
                   style={{
-                    background: "#0a0a0a",
+                    background: "var(--vb-bg)",
                     borderRadius: 10,
                     padding: "20px 16px",
-                    border: "1px solid rgba(255,255,255,0.08)",
+                    border: "1px solid var(--vb-border)",
                   }}
                 >
                   <p
                     style={{
                       fontFamily: "var(--font-inter), Inter, sans-serif",
                       fontSize: 11,
-                      color: "#555555",
+                      color: "var(--vb-dim)",
                       textTransform: "uppercase",
                       letterSpacing: "0.07em",
                       margin: "0 0 8px",
@@ -203,7 +203,7 @@ export default function DemoPage() {
                         "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                       fontSize: 22,
                       fontWeight: 700,
-                      color: "#f0f0f0",
+                      color: "var(--vb-text)",
                       margin: "0 0 4px",
                     }}
                   >
@@ -232,9 +232,9 @@ export default function DemoPage() {
               {/* Treasury breakdown */}
               <div
                 style={{
-                  background: "#0a0a0a",
+                  background: "var(--vb-bg)",
                   borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  border: "1px solid var(--vb-border)",
                   padding: 24,
                 }}
               >
@@ -244,7 +244,7 @@ export default function DemoPage() {
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 15,
                     fontWeight: 600,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     margin: "0 0 20px",
                   }}
                 >
@@ -264,7 +264,7 @@ export default function DemoPage() {
                           style={{
                             fontFamily: "var(--font-inter), Inter, sans-serif",
                             fontSize: 13,
-                            color: "#888888",
+                            color: "var(--vb-muted)",
                           }}
                         >
                           {b.label}
@@ -273,7 +273,7 @@ export default function DemoPage() {
                           style={{
                             fontFamily: "var(--font-inter), Inter, sans-serif",
                             fontSize: 13,
-                            color: "#f0f0f0",
+                            color: "var(--vb-text)",
                             fontWeight: 500,
                           }}
                         >
@@ -305,9 +305,9 @@ export default function DemoPage() {
               {/* Expenses */}
               <div
                 style={{
-                  background: "#0a0a0a",
+                  background: "var(--vb-bg)",
                   borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  border: "1px solid var(--vb-border)",
                   padding: 24,
                 }}
               >
@@ -317,7 +317,7 @@ export default function DemoPage() {
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 15,
                     fontWeight: 600,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     margin: "0 0 20px",
                   }}
                 >
@@ -337,7 +337,7 @@ export default function DemoPage() {
                           style={{
                             fontFamily: "var(--font-inter), Inter, sans-serif",
                             fontSize: 13,
-                            color: "#888888",
+                            color: "var(--vb-muted)",
                           }}
                         >
                           {e.label}
@@ -346,7 +346,7 @@ export default function DemoPage() {
                           style={{
                             fontFamily: "var(--font-inter), Inter, sans-serif",
                             fontSize: 13,
-                            color: "#f0f0f0",
+                            color: "var(--vb-text)",
                             fontWeight: 500,
                           }}
                         >
@@ -380,9 +380,9 @@ export default function DemoPage() {
             {/* GitHub stats */}
             <div
               style={{
-                background: "#0a0a0a",
+                background: "var(--vb-bg)",
                 borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.08)",
+                border: "1px solid var(--vb-border)",
                 padding: 24,
                 marginBottom: 40,
               }}
@@ -393,7 +393,7 @@ export default function DemoPage() {
                     "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                   fontSize: 15,
                   fontWeight: 600,
-                  color: "#f0f0f0",
+                  color: "var(--vb-text)",
                   margin: "0 0 20px",
                 }}
               >
@@ -411,7 +411,7 @@ export default function DemoPage() {
                           "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                         fontSize: 32,
                         fontWeight: 700,
-                        color: "#00e87b",
+                        color: "var(--accent)",
                         margin: "0 0 4px",
                       }}
                     >
@@ -421,7 +421,7 @@ export default function DemoPage() {
                       style={{
                         fontFamily: "var(--font-inter), Inter, sans-serif",
                         fontSize: 13,
-                        color: "#888888",
+                        color: "var(--vb-muted)",
                         margin: 0,
                       }}
                     >
@@ -435,9 +435,9 @@ export default function DemoPage() {
             {/* AI narrative sample */}
             <div
               style={{
-                background: "#0a0a0a",
+                background: "var(--vb-bg)",
                 borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.08)",
+                border: "1px solid var(--vb-border)",
                 padding: 24,
               }}
             >
@@ -455,7 +455,7 @@ export default function DemoPage() {
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 15,
                     fontWeight: 600,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     margin: 0,
                   }}
                 >
@@ -465,7 +465,7 @@ export default function DemoPage() {
                   style={{
                     padding: "2px 8px",
                     background: "rgba(0,232,123,0.12)",
-                    color: "#00e87b",
+                    color: "var(--accent)",
                     borderRadius: 4,
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 10,
@@ -480,8 +480,8 @@ export default function DemoPage() {
               <p
                 style={{
                   fontFamily: "var(--font-inter), Inter, sans-serif",
-                  fontSize: 14.5,
-                  color: "#888888",
+                  fontSize: 15,
+                  color: "var(--vb-muted)",
                   lineHeight: 1.75,
                   margin: 0,
                 }}
@@ -509,7 +509,7 @@ export default function DemoPage() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: 26,
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               margin: "0 0 12px",
               letterSpacing: "-0.02em",
             }}
@@ -520,7 +520,7 @@ export default function DemoPage() {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 15,
-              color: "#888888",
+              color: "var(--vb-muted)",
               margin: "0 0 24px",
             }}
           >

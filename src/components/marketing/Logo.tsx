@@ -14,7 +14,7 @@ export function Logo({ size = 26 }: { size?: number }) {
         fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
         fontWeight: 700,
         letterSpacing: "-0.02em",
-        color: "#f0f0f0",
+        color: "var(--vb-text)",
       }}>
         VAULT<span style={{ color: accent }}> BRIEF</span>
       </span>

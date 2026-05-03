@@ -15,7 +15,7 @@ export function ReportPreview({ content }: ReportPreviewProps) {
           justifyContent: "center",
           fontFamily: "var(--font-inter), Inter, sans-serif",
           fontSize: 14,
-          color: "#555555",
+          color: "var(--vb-dim)",
         }}
       >
         No content yet

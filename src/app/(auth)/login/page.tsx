@@ -36,12 +36,12 @@ function LoginForm() {
 
   const inputStyle: React.CSSProperties = {
     width: "100%",
-    background: "#111111",
-    border: "1px solid rgba(255,255,255,0.08)",
+    background: "var(--vb-alt)",
+    border: "1px solid var(--vb-border)",
     borderRadius: 8,
     padding: "12px 14px",
     fontSize: 14,
-    color: "#f0f0f0",
+    color: "var(--vb-text)",
     fontFamily: "var(--font-inter), Inter, sans-serif",
     outline: "none",
     boxSizing: "border-box",
@@ -55,7 +55,7 @@ function LoginForm() {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        background: "#0a0a0a",
+        background: "var(--vb-bg)",
         padding: "48px 24px",
         position: "relative",
       }}
@@ -82,8 +82,8 @@ function LoginForm() {
 
         <div
           style={{
-            background: "#161616",
-            border: "1px solid rgba(255,255,255,0.08)",
+            background: "var(--vb-card)",
+            border: "1px solid var(--vb-border)",
             borderRadius: 16,
             padding: "36px 32px",
           }}
@@ -94,7 +94,7 @@ function LoginForm() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: 22,
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               margin: "0 0 6px",
               letterSpacing: "-0.02em",
               textAlign: "center",
@@ -106,7 +106,7 @@ function LoginForm() {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 14,
-              color: "#555555",
+              color: "var(--vb-dim)",
               margin: "0 0 28px",
               textAlign: "center",
             }}
@@ -128,12 +128,12 @@ function LoginForm() {
                 style={{
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                   fontSize: 14,
-                  color: "#00e87b",
+                  color: "var(--accent)",
                   margin: 0,
                 }}
               >
                 Magic link sent to{" "}
-                <strong style={{ color: "#f0f0f0" }}>{email}</strong>. Check
+                <strong style={{ color: "var(--vb-text)" }}>{email}</strong>. Check
                 your inbox.
               </p>
             </div>
@@ -205,7 +205,7 @@ function LoginForm() {
                 <span
                   style={{
                     fontSize: 11,
-                    color: "#555555",
+                    color: "var(--vb-dim)",
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     textTransform: "uppercase",
                     letterSpacing: "0.06em",
@@ -226,14 +226,14 @@ function LoginForm() {
                 onClick={() => signIn("google", { callbackUrl })}
                 style={{
                   width: "100%",
-                  background: "#111111",
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "var(--vb-alt)",
+                  border: "1px solid var(--vb-border)",
                   borderRadius: 8,
                   padding: "12px 20px",
                   fontSize: 14,
                   fontWeight: 500,
                   fontFamily: "var(--font-inter), Inter, sans-serif",
-                  color: "#f0f0f0",
+                  color: "var(--vb-text)",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
@@ -269,7 +269,7 @@ function LoginForm() {
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 13,
-            color: "#555555",
+            color: "var(--vb-dim)",
             textAlign: "center",
             marginTop: 20,
           }}

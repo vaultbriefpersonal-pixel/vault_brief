@@ -45,6 +45,7 @@ import {
 import { getHistoricalPrice } from "../src/server/services/price-resolver";
 import { classifyTransactions } from "../src/server/services/expense-classifier";
 import { fetchAndClassify } from "../src/server/services/transaction-sync";
+import { STABLECOIN_SYMBOLS } from "../src/lib/chains";
 
 // --- Test fixtures -----------------------------------------------------------
 // Public DAO/whale wallets — read-only smoke test, no funds at risk.
@@ -248,10 +249,32 @@ async function testFullPipeline() {
   }
 }
 
+function testStablecoinSet() {
+  header("STABLECOIN_SYMBOLS — set sanity & coverage");
+  // Every entry MUST be uppercase (callers do toUpperCase before lookup, so
+  // a lowercase entry would silently never match).
+  let lowercaseCount = 0;
+  for (const s of STABLECOIN_SYMBOLS) {
+    if (s !== s.toUpperCase()) {
+      fail(`entry "${s}" is not uppercase — will never match callers`);
+      lowercaseCount++;
+    }
+  }
+  if (lowercaseCount === 0) ok(`all ${STABLECOIN_SYMBOLS.size} entries uppercase`);
+
+  // Every common stable that hits real treasuries today must classify.
+  const MUST_HAVE = ["USDC", "USDT", "DAI", "USDS", "PYUSD", "USDE", "GHO", "CRVUSD", "FRAX", "SUSD"];
+  for (const s of MUST_HAVE) {
+    if (STABLECOIN_SYMBOLS.has(s)) ok(`${s} → classified as stable`);
+    else fail(`${s} missing from STABLECOIN_SYMBOLS`);
+  }
+}
+
 // --- Main --------------------------------------------------------------------
 
 async function main() {
   console.log("VaultBrief smoke test — running all integrations\n");
+  testStablecoinSet();
   await testPriceResolver();
   await testEvmBalance();
   await testTokenMetrics();

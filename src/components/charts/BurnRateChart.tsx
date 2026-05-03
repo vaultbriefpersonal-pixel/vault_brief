@@ -30,7 +30,7 @@ function EmptyState({ children }: { children: React.ReactNode }) {
         justifyContent: "center",
         textAlign: "center",
         padding: "0 16px",
-        color: "#555",
+        color: "var(--vb-dim)",
         fontFamily: "var(--font-inter), Inter, sans-serif",
         fontSize: 13,
         lineHeight: 1.5,
@@ -67,13 +67,13 @@ export function BurnRateChart({ data }: BurnRateChartProps) {
             fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
             fontSize: 28,
             fontWeight: 700,
-            color: "#f0f0f0",
+            color: "var(--vb-text)",
           }}
         >
           {formatUsd(point.burnRateUsd)}
         </span>
-        <span style={{ color: "#888", fontSize: 12 }}>{point.date}</span>
-        <span style={{ color: "#555", fontSize: 11, marginTop: 4 }}>
+        <span style={{ color: "var(--vb-muted)", fontSize: 12 }}>{point.date}</span>
+        <span style={{ color: "var(--vb-dim)", fontSize: 11, marginTop: 4 }}>
           Trend chart appears after the second monthly snapshot.
         </span>
       </div>

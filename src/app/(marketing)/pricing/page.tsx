@@ -55,7 +55,7 @@ export default function PricingPage() {
         <p
           style={{
             fontSize: 13,
-            color: "#00e87b",
+            color: "var(--accent)",
             fontFamily: "var(--font-inter), Inter, sans-serif",
             marginBottom: 12,
             textTransform: "uppercase",
@@ -71,7 +71,7 @@ export default function PricingPage() {
               "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
             fontSize: "clamp(36px, 5vw, 56px)",
             fontWeight: 700,
-            color: "#f0f0f0",
+            color: "var(--vb-text)",
             letterSpacing: "-0.03em",
             margin: "0 0 16px",
           }}
@@ -82,7 +82,7 @@ export default function PricingPage() {
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 18,
-            color: "#888888",
+            color: "var(--vb-muted)",
             maxWidth: 480,
             margin: "0 auto",
             lineHeight: 1.6,
@@ -107,7 +107,7 @@ export default function PricingPage() {
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 13,
-            color: "#555555",
+            color: "var(--vb-dim)",
             marginTop: 32,
           }}
         >
@@ -115,7 +115,7 @@ export default function PricingPage() {
           Questions? Email{" "}
           <a
             href="mailto:hello@vaultbrief.com"
-            style={{ color: "#00e87b", textDecoration: "none" }}
+            style={{ color: "var(--accent)", textDecoration: "none" }}
           >
             hello@vaultbrief.com
           </a>
@@ -125,7 +125,7 @@ export default function PricingPage() {
       {/* Comparison table */}
       <section
         className="vb-section-sm"
-        style={{ background: "#111111" }}
+        style={{ background: "var(--vb-alt)" }}
       >
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           <h2
@@ -134,7 +134,7 @@ export default function PricingPage() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: "clamp(32px, 4vw, 44px)",
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               letterSpacing: "-0.03em",
               textAlign: "center",
               margin: "0 0 48px",
@@ -146,7 +146,7 @@ export default function PricingPage() {
           <div
             className="vb-table-scroll"
             style={{
-              border: "1px solid rgba(255,255,255,0.08)",
+              border: "1px solid var(--vb-border)",
               borderRadius: 14,
               overflow: "hidden",
             }}
@@ -156,8 +156,8 @@ export default function PricingPage() {
               style={{
                 display: "grid",
                 gridTemplateColumns: "2fr 1fr 1fr 1fr",
-                background: "#161616",
-                borderBottom: "1px solid rgba(255,255,255,0.08)",
+                background: "var(--vb-card)",
+                borderBottom: "1px solid var(--vb-border)",
               }}
             >
               <div style={{ padding: "16px 24px" }} />
@@ -197,7 +197,7 @@ export default function PricingPage() {
                     padding: "14px 24px",
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 14,
-                    color: "#888888",
+                    color: "var(--vb-muted)",
                   }}
                 >
                   {row.feature}
@@ -232,7 +232,7 @@ export default function PricingPage() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: "clamp(32px, 4vw, 44px)",
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               letterSpacing: "-0.03em",
               textAlign: "center",
               margin: "0 0 48px",
@@ -245,14 +245,14 @@ export default function PricingPage() {
             {FAQ_ITEMS.map((item, i) => (
               <div
                 key={i}
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 20, paddingTop: 20 }}
+                style={{ borderBottom: "1px solid var(--vb-border)", paddingBottom: 20, paddingTop: 20 }}
               >
                 <p
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 15,
                     fontWeight: 600,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     margin: "0 0 8px",
                   }}
                 >
@@ -261,8 +261,8 @@ export default function PricingPage() {
                 <p
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
-                    fontSize: 14.5,
-                    color: "#888888",
+                    fontSize: 15,
+                    color: "var(--vb-muted)",
                     lineHeight: 1.65,
                     margin: 0,
                   }}

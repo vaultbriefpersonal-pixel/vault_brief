@@ -70,8 +70,8 @@ export function Footer() {
       style={{
         paddingTop: 60,
         paddingBottom: 40,
-        borderTop: "1px solid rgba(255,255,255,0.08)",
-        background: "#0a0a0a",
+        borderTop: "1px solid var(--vb-border)",
+        background: "var(--vb-bg)",
       }}
     >
       <div
@@ -90,7 +90,7 @@ export function Footer() {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 13,
-              color: "#555555",
+              color: "var(--vb-dim)",
               maxWidth: 240,
               lineHeight: 1.6,
               margin: "12px 0 0",
@@ -112,11 +112,11 @@ export function Footer() {
                   width: 36,
                   height: 36,
                   borderRadius: 8,
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  border: "1px solid var(--vb-border)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  color: "#555555",
+                  color: "var(--vb-dim)",
                   textDecoration: "none",
                   transition: "all 0.2s",
                 }}
@@ -144,7 +144,7 @@ export function Footer() {
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 fontSize: 11,
                 fontWeight: 600,
-                color: "#555555",
+                color: "var(--vb-dim)",
                 textTransform: "uppercase",
                 letterSpacing: "0.09em",
                 margin: "0 0 16px",
@@ -159,8 +159,8 @@ export function Footer() {
                   href={href}
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
-                    fontSize: 13.5,
-                    color: "#888888",
+                    fontSize: 13,
+                    color: "var(--vb-muted)",
                     textDecoration: "none",
                     transition: "color 0.2s",
                   }}
@@ -184,7 +184,7 @@ export function Footer() {
           maxWidth: 1200,
           margin: "40px auto 0",
           paddingTop: 24,
-          borderTop: "1px solid rgba(255,255,255,0.08)",
+          borderTop: "1px solid var(--vb-border)",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
@@ -194,7 +194,7 @@ export function Footer() {
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 12,
-            color: "#555555",
+            color: "var(--vb-dim)",
           }}
         >
           © {new Date().getFullYear()} VaultBrief. All rights reserved.
@@ -204,7 +204,7 @@ export function Footer() {
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 12,
-            color: "#555555",
+            color: "var(--vb-dim)",
             textDecoration: "none",
             transition: "color 0.2s",
           }}

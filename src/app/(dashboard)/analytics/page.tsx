@@ -132,8 +132,8 @@ export default async function AnalyticsPage() {
       {/* Per-project rows */}
       <div
         style={{
-          background: "#161616",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "var(--vb-card)",
+          border: "1px solid var(--vb-border)",
           borderRadius: 12,
           overflow: "hidden",
         }}
@@ -148,7 +148,7 @@ export default async function AnalyticsPage() {
               background: "#1a1a1a",
               fontSize: 11,
               fontWeight: 600,
-              color: "#888888",
+              color: "var(--vb-muted)",
               textTransform: "uppercase",
               letterSpacing: "0.06em",
               fontFamily: "var(--font-inter), Inter, sans-serif",
@@ -165,12 +165,12 @@ export default async function AnalyticsPage() {
               padding: 32,
               textAlign: "center",
               fontSize: 14,
-              color: "#555555",
+              color: "var(--vb-dim)",
               fontFamily: "var(--font-inter), Inter, sans-serif",
             }}
           >
             No projects yet —{" "}
-            <Link href="/projects/new" style={{ color: "#00e87b" }}>
+            <Link href="/projects/new" style={{ color: "var(--accent)" }}>
               create your first
             </Link>
             .
@@ -188,20 +188,20 @@ export default async function AnalyticsPage() {
                 gridTemplateColumns: "2fr 1fr 1fr 1fr",
                 padding: "16px 18px",
                 borderTop: "1px solid rgba(255,255,255,0.06)",
-                color: "#f0f0f0",
+                color: "var(--vb-text)",
                 fontSize: 14,
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 textDecoration: "none",
               }}
             >
               <span style={{ fontWeight: 600 }}>{p.name}</span>
-              <span style={{ color: "#888" }}>{p.wallets.length}</span>
-              <span style={{ color: "#888" }}>
+              <span style={{ color: "var(--vb-muted)" }}>{p.wallets.length}</span>
+              <span style={{ color: "var(--vb-muted)" }}>
                 {latest ? formatDate(latest.snapshotDate) : "—"}
               </span>
-              <span style={{ color: "#888" }}>
+              <span style={{ color: "var(--vb-muted)" }}>
                 {projReports.length} ·{" "}
-                <span style={{ color: "#00e87b" }}>
+                <span style={{ color: "var(--accent)" }}>
                   {projReports.filter((r) => r.status === "sent").length} sent
                 </span>
               </span>
@@ -219,15 +219,15 @@ const titleStyle: React.CSSProperties = {
   fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
   fontSize: 22,
   fontWeight: 700,
-  color: "#f0f0f0",
+  color: "var(--vb-text)",
   letterSpacing: "-0.02em",
   margin: "0 0 4px",
 };
 
 const subtitleStyle: React.CSSProperties = {
   fontFamily: "var(--font-inter), Inter, sans-serif",
-  fontSize: 13.5,
-  color: "#888888",
+  fontSize: 13,
+  color: "var(--vb-muted)",
   margin: 0,
   lineHeight: 1.6,
 };
@@ -244,8 +244,8 @@ function Kpi({
   return (
     <div
       style={{
-        background: "#161616",
-        border: "1px solid rgba(255,255,255,0.08)",
+        background: "var(--vb-card)",
+        border: "1px solid var(--vb-border)",
         borderRadius: 12,
         padding: "16px 18px",
       }}
@@ -255,7 +255,7 @@ function Kpi({
           fontFamily: "var(--font-inter), Inter, sans-serif",
           fontSize: 11,
           fontWeight: 600,
-          color: "#888888",
+          color: "var(--vb-muted)",
           textTransform: "uppercase",
           letterSpacing: "0.06em",
           margin: "0 0 8px",
@@ -268,7 +268,7 @@ function Kpi({
           fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
           fontSize: 24,
           fontWeight: 700,
-          color: "#f0f0f0",
+          color: "var(--vb-text)",
           margin: 0,
         }}
       >
@@ -279,7 +279,7 @@ function Kpi({
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 11,
-            color: "#555555",
+            color: "var(--vb-dim)",
             margin: "6px 0 0",
           }}
         >

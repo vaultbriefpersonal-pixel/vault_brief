@@ -17,8 +17,8 @@ export function Header({ title }: HeaderProps) {
         alignItems: "center",
         justifyContent: "space-between",
         padding: "0 28px",
-        borderBottom: "1px solid rgba(255,255,255,0.08)",
-        background: "#0a0a0a",
+        borderBottom: "1px solid var(--vb-border)",
+        background: "var(--vb-bg)",
         flexShrink: 0,
       }}
     >
@@ -28,7 +28,7 @@ export function Header({ title }: HeaderProps) {
             "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
           fontSize: 16,
           fontWeight: 600,
-          color: "#f0f0f0",
+          color: "var(--vb-text)",
           margin: 0,
           letterSpacing: "-0.01em",
         }}
@@ -54,7 +54,7 @@ export function Header({ title }: HeaderProps) {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 13,
-              color: "#555555",
+              color: "var(--vb-dim)",
             }}
           >
             {session.user.email}

@@ -40,7 +40,7 @@ export function Nav() {
   }, [isMobile]);
 
   const linkStyle: React.CSSProperties = {
-    color: "#888888",
+    color: "var(--vb-muted)",
     textDecoration: "none",
     fontSize: 16,
     fontWeight: 500,
@@ -162,9 +162,9 @@ export function Nav() {
             onClick={() => setOpen((v) => !v)}
             style={{
               background: "transparent",
-              border: "1px solid rgba(255,255,255,0.08)",
+              border: "1px solid var(--vb-border)",
               borderRadius: 8,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               width: 44,
               height: 44,
               display: "flex",
@@ -210,7 +210,7 @@ export function Nav() {
                 padding: "14px 4px",
                 fontSize: 18,
                 fontWeight: 500,
-                color: "#f0f0f0",
+                color: "var(--vb-text)",
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 textDecoration: "none",
                 borderBottom: "1px solid rgba(255,255,255,0.06)",
@@ -227,7 +227,7 @@ export function Nav() {
               display: "block",
               padding: "14px 4px",
               fontSize: 16,
-              color: "#888888",
+              color: "var(--vb-muted)",
               fontFamily: "var(--font-inter), Inter, sans-serif",
               textDecoration: "none",
               marginTop: 8,

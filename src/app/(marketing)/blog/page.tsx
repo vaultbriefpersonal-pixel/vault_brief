@@ -43,7 +43,7 @@ export default function BlogPage() {
         }}
       >
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <p style={{ ...s.label, color: "#00e87b", marginBottom: 12 }}>
+          <p style={{ ...s.label, color: "var(--accent)", marginBottom: 12 }}>
             Blog
           </p>
           <h1
@@ -52,7 +52,7 @@ export default function BlogPage() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: "clamp(36px, 5vw, 56px)",
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               letterSpacing: "-0.03em",
               margin: "0 0 48px",
             }}
@@ -97,9 +97,9 @@ export default function BlogPage() {
               <div
                 className="card-hover vb-grid-2"
                 style={{
-                  background: "#161616",
+                  background: "var(--vb-card)",
                   borderRadius: 16,
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  border: "1px solid var(--vb-border)",
                   padding: 48,
                   gap: 48,
                   alignItems: "center",
@@ -110,7 +110,7 @@ export default function BlogPage() {
                     <span
                       style={{
                         ...s.label,
-                        color: "#00e87b",
+                        color: "var(--accent)",
                         padding: "4px 12px",
                         background: "rgba(0,232,123,0.12)",
                         borderRadius: 100,
@@ -118,7 +118,7 @@ export default function BlogPage() {
                     >
                       Featured
                     </span>
-                    <span style={{ ...s.label, color: "#555555" }}>
+                    <span style={{ ...s.label, color: "var(--vb-dim)" }}>
                       {featured.category}
                     </span>
                   </div>
@@ -128,7 +128,7 @@ export default function BlogPage() {
                         "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                       fontSize: 28,
                       fontWeight: 700,
-                      color: "#f0f0f0",
+                      color: "var(--vb-text)",
                       letterSpacing: "-0.02em",
                       margin: "0 0 16px",
                       lineHeight: 1.2,
@@ -140,7 +140,7 @@ export default function BlogPage() {
                     style={{
                       fontFamily: "var(--font-inter), Inter, sans-serif",
                       fontSize: 15,
-                      color: "#888888",
+                      color: "var(--vb-muted)",
                       lineHeight: 1.65,
                       margin: "0 0 24px",
                     }}
@@ -151,7 +151,7 @@ export default function BlogPage() {
                     style={{
                       fontFamily: "var(--font-inter), Inter, sans-serif",
                       fontSize: 13,
-                      color: "#555555",
+                      color: "var(--vb-dim)",
                     }}
                   >
                     {featured.date} · {featured.readTime}
@@ -159,7 +159,7 @@ export default function BlogPage() {
                 </div>
                 <div
                   style={{
-                    background: "#0a0a0a",
+                    background: "var(--vb-bg)",
                     borderRadius: 12,
                     aspectRatio: "16/9",
                     display: "flex",
@@ -188,16 +188,16 @@ export default function BlogPage() {
                 <div
                   className="card-hover"
                   style={{
-                    background: "#161616",
+                    background: "var(--vb-card)",
                     borderRadius: 14,
-                    border: "1px solid rgba(255,255,255,0.08)",
+                    border: "1px solid var(--vb-border)",
                     padding: 28,
                     height: "100%",
                     boxSizing: "border-box",
                   }}
                 >
                   <div style={{ marginBottom: 16 }}>
-                    <span style={{ ...s.label, color: "#555555" }}>
+                    <span style={{ ...s.label, color: "var(--vb-dim)" }}>
                       {post.category}
                     </span>
                   </div>
@@ -207,7 +207,7 @@ export default function BlogPage() {
                         "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                       fontSize: 18,
                       fontWeight: 600,
-                      color: "#f0f0f0",
+                      color: "var(--vb-text)",
                       letterSpacing: "-0.01em",
                       margin: "0 0 12px",
                       lineHeight: 1.3,
@@ -219,7 +219,7 @@ export default function BlogPage() {
                     style={{
                       fontFamily: "var(--font-inter), Inter, sans-serif",
                       fontSize: 14,
-                      color: "#888888",
+                      color: "var(--vb-muted)",
                       lineHeight: 1.6,
                       margin: "0 0 20px",
                     }}
@@ -230,7 +230,7 @@ export default function BlogPage() {
                     style={{
                       fontFamily: "var(--font-inter), Inter, sans-serif",
                       fontSize: 12,
-                      color: "#555555",
+                      color: "var(--vb-dim)",
                     }}
                   >
                     {post.date} · {post.readTime}

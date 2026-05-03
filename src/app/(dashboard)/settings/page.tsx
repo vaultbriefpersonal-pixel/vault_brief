@@ -8,19 +8,19 @@ import { trpc } from "@/lib/api";
 const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: 13,
-  color: "#888888",
+  color: "var(--vb-muted)",
   fontFamily: "var(--font-inter), Inter, sans-serif",
   marginBottom: 6,
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  background: "#111111",
-  border: "1px solid rgba(255,255,255,0.08)",
+  background: "var(--vb-alt)",
+  border: "1px solid var(--vb-border)",
   borderRadius: 8,
   padding: "12px 14px",
   fontSize: 14,
-  color: "#f0f0f0",
+  color: "var(--vb-text)",
   fontFamily: "var(--font-inter), Inter, sans-serif",
   outline: "none",
   boxSizing: "border-box",
@@ -68,7 +68,7 @@ export default function GlobalSettingsPage() {
             "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
           fontSize: 22,
           fontWeight: 700,
-          color: "#f0f0f0",
+          color: "var(--vb-text)",
           margin: "0 0 4px",
           letterSpacing: "-0.02em",
         }}
@@ -78,8 +78,8 @@ export default function GlobalSettingsPage() {
       <p
         style={{
           fontFamily: "var(--font-inter), Inter, sans-serif",
-          fontSize: 13.5,
-          color: "#888888",
+          fontSize: 13,
+          color: "var(--vb-muted)",
           margin: "0 0 28px",
           lineHeight: 1.6,
         }}
@@ -90,8 +90,8 @@ export default function GlobalSettingsPage() {
       <form
         onSubmit={handleSubmit}
         style={{
-          background: "#161616",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "var(--vb-card)",
+          border: "1px solid var(--vb-border)",
           borderRadius: 12,
           padding: 24,
           display: "flex",
@@ -122,7 +122,7 @@ export default function GlobalSettingsPage() {
           <p
             style={{
               fontSize: 11,
-              color: "#555",
+              color: "var(--vb-dim)",
               margin: "6px 0 0",
               fontFamily: "var(--font-inter), Inter, sans-serif",
             }}
@@ -153,7 +153,7 @@ export default function GlobalSettingsPage() {
             <p
               style={{
                 fontSize: 14,
-                color: "#f0f0f0",
+                color: "var(--vb-text)",
                 margin: 0,
                 fontWeight: 500,
                 fontFamily: "var(--font-inter), Inter, sans-serif",
@@ -164,7 +164,7 @@ export default function GlobalSettingsPage() {
             <p
               style={{
                 fontSize: 12,
-                color: "#888",
+                color: "var(--vb-muted)",
                 margin: "2px 0 0",
                 fontFamily: "var(--font-inter), Inter, sans-serif",
               }}
@@ -219,7 +219,7 @@ export default function GlobalSettingsPage() {
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 13,
-            color: "#888888",
+            color: "var(--vb-muted)",
             margin: "0 0 16px",
             lineHeight: 1.6,
           }}

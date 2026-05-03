@@ -105,7 +105,7 @@ const ENTRIES: {
 ];
 
 const TAG_STYLES: Record<TagType, { bg: string; color: string; label: string }> = {
-  new: { bg: "rgba(0,232,123,0.12)", color: "#00e87b", label: "New" },
+  new: { bg: "rgba(0,232,123,0.12)", color: "var(--accent)", label: "New" },
   improvement: { bg: "rgba(99,102,241,0.15)", color: "#818cf8", label: "Improvement" },
   fix: { bg: "rgba(251,146,60,0.12)", color: "#fb923c", label: "Fix" },
 };
@@ -127,7 +127,7 @@ export default function ChangelogPage() {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 13,
-              color: "#00e87b",
+              color: "var(--accent)",
               textTransform: "uppercase",
               letterSpacing: "0.1em",
               fontWeight: 600,
@@ -142,7 +142,7 @@ export default function ChangelogPage() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: "clamp(36px, 5vw, 52px)",
               fontWeight: 700,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               letterSpacing: "-0.035em",
               margin: "0 0 16px",
             }}
@@ -153,7 +153,7 @@ export default function ChangelogPage() {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 16,
-              color: "#888888",
+              color: "var(--vb-muted)",
               margin: 0,
             }}
           >
@@ -187,7 +187,7 @@ export default function ChangelogPage() {
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                     fontSize: 15,
                     fontWeight: 600,
-                    color: "#f0f0f0",
+                    color: "var(--vb-text)",
                     margin: "0 0 4px",
                   }}
                 >
@@ -197,7 +197,7 @@ export default function ChangelogPage() {
                   style={{
                     fontFamily: "var(--font-geist-mono), monospace",
                     fontSize: 12,
-                    color: "#555555",
+                    color: "var(--vb-dim)",
                   }}
                 >
                   {entry.version}
@@ -238,7 +238,7 @@ export default function ChangelogPage() {
                               "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                             fontSize: 16,
                             fontWeight: 600,
-                            color: "#f0f0f0",
+                            color: "var(--vb-text)",
                             margin: 0,
                           }}
                         >
@@ -248,8 +248,8 @@ export default function ChangelogPage() {
                       <p
                         style={{
                           fontFamily: "var(--font-inter), Inter, sans-serif",
-                          fontSize: 14.5,
-                          color: "#888888",
+                          fontSize: 15,
+                          color: "var(--vb-muted)",
                           lineHeight: 1.65,
                           margin: 0,
                         }}

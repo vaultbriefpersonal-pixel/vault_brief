@@ -118,7 +118,7 @@ function PricingCard({
               "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
             fontSize: 22,
             fontWeight: 600,
-            color: "#f0f0f0",
+            color: "var(--vb-text)",
             margin: "0 0 6px",
           }}
         >
@@ -127,8 +127,8 @@ function PricingCard({
         <p
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
-            fontSize: 13.5,
-            color: "#888888",
+            fontSize: 13,
+            color: "var(--vb-muted)",
             margin: 0,
           }}
         >
@@ -143,7 +143,7 @@ function PricingCard({
               "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
             fontSize: 48,
             fontWeight: 700,
-            color: "#f0f0f0",
+            color: "var(--vb-text)",
           }}
         >
           ${annual ? Math.round(tier.price * 0.8) : tier.price}
@@ -152,7 +152,7 @@ function PricingCard({
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 14,
-            color: "#555555",
+            color: "var(--vb-dim)",
           }}
         >
           /month
@@ -170,8 +170,8 @@ function PricingCard({
           textAlign: "center",
           background: tier.featured
             ? ctaHovered
-              ? "#00ff88"
-              : "#00e87b"
+              ? "var(--accent-bright)"
+              : "var(--accent)"
             : ctaHovered
               ? "rgba(0,232,123,0.08)"
               : "transparent",
@@ -212,8 +212,8 @@ function PricingCard({
             <span
               style={{
                 fontFamily: "var(--font-inter), Inter, sans-serif",
-                fontSize: 13.5,
-                color: "#888888",
+                fontSize: 13,
+                color: "var(--vb-muted)",
               }}
             >
               {f}
@@ -235,9 +235,9 @@ export function PricingCards() {
           display: "inline-flex",
           alignItems: "center",
           gap: 12,
-          background: "#161616",
+          background: "var(--vb-card)",
           borderRadius: 10,
-          border: "1px solid rgba(255,255,255,0.08)",
+          border: "1px solid var(--vb-border)",
           padding: 4,
           marginBottom: 48,
         }}
@@ -270,7 +270,7 @@ export function PricingCards() {
             style={{
               fontSize: 12,
               fontWeight: 600,
-              color: "#00e87b",
+              color: "var(--accent)",
               fontFamily: "var(--font-inter), Inter, sans-serif",
               padding: "0 8px 0 0",
             }}

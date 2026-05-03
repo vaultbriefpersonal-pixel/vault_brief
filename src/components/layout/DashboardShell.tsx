@@ -41,7 +41,7 @@ export function DashboardShell({
   // Desktop: original layout, sidebar is rendered inline.
   if (!isMobile) {
     return (
-      <div style={{ display: "flex", minHeight: "100dvh", background: "#0a0a0a" }}>
+      <div style={{ display: "flex", minHeight: "100dvh", background: "var(--vb-bg)" }}>
         {sidebar}
         <main style={{ flex: 1, overflow: "auto" }}>{children}</main>
       </div>
@@ -50,7 +50,7 @@ export function DashboardShell({
 
   // Mobile: drawer + backdrop + main with a top burger bar.
   return (
-    <div style={{ minHeight: "100dvh", background: "#0a0a0a" }}>
+    <div style={{ minHeight: "100dvh", background: "var(--vb-bg)" }}>
       {/* Top bar with burger */}
       <div
         style={{
@@ -63,7 +63,7 @@ export function DashboardShell({
           padding: "0 12px",
           background: "rgba(10,10,10,0.92)",
           backdropFilter: "blur(12px)",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          borderBottom: "1px solid var(--vb-border)",
         }}
       >
         <button
@@ -71,9 +71,9 @@ export function DashboardShell({
           onClick={() => setOpen((v) => !v)}
           style={{
             background: "transparent",
-            border: "1px solid rgba(255,255,255,0.08)",
+            border: "1px solid var(--vb-border)",
             borderRadius: 8,
-            color: "#f0f0f0",
+            color: "var(--vb-text)",
             width: 44,
             height: 44,
             display: "flex",

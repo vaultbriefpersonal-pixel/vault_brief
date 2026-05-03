@@ -107,7 +107,7 @@ export default function NotificationsPage() {
       </div>
 
       {isLoading && (
-        <p style={{ fontSize: 13, color: "#555", fontFamily: "var(--font-inter), Inter, sans-serif" }}>
+        <p style={{ fontSize: 13, color: "var(--vb-dim)", fontFamily: "var(--font-inter), Inter, sans-serif" }}>
           Loading...
         </p>
       )}
@@ -115,8 +115,8 @@ export default function NotificationsPage() {
       {!isLoading && (!list || list.length === 0) && (
         <div
           style={{
-            background: "#161616",
-            border: "1px solid rgba(255,255,255,0.08)",
+            background: "var(--vb-card)",
+            border: "1px solid var(--vb-border)",
             borderRadius: 14,
             padding: "64px 24px",
             textAlign: "center",
@@ -142,7 +142,7 @@ export default function NotificationsPage() {
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
               fontSize: 16,
               fontWeight: 600,
-              color: "#f0f0f0",
+              color: "var(--vb-text)",
               margin: "0 0 6px",
             }}
           >
@@ -152,7 +152,7 @@ export default function NotificationsPage() {
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 13,
-              color: "#555",
+              color: "var(--vb-dim)",
               margin: 0,
             }}
           >
@@ -201,7 +201,7 @@ export default function NotificationsPage() {
                       fontFamily: "var(--font-inter), Inter, sans-serif",
                       fontSize: 14,
                       fontWeight: 600,
-                      color: "#f0f0f0",
+                      color: "var(--vb-text)",
                       margin: "0 0 4px",
                     }}
                   >
@@ -212,7 +212,7 @@ export default function NotificationsPage() {
                       style={{
                         fontFamily: "var(--font-inter), Inter, sans-serif",
                         fontSize: 13,
-                        color: "#888",
+                        color: "var(--vb-muted)",
                         margin: 0,
                         lineHeight: 1.5,
                       }}
@@ -227,7 +227,7 @@ export default function NotificationsPage() {
                     alignItems: "center",
                     gap: 8,
                     fontSize: 11,
-                    color: "#555",
+                    color: "var(--vb-dim)",
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     whiteSpace: "nowrap",
                   }}
@@ -276,7 +276,7 @@ const titleStyle: React.CSSProperties = {
   fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
   fontSize: 22,
   fontWeight: 700,
-  color: "#f0f0f0",
+  color: "var(--vb-text)",
   letterSpacing: "-0.02em",
   margin: 0,
 };
@@ -291,7 +291,7 @@ const secondaryBtn: React.CSSProperties = {
   padding: "8px 12px",
   fontSize: 12,
   fontWeight: 500,
-  color: "#f0f0f0",
+  color: "var(--vb-text)",
   fontFamily: "var(--font-inter), Inter, sans-serif",
 };
 

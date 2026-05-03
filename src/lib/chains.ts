@@ -45,18 +45,35 @@ export const CHAINS = {
 
 export type ChainKey = keyof typeof CHAINS;
 
+// Caller MUST `.toUpperCase()` the symbol before lookup — every entry here is
+// uppercase to keep that contract one-way and obvious.
 export const STABLECOIN_SYMBOLS = new Set([
+  // Major USD stables
   "USDC",
   "USDT",
   "DAI",
+  "USDS", // Sky/Maker rebrand of DAI
+  "PYUSD", // PayPal
+  "USDE", // Ethena
+  "FDUSD", // First Digital
+  "USDP", // Paxos
+  "GUSD", // Gemini
+  "TUSD", // TrueUSD
   "FRAX",
-  "BUSD",
-  "TUSD",
-  "USDP",
-  "GUSD",
-  "LUSD",
-  "sUSD",
-  "MIM",
+  "FRXUSD", // Frax v3
+  "CRVUSD", // Curve
+  "GHO", // Aave
+  "LUSD", // Liquity
+  "MIM", // Magic Internet Money
+  "BUSD", // Binance (deprecated but still on-chain)
   "USDD",
   "USDB",
+  "SUSD", // sUSD (Synthetix) — uppercase per the contract above
+  "USR", // Resolv
+  // Yield-bearing stables (Spark sDAI etc.) — still 1:1 USD-pegged
+  "SDAI",
+  "SUSDE", // Ethena staked
+  // EUR stables
+  "EURC",
+  "EURS",
 ]);

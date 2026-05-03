@@ -141,8 +141,8 @@ export function Sidebar() {
         flexShrink: 0,
         display: "flex",
         flexDirection: "column",
-        background: "#111111",
-        borderRight: "1px solid rgba(255,255,255,0.08)",
+        background: "var(--vb-alt)",
+        borderRight: "1px solid var(--vb-border)",
         minHeight: "100dvh",
         position: "sticky",
         top: 0,
@@ -156,7 +156,7 @@ export function Sidebar() {
           display: "flex",
           alignItems: "center",
           padding: "0 20px",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          borderBottom: "1px solid var(--vb-border)",
           flexShrink: 0,
           textDecoration: "none",
           transition: "opacity 0.2s ease",
@@ -186,7 +186,7 @@ export function Sidebar() {
       <div
         style={{
           padding: "10px",
-          borderTop: "1px solid rgba(255,255,255,0.08)",
+          borderTop: "1px solid var(--vb-border)",
           flexShrink: 0,
         }}
       >
