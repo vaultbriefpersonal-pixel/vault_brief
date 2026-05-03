@@ -70,7 +70,7 @@ function PricingCard({
       style={{
         background: tier.featured ? "#1c1c1c" : hovered ? "#1a1a1a" : "#161616",
         borderRadius: 16,
-        padding: 36,
+        padding: "clamp(20px, 4vw, 36px)",
         border: tier.featured
           ? "2px solid #00e87b"
           : `1px solid ${hovered ? "rgba(0,232,123,0.2)" : "rgba(255,255,255,0.08)"}`,
@@ -281,9 +281,8 @@ export function PricingCards() {
       </div>
 
       <div
+        className="vb-grid-3"
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
           gap: 20,
           alignItems: "start",
           maxWidth: 1100,

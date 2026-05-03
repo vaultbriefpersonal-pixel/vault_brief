@@ -24,7 +24,7 @@ export default async function BlogPostPage({ params }: Props) {
 
   return (
     <div style={{ paddingTop: 72 }}>
-      <section style={{ padding: "80px 48px 120px" }}>
+      <section className="vb-pad-x" style={{ paddingTop: 80, paddingBottom: 120 }}>
         <div style={{ maxWidth: 720, margin: "0 auto" }}>
           <Link
             href="/blog"

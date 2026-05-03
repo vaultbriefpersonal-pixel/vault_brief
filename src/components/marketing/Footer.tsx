@@ -66,8 +66,10 @@ const SOCIALS = [
 export function Footer() {
   return (
     <footer
+      className="vb-pad-x"
       style={{
-        padding: "60px 48px 40px",
+        paddingTop: 60,
+        paddingBottom: 40,
         borderTop: "1px solid rgba(255,255,255,0.08)",
         background: "#0a0a0a",
       }}

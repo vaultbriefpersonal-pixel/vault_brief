@@ -33,7 +33,7 @@ export function FAQ() {
   const [open, setOpen] = useState<number | null>(null);
 
   return (
-    <section style={{ padding: "120px 48px" }}>
+    <section className="vb-section">
       <div style={{ maxWidth: 720, margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: 56 }}>
           <p

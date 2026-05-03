@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
-
-const MOBILE_BREAKPOINT_PX = 768;
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 /**
  * Wraps the dashboard layout with a mobile-aware sidebar drawer.
@@ -19,20 +18,9 @@ export function DashboardShell({
   sidebar: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const [isMobile, setIsMobile] = useState(false);
+  const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
-
-  // Track the viewport breakpoint via matchMedia. Initial render assumes
-  // desktop to avoid SSR mismatch (server can't know the viewport).
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`);
-    const sync = () => setIsMobile(mql.matches);
-    sync();
-    mql.addEventListener("change", sync);
-    return () => mql.removeEventListener("change", sync);
-  }, []);
 
   // Close the drawer whenever the route changes — a tap on a nav link should
   // navigate AND close the menu in one motion.

@@ -23,6 +23,7 @@ export function Nav() {
 
   return (
     <nav
+      className="vb-pad-x"
       style={{
         position: "fixed",
         top: 0,
@@ -30,7 +31,6 @@ export function Nav() {
         right: 0,
         zIndex: 1000,
         height: 72,
-        padding: "0 48px",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",

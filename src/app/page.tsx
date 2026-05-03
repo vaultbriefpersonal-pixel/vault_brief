@@ -99,13 +99,13 @@ export default function LandingPage() {
 
       {/* Hero */}
       <section
+        className="vb-section-hero"
         style={{
           minHeight: "100vh",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          padding: "140px 48px 80px",
           textAlign: "center",
           position: "relative",
           background:
@@ -175,9 +175,9 @@ export default function LandingPage() {
           </h1>
 
           <p
+            className="vb-hero-copy"
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
-              fontSize: 19,
               lineHeight: 1.6,
               color: "#888888",
               maxWidth: 540,
@@ -281,11 +281,8 @@ export default function LandingPage() {
             </div>
 
             <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(4, 1fr)",
-                gap: 16,
-              }}
+              className="vb-grid-4"
+              style={{ gap: 16 }}
             >
               {[
                 { label: "Total Balance", val: "$2.4M", change: "+3.2%" },
@@ -345,8 +342,8 @@ export default function LandingPage() {
 
       {/* Logo bar */}
       <section
+        className="vb-section-sm"
         style={{
-          padding: "60px 48px",
           textAlign: "center",
           borderTop: "1px solid rgba(255,255,255,0.08)",
           borderBottom: "1px solid rgba(255,255,255,0.08)",
@@ -395,7 +392,8 @@ export default function LandingPage() {
       {/* Features */}
       <section
         id="features"
-        style={{ padding: "120px 48px", maxWidth: 1200, margin: "0 auto" }}
+        className="vb-section"
+        style={{ maxWidth: 1200, margin: "0 auto" }}
       >
         <div style={{ textAlign: "center", marginBottom: 64 }}>
           <p
@@ -427,11 +425,8 @@ export default function LandingPage() {
         </div>
 
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 16,
-          }}
+          className="vb-grid-3"
+          style={{ gap: 16 }}
         >
           {FEATURES.map((f) => (
             <div
@@ -490,7 +485,7 @@ export default function LandingPage() {
       </section>
 
       {/* How It Works */}
-      <section style={{ padding: "120px 48px", background: "#111111" }}>
+      <section className="vb-section" style={{ background: "#111111" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 72 }}>
             <p
@@ -522,11 +517,8 @@ export default function LandingPage() {
           </div>
 
           <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4, 1fr)",
-              gap: 24,
-            }}
+            className="vb-grid-4"
+            style={{ gap: 24 }}
           >
             {STEPS.map((s) => (
               <div key={s.num}>
@@ -574,7 +566,7 @@ export default function LandingPage() {
       </section>
 
       {/* Testimonials */}
-      <section style={{ padding: "120px 48px", background: "#111111" }}>
+      <section className="vb-section" style={{ background: "#111111" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 64 }}>
             <p
@@ -606,11 +598,8 @@ export default function LandingPage() {
           </div>
 
           <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 20,
-            }}
+            className="vb-grid-3"
+            style={{ gap: 20 }}
           >
             {TESTIMONIALS.map((q) => (
               <div
@@ -677,8 +666,8 @@ export default function LandingPage() {
 
       {/* CTA Banner */}
       <section
+        className="vb-section-cta"
         style={{
-          padding: "100px 48px",
           textAlign: "center",
           background: "#111111",
           position: "relative",

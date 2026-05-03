@@ -48,8 +48,10 @@ export default function AboutPage() {
     <div style={{ paddingTop: 72 }}>
       {/* Mission */}
       <section
+        className="vb-pad-x"
         style={{
-          padding: "100px 48px 80px",
+          paddingTop: 100,
+          paddingBottom: 80,
           maxWidth: 800,
           margin: "0 auto",
           textAlign: "center",
@@ -102,7 +104,8 @@ export default function AboutPage() {
 
       {/* Story */}
       <section
-        style={{ padding: "80px 48px", background: "#111111" }}
+        className="vb-section-sm"
+        style={{ background: "#111111" }}
       >
         <div
           style={{
@@ -150,7 +153,7 @@ export default function AboutPage() {
       </section>
 
       {/* Values */}
-      <section style={{ padding: "80px 48px" }}>
+      <section className="vb-section-sm">
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <h2
             style={{
@@ -167,11 +170,8 @@ export default function AboutPage() {
             What we believe
           </h2>
           <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 24,
-            }}
+            className="vb-grid-3"
+            style={{ gap: 24 }}
           >
             {VALUES.map((v) => (
               <div
@@ -214,7 +214,7 @@ export default function AboutPage() {
       </section>
 
       {/* Team */}
-      <section style={{ padding: "80px 48px", background: "#111111" }}>
+      <section className="vb-section-sm" style={{ background: "#111111" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <h2
             style={{
@@ -231,11 +231,8 @@ export default function AboutPage() {
             The team
           </h2>
           <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 24,
-            }}
+            className="vb-grid-3"
+            style={{ gap: 24 }}
           >
             {TEAM.map((person) => (
               <div
@@ -310,7 +307,8 @@ export default function AboutPage() {
 
       {/* CTA */}
       <section
-        style={{ padding: "80px 48px", textAlign: "center" }}
+        className="vb-section-sm"
+        style={{ textAlign: "center" }}
       >
         <h2
           style={{

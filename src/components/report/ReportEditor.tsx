@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ReportPreview } from "./ReportPreview";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 interface ReportEditorProps {
   initialContent: string;
@@ -44,6 +45,11 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
   const [notes, setNotes] = useState(founderNotes ?? "");
   const [saving, setSaving] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMobile = useIsMobile();
+  // On mobile we collapse the 50/50 split to a tab switcher. Both panes stay
+  // mounted (display: none toggles visibility) so textarea state is preserved
+  // when the user flips between Editor and Preview.
+  const [mobileTab, setMobileTab] = useState<"editor" | "preview">("editor");
 
   const triggerSave = useCallback(
     (c: string, n: string) => {
@@ -62,15 +68,69 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
     };
   }, []);
 
+  const editorVisible = !isMobile || mobileTab === "editor";
+  const previewVisible = !isMobile || mobileTab === "preview";
+
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: isMobile ? "column" : "row",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      {isMobile && (
+        <div
+          style={{
+            display: "flex",
+            background: "#0a0a0a",
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
+            flexShrink: 0,
+          }}
+        >
+          {(["editor", "preview"] as const).map((t) => {
+            const active = mobileTab === t;
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setMobileTab(t)}
+                aria-pressed={active}
+                style={{
+                  flex: 1,
+                  padding: "12px 0",
+                  background: active ? "#111111" : "transparent",
+                  border: "none",
+                  borderBottom: active
+                    ? "2px solid #00e87b"
+                    : "2px solid transparent",
+                  color: active ? "#f0f0f0" : "#555555",
+                  fontFamily: "var(--font-inter), Inter, sans-serif",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  cursor: "pointer",
+                }}
+              >
+                {t === "editor" ? "Editor" : "Preview"}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Editor pane */}
       <div
         style={{
-          width: "50%",
-          display: "flex",
+          width: isMobile ? "100%" : "50%",
+          display: editorVisible ? "flex" : "none",
           flexDirection: "column",
-          borderRight: "1px solid rgba(255,255,255,0.08)",
+          borderRight: isMobile
+            ? "none"
+            : "1px solid rgba(255,255,255,0.08)",
+          minHeight: 0,
         }}
       >
         <PaneHeader
@@ -157,8 +217,16 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
       </div>
 
       {/* Preview pane */}
-      <div style={{ width: "50%", display: "flex", flexDirection: "column" }}>
-        <PaneHeader label="Preview" />
+      <div
+        style={{
+          width: isMobile ? "100%" : "50%",
+          display: previewVisible ? "flex" : "none",
+          flexDirection: "column",
+          minHeight: 0,
+        }}
+      >
+        {/* PaneHeader hidden on mobile — the tab switcher already labels it. */}
+        {!isMobile && <PaneHeader label="Preview" />}
         <div style={{ flex: 1, overflowY: "auto", background: "#0a0a0a" }}>
           <ReportPreview content={content} />
         </div>

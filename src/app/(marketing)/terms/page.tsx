@@ -12,7 +12,7 @@ const s = {
 export default function TermsPage() {
   return (
     <div style={{ paddingTop: 72 }}>
-      <section style={{ padding: "80px 48px 120px", maxWidth: 720, margin: "0 auto" }}>
+      <section className="vb-pad-x" style={{ paddingTop: 80, paddingBottom: 120, maxWidth: 720, margin: "0 auto" }}>
         <p style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "#555555", marginBottom: 12 }}>Last updated: May 1, 2026</p>
         <h1 style={{ fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif", fontSize: "clamp(32px, 4vw, 44px)", fontWeight: 700, color: "#f0f0f0", letterSpacing: "-0.03em", margin: "0 0 40px" }}>Terms of Service</h1>
 

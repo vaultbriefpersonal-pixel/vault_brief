@@ -126,3 +126,63 @@ body {
   border-color: rgba(0, 232, 123, 0.3) !important;
   background: #1c1c1c !important;
 }
+
+/* ─── Responsive utility layer ───
+   Inline styles still own the look; these classes only swap layout primitives
+   at well-known breakpoints so we don't need media queries scattered per file. */
+
+/* Section padding: tightens horizontal gutter and vertical rhythm on phones */
+.vb-section { padding: 120px 48px; }
+.vb-section-sm { padding: 80px 48px; }
+.vb-section-hero { padding: 140px 48px 80px; }
+.vb-section-cta { padding: 100px 48px; }
+
+@media (max-width: 768px) {
+  .vb-section { padding: 64px 20px; }
+  .vb-section-sm { padding: 48px 20px; }
+  .vb-section-hero { padding: 96px 20px 56px; }
+  .vb-section-cta { padding: 64px 20px; }
+}
+
+/* Stat / nav / feature grids — collapse from N → 2 → 1 columns */
+.vb-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); }
+.vb-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); }
+.vb-grid-2 { display: grid; grid-template-columns: 1fr 1fr; }
+
+@media (max-width: 768px) {
+  .vb-grid-4 { grid-template-columns: 1fr 1fr; }
+  .vb-grid-3 { grid-template-columns: 1fr; }
+  .vb-grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .vb-grid-4 { grid-template-columns: 1fr; }
+}
+
+/* Forms with 2 fields per row → single column on narrow phones */
+.vb-form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 640px) {
+  .vb-form-2col { grid-template-columns: 1fr; }
+}
+
+/* Wide content (tables, comparison rows) — horizontal scroll fallback */
+.vb-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.vb-table-scroll > * { min-width: 600px; }
+
+/* Hero copy paragraph — clamp instead of fixed 19px */
+.vb-hero-copy { font-size: clamp(16px, 2.4vw, 19px) !important; }
+
+/* Horizontal padding helper for sections that already manage their vertical
+   spacing inline (legal pages, custom hero variants). */
+.vb-pad-x { padding-left: 48px; padding-right: 48px; }
+@media (max-width: 768px) {
+  .vb-pad-x { padding-left: 20px; padding-right: 20px; }
+}
+
+/* Two-column layouts with a fixed-width sidebar — stack on mobile.
+   Apply to the parent grid; existing inline gridTemplateColumns is overridden. */
+.vb-stack-mobile { }
+@media (max-width: 768px) {
+  .vb-stack-mobile {
+    grid-template-columns: 1fr !important;
+  }
+}

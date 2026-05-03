@@ -102,12 +102,8 @@ export default function InvestorsPage({ params }: Props) {
           </div>
         )}
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 8,
-            marginBottom: 12,
-          }}
+          className="vb-form-2col"
+          style={{ gap: 8, marginBottom: 12 }}
         >
           <input
             style={inputStyle}

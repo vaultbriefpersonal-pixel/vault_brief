@@ -146,12 +146,8 @@ export default async function ProjectPage({ params }: Props) {
 
       {latestSnapshot && (
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
-            gap: 12,
-            marginBottom: 24,
-          }}
+          className="vb-grid-4"
+          style={{ gap: 12, marginBottom: 24 }}
         >
           {statCard(
             "Treasury",
@@ -179,12 +175,8 @@ export default async function ProjectPage({ params }: Props) {
       )}
 
       <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
-          gap: 10,
-          marginBottom: 32,
-        }}
+        className="vb-grid-4"
+        style={{ gap: 10, marginBottom: 32 }}
       >
         {NAV.map(({ href, label, icon: Icon, count }) => (
           <Link
@@ -248,7 +240,8 @@ export default async function ProjectPage({ params }: Props) {
       </div>
 
       <div
-        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}
+        className="vb-grid-2"
+        style={{ gap: 16 }}
       >
         <div
           style={{
@@ -365,11 +358,8 @@ export default async function ProjectPage({ params }: Props) {
               Development activity
             </h3>
             <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, 1fr)",
-                gap: 16,
-              }}
+              className="vb-grid-3"
+              style={{ gap: 16 }}
             >
               {[
                 {

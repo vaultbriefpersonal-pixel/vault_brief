@@ -138,20 +138,22 @@ export default async function AnalyticsPage() {
           overflow: "hidden",
         }}
       >
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "2fr 1fr 1fr 1fr",
-            padding: "12px 18px",
-            background: "#1a1a1a",
-            fontSize: 11,
-            fontWeight: 600,
-            color: "#888888",
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            fontFamily: "var(--font-inter), Inter, sans-serif",
-          }}
-        >
+        <div className="vb-table-scroll">
+          <div style={{ minWidth: 600 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "2fr 1fr 1fr 1fr",
+              padding: "12px 18px",
+              background: "#1a1a1a",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#888888",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+            }}
+          >
           <span>Project</span>
           <span>Wallets</span>
           <span>Last snapshot</span>
@@ -206,6 +208,8 @@ export default async function AnalyticsPage() {
             </Link>
           );
         })}
+        </div>
+        </div>
       </div>
     </div>
   );

@@ -121,7 +121,8 @@ export default function ProjectSettingsPage({ params }: Props) {
 
       <form
         onSubmit={handleSubmit}
-        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 40 }}
+        className="vb-form-2col"
+        style={{ gap: 20, marginBottom: 40 }}
       >
         {FIELDS.map(([key, label, type, required]) => (
           <div

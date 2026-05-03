@@ -97,7 +97,8 @@ export default function NewProjectPage() {
 
       <form
         onSubmit={handleSubmit}
-        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}
+        className="vb-form-2col"
+        style={{ gap: 20 }}
       >
         <div style={{ gridColumn: "1 / -1" }}>
           <label style={labelStyle}>

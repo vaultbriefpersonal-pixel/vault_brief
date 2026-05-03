@@ -36,7 +36,7 @@ export default function StatusPage() {
 
   return (
     <div style={{ paddingTop: 72 }}>
-      <section style={{ padding: "80px 48px 120px", maxWidth: 800, margin: "0 auto" }}>
+      <section className="vb-pad-x" style={{ paddingTop: 80, paddingBottom: 120, maxWidth: 800, margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: 60 }}>
           <div style={{ width: 56, height: 56, borderRadius: "50%", background: "rgba(0,232,123,0.12)", border: "2px solid rgba(0,232,123,0.3)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 24 }}>✓</div>
           <h1 style={{ fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif", fontSize: 36, fontWeight: 700, color: "#f0f0f0", letterSpacing: "-0.03em", margin: "0 0 10px" }}>

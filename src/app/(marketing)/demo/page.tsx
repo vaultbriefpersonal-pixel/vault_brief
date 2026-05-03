@@ -40,8 +40,10 @@ export default function DemoPage() {
     <div style={{ paddingTop: 72 }}>
       {/* Header */}
       <section
+        className="vb-pad-x"
         style={{
-          padding: "60px 48px 40px",
+          paddingTop: 60,
+          paddingBottom: 40,
           textAlign: "center",
           background:
             "linear-gradient(180deg, rgba(0,232,123,0.04) 0%, transparent 100%)",
@@ -94,7 +96,7 @@ export default function DemoPage() {
       </section>
 
       {/* Report */}
-      <section style={{ padding: "48px 48px 100px" }}>
+      <section className="vb-pad-x" style={{ paddingTop: 48, paddingBottom: 100 }}>
         <div
           style={{
             maxWidth: 900,
@@ -170,12 +172,8 @@ export default function DemoPage() {
           <div style={{ padding: "40px" }}>
             {/* KPI row */}
             <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(4, 1fr)",
-                gap: 16,
-                marginBottom: 40,
-              }}
+              className="vb-grid-4"
+              style={{ gap: 16, marginBottom: 40 }}
             >
               {BALANCES.map((b) => (
                 <div
@@ -228,12 +226,8 @@ export default function DemoPage() {
 
             {/* Two-col layout */}
             <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 24,
-                marginBottom: 40,
-              }}
+              className="vb-grid-2"
+              style={{ gap: 24, marginBottom: 40 }}
             >
               {/* Treasury breakdown */}
               <div
@@ -406,11 +400,8 @@ export default function DemoPage() {
                 Development Activity
               </h3>
               <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3, 1fr)",
-                  gap: 16,
-                }}
+                className="vb-grid-3"
+                style={{ gap: 16 }}
               >
                 {GITHUB.map((g) => (
                   <div key={g.label} style={{ textAlign: "center" }}>

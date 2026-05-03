@@ -96,7 +96,7 @@ export default async function BillingPage() {
         Billing
       </h2>
 
-      <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 20, flex: 1 }}>
+      <div className="vb-stack-mobile" style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 20, flex: 1 }}>
         {/* Left column */}
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {/* Current plan card */}
@@ -142,7 +142,7 @@ export default async function BillingPage() {
               </Link>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div className="vb-grid-2" style={{ gap: 14 }}>
               <div
                 style={{
                   background: "#0a0a0a",

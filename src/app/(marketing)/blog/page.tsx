@@ -34,8 +34,10 @@ export default function BlogPage() {
   return (
     <div style={{ paddingTop: 72 }}>
       <section
+        className="vb-pad-x"
         style={{
-          padding: "80px 48px 60px",
+          paddingTop: 80,
+          paddingBottom: 60,
           background:
             "linear-gradient(180deg, rgba(0,232,123,0.04) 0%, transparent 100%)",
         }}
@@ -84,7 +86,7 @@ export default function BlogPage() {
         </div>
       </section>
 
-      <section style={{ padding: "60px 48px 120px" }}>
+      <section className="vb-pad-x" style={{ paddingTop: 60, paddingBottom: 120 }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           {/* Featured */}
           {featured && (
@@ -93,14 +95,12 @@ export default function BlogPage() {
               style={{ textDecoration: "none", display: "block", marginBottom: 48 }}
             >
               <div
-                className="card-hover"
+                className="card-hover vb-grid-2"
                 style={{
                   background: "#161616",
                   borderRadius: 16,
                   border: "1px solid rgba(255,255,255,0.08)",
                   padding: 48,
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
                   gap: 48,
                   alignItems: "center",
                 }}
@@ -176,11 +176,8 @@ export default function BlogPage() {
 
           {/* Grid */}
           <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 24,
-            }}
+            className="vb-grid-3"
+            style={{ gap: 24 }}
           >
             {filteredPosts.map((post) => (
               <Link

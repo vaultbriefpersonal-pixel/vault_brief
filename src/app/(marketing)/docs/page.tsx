@@ -175,12 +175,12 @@ export default function DocsPage() {
   return (
     <div style={{ paddingTop: 72, minHeight: "100vh" }}>
       <div
+        className="vb-stack-mobile vb-pad-x"
         style={{
           display: "grid",
           gridTemplateColumns: "260px 1fr",
           maxWidth: 1200,
           margin: "0 auto",
-          padding: "0 48px",
         }}
       >
         {/* Sidebar */}
@@ -233,7 +233,7 @@ export default function DocsPage() {
         </aside>
 
         {/* Content */}
-        <main style={{ padding: "48px 0 120px 48px" }}>
+        <main style={{ padding: "48px 0 120px" }}>
 
           {/* Introduction */}
           <div id="introduction">
@@ -247,12 +247,8 @@ export default function DocsPage() {
             </p>
 
             <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, 1fr)",
-                gap: 16,
-                marginBottom: 48,
-              }}
+              className="vb-grid-2"
+              style={{ gap: 16, marginBottom: 48 }}
             >
               {[
                 { icon: "⚡", title: "Quick Start", desc: "Connect your first wallet and generate a report in 5 minutes.", href: "#quickstart" },
@@ -465,7 +461,7 @@ export default function DocsPage() {
             </p>
 
             <h2 style={h2Style}>Supported chains</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 32 }}>
+            <div className="vb-grid-3" style={{ gap: 12, marginBottom: 32 }}>
               {["Ethereum", "Arbitrum", "Polygon", "Base", "Optimism", "Solana"].map((chain) => (
                 <div
                   key={chain}

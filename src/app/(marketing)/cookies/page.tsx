@@ -18,7 +18,7 @@ const COOKIES = [
 export default function CookiesPage() {
   return (
     <div style={{ paddingTop: 72 }}>
-      <section style={{ padding: "80px 48px 120px", maxWidth: 720, margin: "0 auto" }}>
+      <section className="vb-pad-x" style={{ paddingTop: 80, paddingBottom: 120, maxWidth: 720, margin: "0 auto" }}>
         <p style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "#555555", marginBottom: 12 }}>Last updated: May 1, 2026</p>
         <h1 style={{ fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif", fontSize: "clamp(32px, 4vw, 44px)", fontWeight: 700, color: "#f0f0f0", letterSpacing: "-0.03em", margin: "0 0 40px" }}>Cookie Policy</h1>
 
@@ -26,7 +26,8 @@ export default function CookiesPage() {
 
         <h2 style={s.h2}>Cookies we use</h2>
 
-        <div style={{ background: "#161616", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, overflow: "hidden", marginBottom: 32 }}>
+        <div className="vb-table-scroll" style={{ background: "#161616", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, overflow: "hidden", marginBottom: 32 }}>
+          <div style={{ minWidth: 600 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr 1fr", background: "#0d0d0d", padding: "12px 20px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
             {["Cookie", "Type", "Purpose", "Duration"].map((h) => (
               <span key={h} style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 11, fontWeight: 600, color: "#555555", textTransform: "uppercase", letterSpacing: "0.07em" }}>{h}</span>
@@ -40,6 +41,7 @@ export default function CookiesPage() {
               <span style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "#555555" }}>{c.duration}</span>
             </div>
           ))}
+          </div>
         </div>
 
         <h2 style={s.h2}>Your choices</h2>

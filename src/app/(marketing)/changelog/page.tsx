@@ -114,8 +114,10 @@ export default function ChangelogPage() {
   return (
     <div style={{ paddingTop: 72 }}>
       <section
+        className="vb-pad-x"
         style={{
-          padding: "80px 48px 60px",
+          paddingTop: 80,
+          paddingBottom: 60,
           background:
             "linear-gradient(180deg, rgba(0,232,123,0.04) 0%, transparent 100%)",
         }}
@@ -160,11 +162,12 @@ export default function ChangelogPage() {
         </div>
       </section>
 
-      <section style={{ padding: "60px 48px 120px" }}>
+      <section className="vb-pad-x" style={{ paddingTop: 60, paddingBottom: 120 }}>
         <div style={{ maxWidth: 760, margin: "0 auto" }}>
           {ENTRIES.map((entry, i) => (
             <div
               key={entry.version}
+              className="vb-stack-mobile"
               style={{
                 display: "grid",
                 gridTemplateColumns: "180px 1fr",

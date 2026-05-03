@@ -45,8 +45,8 @@ export default function PricingPage() {
     <div style={{ paddingTop: 72 }}>
       {/* Hero */}
       <section
+        className="vb-section-sm"
         style={{
-          padding: "80px 48px 60px",
           textAlign: "center",
           background:
             "linear-gradient(180deg, rgba(0,232,123,0.04) 0%, transparent 100%)",
@@ -96,7 +96,7 @@ export default function PricingPage() {
       {/* Pricing cards */}
       <section
         style={{
-          padding: "0 48px 80px",
+          padding: "0 20px 80px",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
@@ -124,10 +124,8 @@ export default function PricingPage() {
 
       {/* Comparison table */}
       <section
-        style={{
-          padding: "80px 48px",
-          background: "#111111",
-        }}
+        className="vb-section-sm"
+        style={{ background: "#111111" }}
       >
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           <h2
@@ -146,6 +144,7 @@ export default function PricingPage() {
           </h2>
 
           <div
+            className="vb-table-scroll"
             style={{
               border: "1px solid rgba(255,255,255,0.08)",
               borderRadius: 14,
@@ -225,7 +224,7 @@ export default function PricingPage() {
       </section>
 
       {/* FAQ */}
-      <section style={{ padding: "80px 48px" }}>
+      <section className="vb-section-sm">
         <div style={{ maxWidth: 720, margin: "0 auto" }}>
           <h2
             style={{

@@ -17,14 +17,14 @@ const ITEMS = [
 export default function SecurityPage() {
   return (
     <div style={{ paddingTop: 72 }}>
-      <section style={{ padding: "100px 48px 80px", maxWidth: 1000, margin: "0 auto" }}>
+      <section className="vb-pad-x" style={{ paddingTop: 100, paddingBottom: 80, maxWidth: 1000, margin: "0 auto" }}>
         <p style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "#00e87b", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 600, marginBottom: 16 }}>Security</p>
         <h1 style={{ fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif", fontSize: "clamp(36px, 5vw, 52px)", fontWeight: 700, color: "#f0f0f0", letterSpacing: "-0.035em", margin: "0 0 16px" }}>Your data is safe with us</h1>
         <p style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 17, color: "#888888", maxWidth: 600, lineHeight: 1.65, margin: "0 0 72px" }}>
           We take a security-first approach to building VaultBrief. Here is exactly how we protect your data and your investors' information.
         </p>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 24 }}>
+        <div className="vb-grid-2" style={{ gap: 24 }}>
           {ITEMS.map((item) => (
             <div key={item.title} style={{ background: "#161616", borderRadius: 14, border: "1px solid rgba(255,255,255,0.08)", padding: 32 }}>
               <span style={{ fontSize: 28, display: "block", marginBottom: 16 }}>{item.icon}</span>
