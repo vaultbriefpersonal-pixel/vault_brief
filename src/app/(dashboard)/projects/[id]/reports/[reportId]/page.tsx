@@ -42,9 +42,24 @@ export default function ReportEditorPage({ params }: Props) {
   const sendToInvestors = trpc.investors.sendReport.useMutation({
     onSuccess: (res) => {
       setSendError(null);
-      setSendSuccess(`Sent to ${res.sent} of ${res.total} investors`);
+      // Distinguish full success from partial. The router now returns
+      // `failures` only when at least one delivery failed; treat that as
+      // a degraded result so the founder doesn't trust a green checkmark
+      // when investors X and Y silently bounced.
+      if (res.failures && res.failures.length > 0) {
+        const sample = res.failures
+          .slice(0, 2)
+          .map((f) => `${f.email}: ${f.reason}`)
+          .join("; ");
+        setSendError(
+          `Partially sent (${res.sent} of ${res.total}). Failed: ${sample}`
+        );
+        setSendSuccess(null);
+      } else {
+        setSendSuccess(`Sent to ${res.sent} of ${res.total} investors`);
+        setTimeout(() => setSendSuccess(null), 4000);
+      }
       refetch();
-      setTimeout(() => setSendSuccess(null), 4000);
     },
     onError: (err) => {
       setSendSuccess(null);

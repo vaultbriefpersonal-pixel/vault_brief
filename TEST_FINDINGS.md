@@ -87,9 +87,9 @@ Folded into Phase 1 (covered all 7 mock-shapes during walk-through).
 |---|---|---|---|---|
 | 8.1 | `reports.generate` against ENS mock | Real OpenRouter→Gemini 2.5 Flash response, 100% structured: ExecSummary / Treasury table / Financial Health / Token Metrics / Dev Activity / Highlights / Risks | — | ✅ Verified |
 | 8.2 | LLM omits milestones | `buildReportPrompt` never received the project's milestones — produced "Not available" despite seed having 2 active milestones | P1 | ✅ Fixed (prompts.ts + report-generator.ts) |
-| 8.3 | LLM emits `$0` rows for assets the project doesn't hold | Token / Other rows render as `$0 \| 0%` instead of being suppressed | Polish | open (prompt-side fix) |
+| 8.3 | LLM emits `$0` rows for assets the project doesn't hold | Token / Other rows render as `$0 \| 0%` instead of being suppressed | P1 | ✅ Fixed (prompt builder filters $0 lines + system prompt rule). Verified Tiny ($487 stables only) renders one row. |
 | 8.4 | `investors.sendReport` against ENS mock | 2 emails dispatched via Resend, status flips to `sent`, `sentToCount=2`, in-app notification created | — | ✅ Verified |
-| 8.5 | `sendReport` marks status='sent' even if all sends fail | If Resend rejects every email (sent=0), report is still flipped to "sent". Founder thinks email went out. | P1 | open |
+| 8.5 | `sendReport` marks status='sent' even if all sends fail | If Resend rejects every email (sent=0), report is still flipped to "sent". Founder thinks email went out. | P1 | ✅ Fixed. All-fail → 502 BAD_GATEWAY, status stays `review`. Partial → 200 with `failures[]`, UI shows "Partially sent (N of M)". |
 | 8.6 | Dev "tRPC stale" 500 | After source edits, dev sometimes serves "Internal Server Error" until restart. Not a prod issue — Next.js dev quirk. | Polish | open |
 
 ## Phase 9 — A11y / DX hardening shipped this loop

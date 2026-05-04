@@ -12,6 +12,7 @@ Generate a monthly investor report in Markdown format from the provided treasury
 
 ### Treasury Overview
 - Table: Asset | Balance | % of Total
+- **Only include rows where Balance > $0.** Skip categories the project does not currently hold — do NOT emit "$0 / 0%" placeholder rows. If the input doesn't list a balance for an asset, that asset doesn't exist in this treasury; pretend it's not even on the menu.
 - Total treasury value
 - Change vs previous month (absolute and percentage)
 
@@ -70,13 +71,29 @@ export function buildReportPrompt(
 ): string {
   const period = `${snapshot.snapshotDate}`;
 
+  // Only emit asset lines for balances the project actually holds. Sending
+  // "Other assets: $0.00" or a $0 native-token line was causing the model to
+  // dutifully render those rows in the Markdown table, leading to "$0 / 0%"
+  // entries that look like missing data. Empty categories: drop entirely.
+  const treasuryLines: string[] = [
+    `- Total balance: ${formatUsd(Number(snapshot.totalBalanceUsd ?? 0))}`,
+  ];
+  const stables = Number(snapshot.stablecoinsUsd ?? 0);
+  if (stables > 0) treasuryLines.push(`- Stablecoins: ${formatUsd(stables)}`);
+  const ethUsd = Number(snapshot.ethUsd ?? 0);
+  if (ethUsd > 0) treasuryLines.push(`- ETH/WETH: ${formatUsd(ethUsd)}`);
+  const nativeUsd = Number(snapshot.nativeTokenUsd ?? 0);
+  if (project.tokenSymbol && nativeUsd > 0) {
+    treasuryLines.push(
+      `- ${project.tokenSymbol} (native token): ${formatUsd(nativeUsd)}`
+    );
+  }
+  const otherUsd = Number(snapshot.otherAssetsUsd ?? 0);
+  if (otherUsd > 0) treasuryLines.push(`- Other assets: ${formatUsd(otherUsd)}`);
+
   const treasurySection = `
 ## Current Treasury (${period})
-- Total balance: ${formatUsd(Number(snapshot.totalBalanceUsd ?? 0))}
-- Stablecoins: ${formatUsd(Number(snapshot.stablecoinsUsd ?? 0))}
-- ETH/WETH: ${formatUsd(Number(snapshot.ethUsd ?? 0))}
-${project.tokenSymbol ? `- ${project.tokenSymbol} (native token): ${formatUsd(Number(snapshot.nativeTokenUsd ?? 0))}` : ""}
-- Other assets: ${formatUsd(Number(snapshot.otherAssetsUsd ?? 0))}
+${treasuryLines.join("\n")}
 
 ${
   prevSnapshot

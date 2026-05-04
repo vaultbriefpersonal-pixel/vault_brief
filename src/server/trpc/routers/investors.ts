@@ -162,6 +162,46 @@ export const investorsRouter = router({
       );
 
       const sent = results.filter((r) => r.status === "fulfilled").length;
+      const total = activeInvestors.length;
+
+      // Collect failure reasons so we can both log them server-side and
+      // surface a useful message to the founder. Never store full Resend
+      // error objects in the DB — message + investor email is enough audit.
+      const failures = results
+        .map((r, i) => {
+          if (r.status !== "rejected") return null;
+          const reason =
+            r.reason instanceof Error ? r.reason.message : String(r.reason);
+          return {
+            email: activeInvestors[i].email,
+            name: activeInvestors[i].name,
+            reason,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
+      if (failures.length > 0) {
+        console.error(
+          `[investors.sendReport] ${failures.length}/${total} deliveries failed:`,
+          failures
+        );
+      }
+
+      // ALL deliveries failed → don't lie to the founder by flipping the
+      // status to "sent". Leave it in 'review', surface the underlying
+      // failure messages, and let them retry. Without this guard a bad
+      // FROM-domain config or expired Resend key silently looks "sent" in
+      // the UI — and investors don't get the email.
+      if (sent === 0) {
+        const sample = failures
+          .slice(0, 2)
+          .map((f) => `${f.email}: ${f.reason}`)
+          .join("; ");
+        throw new TRPCError({
+          code: "BAD_GATEWAY",
+          message: `All ${total} email deliveries failed. Report kept in review. ${sample}`,
+        });
+      }
 
       await ctx.db
         .update(reports)
@@ -177,10 +217,20 @@ export const investorsRouter = router({
       await notify(ctx.session.user.id!, {
         type: "report_sent",
         title: `${project.name} report sent`,
-        body: `Delivered to ${sent} of ${activeInvestors.length} investors.`,
+        body:
+          sent === total
+            ? `Delivered to all ${total} investors.`
+            : `Delivered to ${sent} of ${total} investors. ${failures.length} failed — see logs.`,
         href: `/projects/${input.projectId}/reports/${input.reportId}`,
       });
 
-      return { sent, total: activeInvestors.length };
+      // Caller (UI) should treat partial<total as a degraded success and
+      // show a yellow "N of M sent — see details" toast rather than a green
+      // "all sent". Returning the failures array lets the editor render that.
+      return {
+        sent,
+        total,
+        failures: failures.length > 0 ? failures : undefined,
+      };
     }),
 });
