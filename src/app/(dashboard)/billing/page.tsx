@@ -14,16 +14,20 @@ const PLAN_DETAILS: Record<
   free: {
     label: "Free Trial",
     projectLimit: "1",
-    walletLimit: "1",
+    walletLimit: "5",
     price: "$0",
-    features: ["1 project", "1 wallet", "1 GitHub repo", "Monthly PDF reports", "Email distribution"],
+    // Limits below mirror PLAN_PROJECT_LIMITS / PLAN_WALLET_LIMITS in the
+    // tRPC routers — keep in sync. Trial is generous (5 wallets) so the
+    // first-time user can connect a real multi-chain treasury without
+    // hitting an upsell wall before they see value.
+    features: ["1 project", "Up to 5 wallets (any chain)", "1 GitHub org", "Monthly PDF reports", "Email distribution"],
   },
   starter: {
     label: "Seed",
     projectLimit: "1",
-    walletLimit: "1",
+    walletLimit: "5",
     price: "$99",
-    features: ["1 project", "1 wallet", "1 GitHub repo", "Monthly PDF reports", "Email distribution"],
+    features: ["1 project", "Up to 5 wallets", "1 GitHub org", "Monthly PDF reports", "Email distribution"],
   },
   growth: {
     label: "Growth",

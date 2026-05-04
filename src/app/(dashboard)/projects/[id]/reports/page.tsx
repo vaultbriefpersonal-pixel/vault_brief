@@ -6,6 +6,7 @@ import { projects, reports, treasurySnapshots } from "@/server/db/schema";
 import { and, eq, desc } from "drizzle-orm";
 import { formatDate } from "@/lib/utils";
 import { ReportsEmptyState } from "@/components/reports/ReportsEmptyState";
+import { GenerateReportButton } from "@/components/reports/GenerateReportButton";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -74,8 +75,14 @@ export default async function ReportsPage({ params }: Props) {
           latestSnapshotHasReport={latestSnapshotHasReport}
         />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {reportList.map((report) => (
+        <>
+          <GenerateReportButton
+            projectId={projectId}
+            latestSnapshotId={latestSnapshot?.id ?? null}
+            latestSnapshotHasReport={latestSnapshotHasReport}
+          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {reportList.map((report) => (
             <Link
               key={report.id}
               href={`/projects/${projectId}/reports/${report.id}`}
@@ -155,8 +162,9 @@ export default async function ReportsPage({ params }: Props) {
                 </span>
               </div>
             </Link>
-          ))}
-        </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

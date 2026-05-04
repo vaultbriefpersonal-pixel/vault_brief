@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
 import { Nav } from "@/components/marketing/Nav";
 import { Footer } from "@/components/marketing/Footer";
 import { FAQ } from "@/components/marketing/FAQ";
@@ -88,17 +86,15 @@ const TESTIMONIALS = [
 
 const LOGOS = ["Meridian Protocol", "Lattice DAO", "Prism Finance", "Atlas Labs", "Nova Network", "Cascade Finance"];
 
-export default async function LandingPage() {
-  // Logged-in users skip the marketing splash and go straight to their
-  // dashboard. Guests see the full landing page. Mirrors the standard SaaS
-  // UX (Linear, Stripe, Vercel) — and removes the route conflict that used
-  // to live at (dashboard)/page.tsx.
-  const session = await auth();
-  if (session?.user) redirect("/projects");
-  return <LandingPageContent />;
-}
-
-function LandingPageContent() {
+export default function LandingPage() {
+  // "/" always renders the marketing landing — even for logged-in users.
+  // The marketing Nav surfaces a "Dashboard" link when a session is present
+  // so authenticated users can jump back to /projects without reloading.
+  // Decision history: an earlier version auto-redirected logged-in users
+  // to /projects, but that broke our own ability to view marketing while
+  // signed in (and made share-links to / from inside the app land back on
+  // the dashboard, never showing the actual landing). Net: keep "/" as a
+  // public surface; navigation does the rest.
   return (
     <div style={{ background: "var(--vb-bg)", minHeight: "100dvh" }}>
       <Nav />
