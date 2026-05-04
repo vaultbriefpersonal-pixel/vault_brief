@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { use } from "react";
+import { useSearchParams } from "next/navigation";
 import { trpc } from "@/lib/api";
 import { Plus, Trash2 } from "lucide-react";
 
@@ -33,6 +34,11 @@ const inputStyle: React.CSSProperties = {
 
 export default function WalletsPage({ params }: Props) {
   const { id: projectId } = use(params);
+  const searchParams = useSearchParams();
+  // Set by /projects/new on successful create → tells us this is the user's
+  // first time landing here and we should explain why we're here, not just
+  // throw a form at them.
+  const isOnboarding = searchParams.get("onboarding") === "1";
   const [address, setAddress] = useState("");
   const [chain, setChain] = useState<Chain>("ethereum");
   const [label, setLabel] = useState("");
@@ -71,6 +77,43 @@ export default function WalletsPage({ params }: Props) {
       >
         Wallets
       </h2>
+
+      {isOnboarding && (
+        <div
+          style={{
+            background: "rgba(0,232,123,0.06)",
+            border: "1px solid rgba(0,232,123,0.2)",
+            borderRadius: 10,
+            padding: "16px 20px",
+            marginBottom: 24,
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+          }}
+        >
+          <p
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              color: "var(--accent)",
+              margin: "0 0 6px",
+            }}
+          >
+            Add your treasury wallets
+          </p>
+          <p
+            style={{
+              fontSize: 13,
+              color: "var(--vb-muted)",
+              margin: 0,
+              lineHeight: 1.55,
+            }}
+          >
+            Paste the address of your treasury — multisig (Gnosis Safe), EOA,
+            or exchange account. Add one per chain. We&apos;ll pull balances,
+            inflows, and outflows from there. Token contract addresses don&apos;t
+            count — those go in project settings.
+          </p>
+        </div>
+      )}
 
       <div
         style={{

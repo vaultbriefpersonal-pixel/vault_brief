@@ -60,8 +60,11 @@ export default function NewProjectPage() {
   const [contextOpen, setContextOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Land on /wallets, not the empty dashboard. Without at least one wallet
+  // the dashboard shows all-zeros and users get confused (no field on this
+  // form makes "treasury wallet" obvious — see UX backlog #wallet-step).
   const createProject = trpc.projects.create.useMutation({
-    onSuccess: (project) => router.push(`/projects/${project.id}`),
+    onSuccess: (project) => router.push(`/projects/${project.id}/wallets?onboarding=1`),
     onError: (e) => setError(e.message),
   });
 
