@@ -14,6 +14,6 @@ test.describe("E4 - Edit and send report", () => {
   }) => {
     // Navigate to a report editor (without a real report ID, we verify structure)
     await page.goto("/login");
-    await expect(page.getByText("VAULT BRIEF")).toBeVisible();
+    await expect(page.getByText("VAULT BRIEF", { exact: true })).toBeVisible();
   });
 });
