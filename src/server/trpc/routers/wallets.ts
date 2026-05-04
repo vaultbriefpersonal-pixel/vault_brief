@@ -5,6 +5,7 @@ import { wallets } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { requireProject } from "../guards";
 import { checkLimit, mutationLimiter } from "@/server/lib/ratelimit";
+import { assertTrialActive } from "@/server/lib/plan-limits";
 
 const PLAN_WALLET_LIMITS: Record<string, number> = {
   free: 5,
@@ -50,6 +51,7 @@ export const walletsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertTrialActive(ctx.session.user.id!);
       await requireProject(ctx, input.projectId);
       await checkLimit(mutationLimiter, `wallet-add:${ctx.session.user.id}`);
 

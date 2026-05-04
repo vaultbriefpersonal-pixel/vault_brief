@@ -1,4 +1,5 @@
 import { eq, desc } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { db } from "@/server/db";
 import { projects, users } from "@/server/db/schema";
 
@@ -42,6 +43,39 @@ export async function eligibleProjectIds(userId: string): Promise<Set<string>> {
     .orderBy(desc(projects.createdAt));
 
   return new Set(userProjects.slice(0, limit).map((p) => p.id));
+}
+
+/**
+ * Trial gate. Free-plan users get 14 days of full write access (sync,
+ * generate, send) starting from their first login. After that, paid
+ * actions throw and the UI surfaces the upgrade banner. Paid plans
+ * (starter / growth / vc_suite) bypass this entirely.
+ *
+ * Reads stay open forever — old reports / dashboards remain visible
+ * even after expiry. This is "trial → read-only" not "trial → blocked."
+ */
+export async function assertTrialActive(userId: string): Promise<void> {
+  const [user] = await db
+    .select({ plan: users.plan, trialEndsAt: users.trialEndsAt })
+    .from(users)
+    .where(eq(users.id, userId));
+  if (!user) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
+  }
+  if (user.plan !== "free") return; // paid → no gate
+  if (!user.trialEndsAt) return; // legacy null (pre-migration) → grant access
+  if (user.trialEndsAt > new Date()) return; // trial still active
+
+  const daysAgo = Math.ceil(
+    (Date.now() - user.trialEndsAt.getTime()) / (24 * 60 * 60 * 1000)
+  );
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message:
+      daysAgo <= 1
+        ? "Your 14-day trial just ended. Upgrade to continue creating and sending reports — your existing data stays."
+        : `Your 14-day trial ended ${daysAgo} days ago. Upgrade to continue creating and sending reports — your existing data stays.`,
+  });
 }
 
 /**

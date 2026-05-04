@@ -6,6 +6,7 @@ import { TRPCError } from "@trpc/server";
 import { requireProject, requireInvestor } from "../guards";
 import { sendReportEmail } from "@/server/services/email-sender";
 import { notify } from "@/server/services/notifications";
+import { assertTrialActive } from "@/server/lib/plan-limits";
 import {
   checkLimit,
   bulkImportLimiter,
@@ -34,6 +35,7 @@ export const investorsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertTrialActive(ctx.session.user.id!);
       await requireProject(ctx, input.projectId);
       const [investor] = await ctx.db
         .insert(investors)
@@ -109,6 +111,7 @@ export const investorsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertTrialActive(ctx.session.user.id!);
       const project = await requireProject(ctx, input.projectId);
       await checkLimit(sendReportLimiter, ctx.session.user.id!);
 

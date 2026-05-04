@@ -24,7 +24,7 @@ const COMPARISON = [
 const FAQ_ITEMS = [
   {
     q: "Is there a free trial?",
-    a: "Yes. All plans include a 14-day free trial. No credit card required to start.",
+    a: "Yes — 14 days starting from your first sign-in. Connect wallets, sync data, generate and send your first investor report. No credit card required. After 14 days, paid plans unlock continued sync and report generation; your existing data stays visible regardless.",
   },
   {
     q: "Can I change plans later?",
@@ -111,8 +111,8 @@ export default function PricingPage() {
             marginTop: 32,
           }}
         >
-          All plans include a 14-day free trial. No credit card required.
-          Questions? Email{" "}
+          14-day free trial — full features, no credit card. After that, your
+          data stays; upgrade to keep generating new reports. Questions? Email{" "}
           <a
             href="mailto:hello@vaultbrief.com"
             style={{ color: "var(--accent)", textDecoration: "none" }}

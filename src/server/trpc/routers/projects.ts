@@ -11,6 +11,7 @@ import {
   syncLimiter,
   backfillLimiter,
 } from "@/server/lib/ratelimit";
+import { assertTrialActive } from "@/server/lib/plan-limits";
 import { createMonthlySnapshot, getLastMonthPeriod } from "@/server/services/data-sync";
 import { generateAndSaveReport } from "@/server/services/report-generator";
 
@@ -96,6 +97,7 @@ export const projectsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id!;
+      await assertTrialActive(userId);
       await checkLimit(projectCreateLimiter, userId);
       const existing = await ctx.db.query.projects.findMany({
         where: eq(projects.userId, userId),
@@ -244,6 +246,7 @@ export const projectsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertTrialActive(ctx.session.user.id!);
       await requireProject(ctx, input.projectId);
       await checkLimit(syncLimiter, input.projectId);
       if (input.months > 1) {

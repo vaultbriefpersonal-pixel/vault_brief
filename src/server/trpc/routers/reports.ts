@@ -9,6 +9,7 @@ import {
   generateAndSaveReport,
 } from "@/server/services/report-generator";
 import { renderAndStorePDF } from "@/server/services/pdf-storage";
+import { assertTrialActive } from "@/server/lib/plan-limits";
 
 export const reportsRouter = router({
   list: protectedProcedure
@@ -74,6 +75,7 @@ export const reportsRouter = router({
   regenerate: protectedProcedure
     .input(z.object({ reportId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      await assertTrialActive(ctx.session.user.id!);
       const report = await requireReport(ctx, input.reportId);
       if (!report.snapshotId) {
         throw new TRPCError({
@@ -118,6 +120,7 @@ export const reportsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertTrialActive(ctx.session.user.id!);
       await requireProject(ctx, input.projectId);
       const report = await generateAndSaveReport(
         input.projectId,

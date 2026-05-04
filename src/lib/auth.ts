@@ -59,6 +59,34 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return session;
     },
   },
+  events: {
+    /**
+     * Fires once per account — on the first successful login (magic-link
+     * click or Google OAuth callback). DrizzleAdapter has just inserted
+     * the row with default `plan='free'` and `trialEndsAt=null`. We
+     * stamp `trialEndsAt = now + 14 days` to start the trial clock.
+     *
+     * Why an event and not the adapter `createUser` override: events
+     * fire AFTER the adapter persists the row, so we don't fight the
+     * adapter's transaction. A 1-row UPDATE in the same DB is cheap
+     * and the new value is visible to the very next request.
+     */
+    async createUser({ user }) {
+      if (!user.id) return;
+      const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+      try {
+        await db
+          .update(users)
+          .set({ trialEndsAt })
+          .where(eq(users.id, user.id));
+      } catch (err) {
+        // Stamp failure shouldn't block sign-in — user just won't have
+        // a trial window. Better to let them in and follow up than
+        // 500 their first ever interaction with the product.
+        console.error("auth.createUser: trial stamp failed", err);
+      }
+    },
+  },
   session: {
     strategy: "database",
   },

@@ -34,6 +34,15 @@ export const users = pgTable("user", {
   paymentProvider: text("payment_provider"),
   plan: text("plan").notNull().default("free"),
   planExpiresAt: timestamp("plan_expires_at", { withTimezone: true }),
+  // 14-day trial window. Set on first successful sign-in (NextAuth
+  // events.createUser fires once, on the row insert that happens on the
+  // very first login — magic-link click or Google OAuth callback).
+  // After this date, the free plan flips to read-only: existing data
+  // remains visible, but writes (sync, generate, send) require an
+  // upgrade. Paid plans (starter / growth / vc_suite) bypass the gate
+  // entirely. Null on legacy rows; backfilled to created_at + 14d during
+  // migration so existing accounts keep a sensible expiry.
+  trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
   emailNotifications: boolean("email_notifications").default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
