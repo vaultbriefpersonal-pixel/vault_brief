@@ -39,11 +39,15 @@ export function DashboardShell({
   }, [open, isMobile]);
 
   // Desktop: original layout, sidebar is rendered inline.
+  // Container is fixed to viewport height (not minHeight) and main owns the
+  // scroll. This way the sidebar stays a sticky 100dvh column and its
+  // background fills to the bottom of the window even when the main column's
+  // content is taller — fixes the "sidebar ends mid-page" visual.
   if (!isMobile) {
     return (
-      <div style={{ display: "flex", minHeight: "100dvh", background: "var(--vb-bg)" }}>
+      <div style={{ display: "flex", height: "100dvh", background: "var(--vb-bg)" }}>
         {sidebar}
-        <main style={{ flex: 1, overflow: "auto" }}>{children}</main>
+        <main style={{ flex: 1, minWidth: 0, overflow: "auto" }}>{children}</main>
       </div>
     );
   }
