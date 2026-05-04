@@ -17,23 +17,24 @@ Generate a monthly investor report in Markdown format from the provided treasury
 - Change vs previous month (absolute and percentage)
 
 ### Financial Health
-- Monthly burn rate
-- Runway in months
-- Operating expense breakdown by category (table)
-- Notable expense changes vs previous month
+- Monthly burn rate (only if available)
+- Runway in months (only if available)
+- Operating expense breakdown by category as a table — but ONLY if the input lists at least one operating expense category. If the input says "(no operating expenses in period)" or "Not available", omit the table and that bullet entirely.
+- Notable expense changes vs previous month — ONLY if a previous month's data was provided AND there's a real delta to discuss. If no previous month exists, skip this bullet; do not write "Not available".
 
 ### Treasury Operations (only if present in input)
 - Render this section ONLY when the input lists "Treasury operations" with a non-zero amount.
 - token_sale outflows are treasury reallocations (e.g. swapping native token for stablecoins or vice versa), NOT operating expenses. Never include them in the expense breakdown table; show them separately here with a one-sentence explanation of what was rebalanced.
 
-### Token Metrics (if applicable)
-- Holder count and change
-- Price and market cap
-- Circulating vs total supply
+### Token Metrics (CONDITIONAL — only render if input includes a Token Metrics section)
+- Holder count and change — only render the bullet if a number is provided
+- Price and market cap — only if provided
+- Circulating vs total supply — only if BOTH numbers are provided. Don't write "Circulating: X, total: Not available".
+- If the entire Token Metrics block has only one or two data points, render those without listing the missing ones. Never echo "Not available" to investors.
 
 ### Development Progress
-- GitHub activity summary (commits, PRs, contributors)
-- Milestone status updates
+- GitHub activity summary (commits, PRs, contributors) — ONLY if the input's "Development Activity" block lists numbers. If the block says "Not available (GitHub not connected)" or shows all zeros, OMIT this entire section. Don't echo zeros or "Not available".
+- Milestone status updates: only render this bullet if the input includes a "## Milestones" block. If absent, skip it silently — the "Looking Ahead" section already handles forward-looking commentary.
 
 ### Key Highlights
 - 2-3 bullet points of positive developments
@@ -52,7 +53,8 @@ Generate a monthly investor report in Markdown format from the provided treasury
 
 ## Rules:
 - Use ONLY the provided data. Never invent numbers.
-- If a data point is missing, say "Not available" rather than guessing.
+- **Silence beats placeholders.** If a data point is missing, OMIT the bullet/row/sub-section entirely. Never write "Not available", "N/A", "—", "(no data)", "TBD", or any equivalent filler in the final report. Investors should not see traces of missing data — they should see a tighter report instead.
+- The only exception: top-level numbered KPIs (treasury total, monthly burn) where dropping the number would leave the section blank. In that one case, write "Not yet available — first sync" with a brief explanation.
 - Keep the tone professional but accessible. Write for a VC partner, not an accountant.
 - **Never include cents.** No ".00", no ".50". Round and abbreviate:
   - Amounts >= $1,000,000 → "$1.2M" (one decimal)
@@ -103,67 +105,120 @@ ${
     : "## Previous Month: No data available (first report)"
 }`;
 
-  const financialSection = `
-## Financial Metrics
-- Monthly burn rate: ${snapshot.burnRateUsd ? formatUsd(Number(snapshot.burnRateUsd)) : "Not available"}
-- Runway: ${snapshot.runwayMonths ? `${Number(snapshot.runwayMonths).toFixed(1)} months` : "Not available"}
-- Total inflows: ${snapshot.totalInflowsUsd ? formatUsd(Number(snapshot.totalInflowsUsd)) : "Not available"}
-- Total outflows: ${snapshot.totalOutflowsUsd ? formatUsd(Number(snapshot.totalOutflowsUsd)) : "Not available"}
+  // Build financial bullets array — drop missing values so the model has
+  // nothing to echo. The system prompt's "silence beats placeholders" rule
+  // is reinforced by simply not feeding it strings to copy.
+  const finLines: string[] = [];
+  if (snapshot.burnRateUsd) {
+    finLines.push(`- Monthly burn rate: ${formatUsd(Number(snapshot.burnRateUsd))}`);
+  }
+  if (snapshot.runwayMonths) {
+    finLines.push(`- Runway: ${Number(snapshot.runwayMonths).toFixed(1)} months`);
+  }
+  if (snapshot.totalInflowsUsd) {
+    finLines.push(`- Total inflows: ${formatUsd(Number(snapshot.totalInflowsUsd))}`);
+  }
+  if (snapshot.totalOutflowsUsd) {
+    finLines.push(`- Total outflows: ${formatUsd(Number(snapshot.totalOutflowsUsd))}`);
+  }
 
-${(() => {
-  if (!snapshot.expensesByCategory) return "Operating expenses: Not available";
-  const all = snapshot.expensesByCategory as Record<string, number>;
-  const tokenSale = all.token_sale ?? 0;
-  const operating = Object.entries(all).filter(
-    ([k, v]) => v > 0 && k !== "token_sale"
-  );
-  const opLines = operating.length
-    ? operating.map(([k, v]) => `- ${k}: ${formatUsd(v)}`).join("\n")
-    : "- (no operating expenses in period)";
-  const treasuryLine =
-    tokenSale > 0
-      ? `\n\nTreasury operations (NOT operating expenses — stablecoin/native-token rebalancing):\n- token_sale: ${formatUsd(tokenSale)}`
+  const expensesBlock = (() => {
+    if (!snapshot.expensesByCategory) return "";
+    const all = snapshot.expensesByCategory as Record<string, number>;
+    const tokenSale = all.token_sale ?? 0;
+    const operating = Object.entries(all).filter(
+      ([k, v]) => v > 0 && k !== "token_sale"
+    );
+    if (operating.length === 0 && tokenSale === 0) return "";
+    const opLines = operating.length
+      ? operating.map(([k, v]) => `- ${k}: ${formatUsd(v)}`).join("\n")
       : "";
-  return `Operating expenses (excludes treasury reallocation):\n${opLines}${treasuryLine}`;
-})()}
+    const opBlock = opLines
+      ? `\nOperating expenses (excludes treasury reallocation):\n${opLines}`
+      : "";
+    const treasuryLine =
+      tokenSale > 0
+        ? `\n\nTreasury operations (NOT operating expenses — stablecoin/native-token rebalancing):\n- token_sale: ${formatUsd(tokenSale)}`
+        : "";
+    return `${opBlock}${treasuryLine}`;
+  })();
 
-${
-  snapshot.incomeByCategory
-    ? `Income breakdown:
-${Object.entries(snapshot.incomeByCategory as Record<string, number>)
-  .filter(([, v]) => v > 0)
-  .map(([k, v]) => `- ${k}: ${formatUsd(v)}`)
-  .join("\n") || "- (no inflows in period)"}`
-    : ""
-}`;
+  const incomeBlock = (() => {
+    if (!snapshot.incomeByCategory) return "";
+    const entries = Object.entries(
+      snapshot.incomeByCategory as Record<string, number>
+    ).filter(([, v]) => v > 0);
+    if (entries.length === 0) return "";
+    return `\nIncome breakdown:\n${entries
+      .map(([k, v]) => `- ${k}: ${formatUsd(v)}`)
+      .join("\n")}`;
+  })();
 
+  const financialSection =
+    finLines.length > 0 || expensesBlock || incomeBlock
+      ? `
+## Financial Metrics${finLines.length ? "\n" + finLines.join("\n") : ""}${expensesBlock}${incomeBlock}`
+      : "";
+
+  // GitHub: only emit when there's actual activity. Zeros across the board
+  // mean the org has no public repos OR sync hit a token wall — either way
+  // we shouldn't tell the LLM to write about commits that don't exist.
+  const ghCommits = snapshot.githubCommitsCount ?? 0;
+  const ghPrs = snapshot.githubPrsMerged ?? 0;
+  const ghContribs = snapshot.githubContributorsActive ?? 0;
   const githubSection =
-    snapshot.githubCommitsCount !== null
+    ghCommits + ghPrs + ghContribs > 0
       ? `
 ## Development Activity
-- Commits: ${snapshot.githubCommitsCount}
-- PRs merged: ${snapshot.githubPrsMerged ?? "N/A"}
-- Active contributors: ${snapshot.githubContributorsActive ?? "N/A"}`
-      : "\n## Development Activity\nNot available (GitHub not connected)";
-
-  const tokenSection =
-    snapshot.tokenPriceUsd || snapshot.tokenHoldersCount
-      ? `
-## Token Metrics (${project.tokenSymbol ?? "Token"})
-${snapshot.tokenPriceUsd ? `- Price: $${Number(snapshot.tokenPriceUsd).toFixed(4)}` : ""}
-${snapshot.tokenMarketCapUsd ? `- Market cap: ${formatUsd(Number(snapshot.tokenMarketCapUsd))}` : ""}
-${snapshot.tokenHoldersCount ? `- Holders: ${snapshot.tokenHoldersCount.toLocaleString()}` : ""}
-${snapshot.tokenCirculatingSupply ? `- Circulating supply: ${Number(snapshot.tokenCirculatingSupply).toLocaleString()}` : ""}`
+- Commits: ${ghCommits}
+- PRs merged: ${ghPrs}
+- Active contributors: ${ghContribs}`
       : "";
 
+  // Token Metrics: only emit lines we have. Don't pad with N/A.
+  const tokenLines: string[] = [];
+  if (snapshot.tokenPriceUsd) {
+    tokenLines.push(`- Price: $${Number(snapshot.tokenPriceUsd).toFixed(4)}`);
+  }
+  if (snapshot.tokenMarketCapUsd) {
+    tokenLines.push(
+      `- Market cap: ${formatUsd(Number(snapshot.tokenMarketCapUsd))}`
+    );
+  }
+  if (snapshot.tokenHoldersCount) {
+    tokenLines.push(
+      `- Holders: ${snapshot.tokenHoldersCount.toLocaleString()}`
+    );
+  }
+  if (snapshot.tokenCirculatingSupply) {
+    tokenLines.push(
+      `- Circulating supply: ${Number(snapshot.tokenCirculatingSupply).toLocaleString()}`
+    );
+  }
+  const tokenSection =
+    tokenLines.length > 0
+      ? `
+## Token Metrics (${project.tokenSymbol ?? "Token"})
+${tokenLines.join("\n")}`
+      : "";
+
+  // Project Context: drop "Not specified" placeholders for the same reason —
+  // they're noise and the model dutifully echoes them in the report header.
+  const ctxLines: string[] = [`- Project: ${project.name}`];
+  if (project.teamSize) ctxLines.push(`- Team size: ${project.teamSize}`);
+  if (project.foundedDate) ctxLines.push(`- Founded: ${project.foundedDate}`);
+  if (project.lastFundingRound) {
+    ctxLines.push(`- Last funding round: ${project.lastFundingRound}`);
+  }
+  if (project.lastFundingAmount) {
+    ctxLines.push(
+      `- Amount raised: ${formatUsd(Number(project.lastFundingAmount))}`
+    );
+  }
+  ctxLines.push(`- Report period: ${formatDate(period)}`);
   const projectContext = `
 ## Project Context
-- Project: ${project.name}
-- Team size: ${project.teamSize ?? "Not specified"}
-- Founded: ${project.foundedDate ?? "Not specified"}
-- Last funding round: ${project.lastFundingRound ?? "Not specified"}
-- Amount raised: ${project.lastFundingAmount ? formatUsd(Number(project.lastFundingAmount)) : "Not specified"}
-- Report period: ${formatDate(period)}`;
+${ctxLines.join("\n")}`;
 
   // Milestone block — only emit when there's something specific to say.
   // System prompt instructs the model to silence the "Looking Ahead" section

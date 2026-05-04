@@ -92,6 +92,15 @@ Folded into Phase 1 (covered all 7 mock-shapes during walk-through).
 | 8.5 | `sendReport` marks status='sent' even if all sends fail | If Resend rejects every email (sent=0), report is still flipped to "sent". Founder thinks email went out. | P1 | ✅ Fixed. All-fail → 502 BAD_GATEWAY, status stays `review`. Partial → 200 with `failures[]`, UI shows "Partially sent (N of M)". |
 | 8.6 | Dev "tRPC stale" 500 | After source edits, dev sometimes serves "Internal Server Error" until restart. Not a prod issue — Next.js dev quirk. | Polish | open |
 
+## Phase 10 — LLM polish + PDF render
+
+| # | Surface | Finding | Severity | Status |
+|---|---|---|---|---|
+| 10.1 | LLM "Not available" leaks | Model echoed `Not available` for every empty bullet (Operating expenses / Notable changes / Milestones / Circulating supply). Source: prompt builder fed literal placeholder strings + system prompt told model to use them when missing. | P1 | ✅ Fixed (prompt builder drops empty rows; system prompt now says "silence beats placeholders"). Verified on regenerate of ENS report — every bullet either has real data or is missing entirely. |
+| 10.2 | `reports.regenerate` against existing report | Recompiled real Markdown via OpenRouter; status reset to `draft`, `pdfUrl=null`, milestones populated, "Looking Ahead" tied to active L2 deployment milestone. | — | ✅ Verified |
+| 10.3 | PDF v1 rendered raw markdown source | Body content emitted `**bold**`, `\| col1 \| col2 \|` table syntax, and `* item` bullets as literal text. Headings worked but body looked like a copy of the editor pane, not a polished investor PDF. | P0 (would-block-launch) | ✅ Fixed (full markdown parser in pdf-template.tsx — block parsing for paragraphs / bullet lists / tables, inline parsing for bold/italic/code, View-based dots to dodge Helvetica WinAnsi encoding gaps). |
+| 10.4 | PDF table rendering | Treasury Overview / Financial Health / Token Metrics now render as real React-PDF table grid (alternating cells, light-gray borders, bold header row). | — | ✅ Verified |
+
 ## Phase 9 — A11y / DX hardening shipped this loop
 
 | What | Why |
