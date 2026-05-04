@@ -92,6 +92,19 @@ Folded into Phase 1 (covered all 7 mock-shapes during walk-through).
 | 8.5 | `sendReport` marks status='sent' even if all sends fail | If Resend rejects every email (sent=0), report is still flipped to "sent". Founder thinks email went out. | P1 | ✅ Fixed. All-fail → 502 BAD_GATEWAY, status stays `review`. Partial → 200 with `failures[]`, UI shows "Partially sent (N of M)". |
 | 8.6 | Dev "tRPC stale" 500 | After source edits, dev sometimes serves "Internal Server Error" until restart. Not a prod issue — Next.js dev quirk. | Polish | open |
 
+## Phase 11 — Real-data sync + branding pipeline
+
+| # | Surface | Finding | Severity | Status |
+|---|---|---|---|---|
+| 11.1 | Real sync against ENS DAO treasury | Real numbers flow correctly: Treasury $73.2M (ETH $10.5M + ENS $59.9M + USDC $2.8M), 42 commits, 4 PRs, 9 contributors, token price $6.17, inflows $4.9M, outflows $2.4M. Sync warnings: clean. | — | ✅ |
+| 11.2 | `burn_rate=0` on real ENS sync | All outflows are categorized as `token_sale` (treasury rebalancing) — burn excludes those by design. Dashboard tile shows "$0/mo" which is technically correct but confusing for projects whose only outflows are reallocations. Consider showing "—" instead. | Polish | open |
+| 11.3 | Email rendering had 3 duplicated style blocks | Investor / draft / magic-link templates each carried their own copy of body + container + header CSS. Refactored into `email-layout.ts` with palette-driven header/body/footer + helpers (`metricsGridHtml`, `execSummaryHtml`, `ctaButtonHtml`, `badgeHtml`). | P1 | ✅ |
+| 11.4 | Investor email body too thin (just exec summary + CTA) | Now renders Treasury / Burn / Runway / Stables in a 2-up KPI grid above the summary. Investors get value even if they don't click through. | P2 | ✅ |
+| 11.5 | Email had no hook for project brand | All emails now flow `paletteFor(branding)` through the layout → header navy stays, accent / CTA / border use the project's `primaryColor` if set, else default `#6366F1`. Logo image renders top-left of header when `branding.logoUrl` set. | P2 | ✅ |
+| 11.6 | PDF had no logo / brand color in body / footer | Logo now rendered as `<Image>` in header, brand color flows through accent (project name + bullet dots), website appears in footer. | P2 | ✅ |
+| 11.7 | No UI for entering brand color / logo | Added `Branding` sub-section to `/projects/[id]/settings`: native `<input type="color">` + hex text mirror + logo URL field with live preview pill. Saves into `projects.customBranding` JSONB. | P1 | ✅ |
+| 11.8 | XSS via investor name in HTML body | Untrusted strings (investor name, project name, exec summary) now run through `escapeHtml()` before interpolation in `renderEmailLayout`. | P1 | ✅ (defensive) |
+
 ## Phase 10 — LLM polish + PDF render
 
 | # | Surface | Finding | Severity | Status |

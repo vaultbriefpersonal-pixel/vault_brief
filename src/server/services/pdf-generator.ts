@@ -39,6 +39,7 @@ export async function generatePDF(
   const element = React.createElement(VaultBriefPDF, {
     projectName: project.name,
     logoUrl: branding?.logoUrl ?? project.logoUrl,
+    website: project.website ?? null,
     period,
     content,
     primaryColor: branding?.primaryColor,

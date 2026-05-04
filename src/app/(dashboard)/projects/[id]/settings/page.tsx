@@ -43,11 +43,20 @@ export default function ProjectSettingsPage({ params }: Props) {
     foundedDate: "",
     lastFundingRound: "",
     lastFundingAmount: "",
+    primaryColor: "#6366F1",
+    logoUrl: "",
   });
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (project) {
+      // customBranding is optional JSONB — pull primaryColor/logoUrl out
+      // defensively. Older projects (created before branding existed) just
+      // get the default accent.
+      const branding = (project.customBranding as {
+        primaryColor?: string;
+        logoUrl?: string;
+      } | null) ?? null;
       setForm({
         name: project.name,
         website: project.website ?? "",
@@ -58,6 +67,8 @@ export default function ProjectSettingsPage({ params }: Props) {
         foundedDate: project.foundedDate ?? "",
         lastFundingRound: project.lastFundingRound ?? "",
         lastFundingAmount: project.lastFundingAmount?.toString() ?? "",
+        primaryColor: branding?.primaryColor ?? "#6366F1",
+        logoUrl: branding?.logoUrl ?? "",
       });
     }
   }, [project]);
@@ -75,6 +86,10 @@ export default function ProjectSettingsPage({ params }: Props) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // Branding: only send when at least one field changed from the default.
+    // null clears the row → no styles → falls back to VaultBrief default.
+    const hasBrand =
+      form.primaryColor.toLowerCase() !== "#6366f1" || form.logoUrl.trim();
     update.mutate({
       id,
       name: form.name,
@@ -87,6 +102,12 @@ export default function ProjectSettingsPage({ params }: Props) {
       lastFundingRound: form.lastFundingRound || null,
       lastFundingAmount: form.lastFundingAmount
         ? parseFloat(form.lastFundingAmount)
+        : null,
+      customBranding: hasBrand
+        ? {
+            primaryColor: form.primaryColor,
+            logoUrl: form.logoUrl.trim(),
+          }
         : null,
     });
   }
@@ -189,6 +210,117 @@ export default function ProjectSettingsPage({ params }: Props) {
             )}
           </div>
         ))}
+
+        {/* Branding sub-section. Saved into projects.customBranding (JSONB),
+            consumed by the PDF template (header logo + accent dots) and the
+            investor email shell (header background + CTA + accent border). */}
+        <div style={{ gridColumn: "1 / -1", marginTop: 8 }}>
+          <h3
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 13,
+              fontWeight: 600,
+              color: "var(--vb-muted)",
+              margin: "0 0 14px",
+              textTransform: "uppercase",
+              letterSpacing: "0.07em",
+            }}
+          >
+            Branding
+          </h3>
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 13,
+              color: "var(--vb-muted)",
+              margin: "0 0 16px",
+              lineHeight: 1.5,
+            }}
+          >
+            These flow into the investor PDF (header logo + accent color) and
+            the email your investors receive.
+          </p>
+        </div>
+        <div>
+          <label style={labelStyle}>Brand color</label>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <input
+              type="color"
+              value={form.primaryColor}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, primaryColor: e.target.value }))
+              }
+              aria-label="Pick brand color"
+              style={{
+                width: 48,
+                height: 44,
+                border: "1px solid var(--vb-border)",
+                borderRadius: 8,
+                background: "transparent",
+                cursor: "pointer",
+                padding: 4,
+              }}
+            />
+            <input
+              type="text"
+              value={form.primaryColor}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, primaryColor: e.target.value }))
+              }
+              placeholder="#6366F1"
+              maxLength={7}
+              style={{ ...inputStyle, fontFamily: "var(--font-geist-mono), monospace", textTransform: "uppercase" }}
+              aria-label="Brand color hex"
+            />
+          </div>
+        </div>
+        <div>
+          <label style={labelStyle}>Logo URL</label>
+          <input
+            type="url"
+            placeholder="https://yoursite.com/logo.png"
+            value={form.logoUrl}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, logoUrl: e.target.value }))
+            }
+            style={inputStyle}
+          />
+          {/* Live preview pill — confirms the URL resolves before save. */}
+          {form.logoUrl && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: "8px 10px",
+                background: "var(--vb-alt)",
+                border: "1px solid var(--vb-border)",
+                borderRadius: 6,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                maxWidth: "100%",
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={form.logoUrl}
+                alt="Logo preview"
+                style={{ maxHeight: 28, maxWidth: 120, objectFit: "contain" }}
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.display = "none";
+                }}
+              />
+              <span
+                style={{
+                  fontFamily: "var(--font-inter), Inter, sans-serif",
+                  fontSize: 11,
+                  color: "var(--vb-dim)",
+                }}
+              >
+                Preview
+              </span>
+            </div>
+          )}
+        </div>
 
         <button
           type="submit"
