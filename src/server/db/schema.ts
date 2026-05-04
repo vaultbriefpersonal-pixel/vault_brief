@@ -117,6 +117,10 @@ export const projects = pgTable("projects", {
   reportDay: integer("report_day").default(1),
   reportTimezone: text("report_timezone").default("UTC"),
   customBranding: jsonb("custom_branding"),
+  // Per-project report-template config: ordered array of
+  // { id: string, enabled: boolean }. Null means "use product defaults"
+  // (every section with defaultEnabled=true in report-sections.ts).
+  reportSections: jsonb("report_sections"),
 
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

@@ -3,6 +3,8 @@
 import { use, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/api";
+import { ReportTemplateEditor } from "@/components/settings/ReportTemplateEditor";
+import type { SectionConfigEntry } from "@/server/services/report-sections";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -321,6 +323,19 @@ export default function ProjectSettingsPage({ params }: Props) {
             </div>
           )}
         </div>
+
+        {/* Report-template constructor. Self-contained — owns its own
+            state + save mutation, doesn't share with the metadata form
+            above. Saving here only writes `reportSections`, leaving every
+            other field untouched. */}
+        {project && (
+          <ReportTemplateEditor
+            projectId={id}
+            initial={
+              (project.reportSections as SectionConfigEntry[] | null) ?? null
+            }
+          />
+        )}
 
         <button
           type="submit"

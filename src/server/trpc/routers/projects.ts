@@ -206,6 +206,18 @@ export const projectsRouter = router({
           .object({ primaryColor: z.string(), logoUrl: z.string() })
           .optional()
           .nullable(),
+        // Per-project report-template config — ordered list of section
+        // ids with on/off flags. Null clears it back to product defaults.
+        reportSections: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(64),
+              enabled: z.boolean(),
+            })
+          )
+          .max(64)
+          .optional()
+          .nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
