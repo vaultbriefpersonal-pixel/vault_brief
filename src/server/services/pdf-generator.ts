@@ -11,8 +11,8 @@ async function getRenderToBuffer() {
   return mod.renderToBuffer;
 }
 import { db } from "@/server/db";
-import { reports, projects } from "@/server/db/schema";
-import { eq } from "drizzle-orm";
+import { reports, projects, treasurySnapshots } from "@/server/db/schema";
+import { and, desc, eq, lt } from "drizzle-orm";
 import { formatDate } from "@/lib/utils";
 
 export async function generatePDF(
@@ -33,6 +33,28 @@ export async function generatePDF(
     logoUrl?: string;
   } | null;
 
+  // Pull the snapshot tied to this report (for charts) + 5 trailing
+  // snapshots so the trend bar / sparkline have data to draw. Both fail
+  // gracefully — the chart components return null on insufficient data,
+  // so the PDF still renders if these queries come back empty.
+  const snapshot = report.snapshotId
+    ? await db.query.treasurySnapshots.findFirst({
+        where: eq(treasurySnapshots.id, report.snapshotId),
+      })
+    : null;
+  const trailing = snapshot
+    ? await db.query.treasurySnapshots.findMany({
+        where: and(
+          eq(treasurySnapshots.projectId, report.projectId),
+          lt(treasurySnapshots.snapshotDate, snapshot.snapshotDate)
+        ),
+        orderBy: [desc(treasurySnapshots.snapshotDate)],
+        limit: 5,
+      })
+    : [];
+  // Oldest → newest for chart x-axis.
+  const trendSnapshots = [...trailing, snapshot].filter((s): s is NonNullable<typeof s> => Boolean(s)).reverse();
+
   const content = parseMarkdown(report.contentMd);
   const period = formatDate(report.periodEnd);
 
@@ -43,6 +65,8 @@ export async function generatePDF(
     period,
     content,
     primaryColor: branding?.primaryColor,
+    snapshot,
+    trendSnapshots,
   });
 
   const renderToBuffer = await getRenderToBuffer();

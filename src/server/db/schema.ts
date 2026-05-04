@@ -159,6 +159,10 @@ export const treasurySnapshots = pgTable(
     nativeTokenUsd: numeric("native_token_usd", { precision: 20, scale: 2 }),
     otherAssetsUsd: numeric("other_assets_usd", { precision: 20, scale: 2 }),
     balancesDetail: jsonb("balances_detail"),
+    // { ethereum: 65000000, optimism: 5000000, base: 3200000 }. Aggregated
+    // from balancesDetail at sync time so the dashboard + report don't have
+    // to re-walk per-wallet data on every render. Null when no balances.
+    balancesByChain: jsonb("balances_by_chain"),
 
     // Flows
     totalInflowsUsd: numeric("total_inflows_usd", { precision: 20, scale: 2 }),

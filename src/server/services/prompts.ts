@@ -15,6 +15,7 @@ Generate a monthly investor report in Markdown format from the provided treasury
 - **Only include rows where Balance > $0.** Skip categories the project does not currently hold — do NOT emit "$0 / 0%" placeholder rows. If the input doesn't list a balance for an asset, that asset doesn't exist in this treasury; pretend it's not even on the menu.
 - Total treasury value
 - Change vs previous month (absolute and percentage)
+- **If the input contains a "## Treasury by chain" block with 2+ chains**, add a one-or-two-sentence comment after the table explaining the split (e.g. "85% sits on Ethereum mainnet; the remaining 15% is split across Optimism and Base for L2 ops"). Skip this when only one chain is present — it would just say "100% on Ethereum" which is noise.
 
 ### Financial Health
 - Monthly burn rate (only if available)
@@ -106,9 +107,31 @@ export function buildReportPrompt(
     treasuryLines.push(`- Other assets: ${formatUsd(otherUsd)}`);
   }
 
+  // Per-chain split — only emit when 2+ chains hold non-trivial balances.
+  // Single-chain treasuries skip the block entirely so the LLM doesn't
+  // narrate "100% on Ethereum" as if it were notable.
+  const byChain =
+    (snapshot.balancesByChain as Record<string, number> | null) ?? null;
+  const chainEntries = byChain
+    ? Object.entries(byChain).filter(([, v]) => Number(v) > total * 0.001)
+    : [];
+  const chainSection =
+    chainEntries.length >= 2
+      ? `\n\n## Treasury by chain\n${chainEntries
+          .sort((a, b) => Number(b[1]) - Number(a[1]))
+          .map(
+            ([chain, v]) =>
+              `- ${chain}: ${formatUsd(Number(v))} (${(
+                (Number(v) / total) *
+                100
+              ).toFixed(1)}%)`
+          )
+          .join("\n")}`
+      : "";
+
   const treasurySection = `
 ## Current Treasury (${period})
-${treasuryLines.join("\n")}
+${treasuryLines.join("\n")}${chainSection}
 
 ${
   prevSnapshot

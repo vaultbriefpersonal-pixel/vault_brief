@@ -11,6 +11,19 @@ import { BurnRateChart } from "@/components/charts/BurnRateChart";
 import { ExpenseBreakdown } from "@/components/charts/ExpenseBreakdown";
 import { IncomeBreakdown } from "@/components/charts/IncomeBreakdown";
 import { SyncNowButton } from "@/components/projects/SyncNowButton";
+import { ChainIcon } from "@/components/ui/ChainIcon";
+
+// Brand colors keyed by chain id, used by the per-chain stacked bar so
+// each segment matches the wallet-list ChainIcon palette. Unknown chains
+// fall back to a neutral gray.
+const CHAIN_BAR_COLOR: Record<string, string> = {
+  ethereum: "#627EEA",
+  polygon: "#8247E5",
+  arbitrum: "#28A0F0",
+  base: "#0052FF",
+  optimism: "#FF0420",
+  solana: "#9945FF",
+};
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -289,6 +302,93 @@ export default async function ProjectPage({ params }: Props) {
           )}
         </div>
       )}
+
+      {/* Treasury by chain — stacked horizontal bar. Renders only when the
+          snapshot has at least 2 chains; single-chain projects don't need a
+          bar to say "100% one chain". balancesByChain is computed at sync
+          time so this query is just a JSONB read. */}
+      {(() => {
+        const byChain =
+          (latestSnapshot?.balancesByChain as Record<string, number> | null) ?? null;
+        if (!byChain) return null;
+        const entries = Object.entries(byChain).filter(([, v]) => v > 0);
+        if (entries.length < 2) return null;
+        const total = entries.reduce((s, [, v]) => s + v, 0);
+        const sorted = [...entries].sort((a, b) => b[1] - a[1]);
+        return (
+          <div style={{ marginBottom: 24 }}>
+            <p
+              style={{
+                fontFamily: "var(--font-inter), Inter, sans-serif",
+                fontSize: 11,
+                color: "var(--vb-dim)",
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                margin: "0 0 10px",
+              }}
+            >
+              Treasury by chain
+            </p>
+            <div
+              role="img"
+              aria-label={`Treasury split: ${sorted
+                .map(
+                  ([c, v]) =>
+                    `${c} ${((v / total) * 100).toFixed(0)} percent`
+                )
+                .join(", ")}`}
+              style={{
+                display: "flex",
+                height: 28,
+                borderRadius: 8,
+                overflow: "hidden",
+                border: "1px solid var(--vb-border)",
+              }}
+            >
+              {sorted.map(([chain, v]) => (
+                <div
+                  key={chain}
+                  title={`${chain}: ${formatUsd(v)} (${((v / total) * 100).toFixed(1)}%)`}
+                  style={{
+                    width: `${(v / total) * 100}%`,
+                    background: CHAIN_BAR_COLOR[chain] ?? "#444",
+                  }}
+                />
+              ))}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 16,
+                marginTop: 12,
+              }}
+            >
+              {sorted.map(([chain, v]) => (
+                <div
+                  key={chain}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontFamily: "var(--font-inter), Inter, sans-serif",
+                    fontSize: 13,
+                    color: "var(--vb-muted)",
+                  }}
+                >
+                  <ChainIcon chain={chain} size={12} withLabel />
+                  <span style={{ color: "var(--vb-text)", fontWeight: 600 }}>
+                    {formatUsd(v)}
+                  </span>
+                  <span style={{ color: "var(--vb-dim)" }}>
+                    {((v / total) * 100).toFixed(1)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       <div
         className="vb-grid-4"

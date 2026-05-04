@@ -72,6 +72,17 @@ export async function createMonthlySnapshot(
       }
     : null;
 
+  // Aggregate per-chain totals from each wallet's balance summary. Lets
+  // the dashboard render a "Treasury by chain" bar and the LLM prompt
+  // include a per-chain section (so multi-chain treasuries don't read as
+  // one monolithic blob). Single-chain projects just get one entry.
+  const balancesByChain: Record<string, number> = {};
+  for (const w of balances.balancesDetail) {
+    if (w.totalUsd > 0) {
+      balancesByChain[w.chain] = (balancesByChain[w.chain] ?? 0) + w.totalUsd;
+    }
+  }
+
   const snapshotValues = {
     projectId,
     snapshotDate,
@@ -81,6 +92,10 @@ export async function createMonthlySnapshot(
     nativeTokenUsd: balances.nativeTokenUsd.toFixed(2),
     otherAssetsUsd: balances.otherAssetsUsd.toFixed(2),
     balancesDetail: balances.balancesDetail as unknown as Record<string, unknown>[],
+    balancesByChain:
+      Object.keys(balancesByChain).length > 0
+        ? (balancesByChain as unknown as Record<string, unknown>)
+        : null,
 
     totalInflowsUsd: txResult?.totalInflowsUsd.toFixed(2) ?? null,
     totalOutflowsUsd: txResult?.totalOutflowsUsd.toFixed(2) ?? null,

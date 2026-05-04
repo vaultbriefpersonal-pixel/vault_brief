@@ -7,6 +7,13 @@ import {
   Image,
   StyleSheet,
 } from "@react-pdf/renderer";
+import {
+  TreasuryPie,
+  ChainSplit,
+  TrendBars,
+  GitHubSparkline,
+} from "./pdf-charts";
+import type { TreasurySnapshot } from "@/server/db/schema";
 
 interface PDFTemplateProps {
   projectName: string;
@@ -15,6 +22,10 @@ interface PDFTemplateProps {
   period: string;
   content: ParsedReportContent;
   primaryColor?: string;
+  /** Latest snapshot — drives the composition pie + chain split charts. */
+  snapshot?: TreasurySnapshot | null;
+  /** Oldest → newest, up to 6 entries. Drives the trend bars + sparkline. */
+  trendSnapshots?: TreasurySnapshot[];
 }
 
 interface ParsedReportContent {
@@ -380,10 +391,35 @@ export function VaultBriefPDF({
   period,
   content,
   primaryColor = NAVY,
+  snapshot,
+  trendSnapshots = [],
 }: PDFTemplateProps) {
   // The accent palette flows through three places: project name (header),
   // bullet dots, and the footer link. Compute once for consistency.
   const accent = primaryColor || ACCENT;
+
+  // Derive chart inputs once. All chart components null-out internally
+  // when the data isn't sufficient (e.g. fewer than 2 trend points), so
+  // we can pass them unconditionally.
+  const compositionSlices = snapshot
+    ? [
+        { label: "Stables", value: Number(snapshot.stablecoinsUsd ?? 0) },
+        { label: "ETH/WETH", value: Number(snapshot.ethUsd ?? 0) },
+        { label: "Native token", value: Number(snapshot.nativeTokenUsd ?? 0) },
+        { label: "Other", value: Number(snapshot.otherAssetsUsd ?? 0) },
+      ].filter((s) => s.value > 0)
+    : [];
+  const chainEntries = snapshot?.balancesByChain
+    ? Object.entries(snapshot.balancesByChain as Record<string, number>).map(
+        ([chain, value]) => ({ chain, value: Number(value) })
+      )
+    : [];
+  const trendBars = trendSnapshots.map((s) => ({
+    date: typeof s.snapshotDate === "string" ? s.snapshotDate : String(s.snapshotDate),
+    value: Number(s.totalBalanceUsd ?? 0),
+  }));
+  const ghSpark = trendSnapshots.map((s) => Number(s.githubCommitsCount ?? 0));
+
   return (
     <Document>
       <Page size="A4" style={styles.page} wrap>
@@ -400,6 +436,46 @@ export function VaultBriefPDF({
             {period}
           </Text>
         </View>
+
+        {/* Charts — rendered above the body so they anchor the visual
+            opening of the report. Each component null-checks its own data
+            so single-month / single-chain projects still render cleanly. */}
+        {compositionSlices.length > 0 && (
+          <View
+            wrap={false}
+            style={{
+              marginBottom: 12,
+              padding: 10,
+              borderWidth: 1,
+              borderColor: LIGHT_GRAY,
+              borderRadius: 6,
+            }}
+          >
+            <Text style={[styles.h2, { marginTop: 0 }]}>Treasury composition</Text>
+            <TreasuryPie data={compositionSlices} accent={accent} />
+          </View>
+        )}
+        {chainEntries.length >= 2 && (
+          <View wrap={false} style={{ marginBottom: 12 }}>
+            <Text style={styles.h2}>Treasury by chain</Text>
+            <ChainSplit data={chainEntries} />
+          </View>
+        )}
+        {trendBars.length >= 2 && (
+          <View wrap={false} style={{ marginBottom: 12 }}>
+            <Text style={styles.h2}>Treasury over time</Text>
+            <TrendBars data={trendBars} accent={accent} yLabel="USD" />
+          </View>
+        )}
+        {ghSpark.length >= 2 && ghSpark.some((n) => n > 0) && (
+          <View
+            wrap={false}
+            style={{ marginBottom: 12, flexDirection: "row", alignItems: "center", gap: 12 }}
+          >
+            <Text style={[styles.h2, { marginTop: 0 }]}>GitHub activity</Text>
+            <GitHubSparkline data={ghSpark} accent={accent} />
+          </View>
+        )}
 
         {/* Content */}
         {content.sections.map((section, i) => {
