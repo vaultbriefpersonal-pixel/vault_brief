@@ -73,25 +73,38 @@ export function buildReportPrompt(
 ): string {
   const period = `${snapshot.snapshotDate}`;
 
-  // Only emit asset lines for balances the project actually holds. Sending
-  // "Other assets: $0.00" or a $0 native-token line was causing the model to
-  // dutifully render those rows in the Markdown table, leading to "$0 / 0%"
-  // entries that look like missing data. Empty categories: drop entirely.
+  // Only emit asset lines for balances the project actually holds.
+  //
+  // Two filters apply:
+  //   1) Drop $0 categories — otherwise the LLM emits "$0 / 0%" rows that
+  //      read like missing data.
+  //   2) Drop categories that are < 0.1% of total — they round to "0.0%"
+  //      in the table anyway, and dust ($79 of a $73M treasury) is a
+  //      distraction in an investor narrative. The treasury total stays
+  //      accurate; we just suppress the "Other assets | $79 | 0.0%" row.
+  const total = Number(snapshot.totalBalanceUsd ?? 0);
+  const minSignificant = total > 0 ? total * 0.001 : 0; // 0.1% of total
   const treasuryLines: string[] = [
-    `- Total balance: ${formatUsd(Number(snapshot.totalBalanceUsd ?? 0))}`,
+    `- Total balance: ${formatUsd(total)}`,
   ];
   const stables = Number(snapshot.stablecoinsUsd ?? 0);
-  if (stables > 0) treasuryLines.push(`- Stablecoins: ${formatUsd(stables)}`);
+  if (stables > minSignificant) {
+    treasuryLines.push(`- Stablecoins: ${formatUsd(stables)}`);
+  }
   const ethUsd = Number(snapshot.ethUsd ?? 0);
-  if (ethUsd > 0) treasuryLines.push(`- ETH/WETH: ${formatUsd(ethUsd)}`);
+  if (ethUsd > minSignificant) {
+    treasuryLines.push(`- ETH/WETH: ${formatUsd(ethUsd)}`);
+  }
   const nativeUsd = Number(snapshot.nativeTokenUsd ?? 0);
-  if (project.tokenSymbol && nativeUsd > 0) {
+  if (project.tokenSymbol && nativeUsd > minSignificant) {
     treasuryLines.push(
       `- ${project.tokenSymbol} (native token): ${formatUsd(nativeUsd)}`
     );
   }
   const otherUsd = Number(snapshot.otherAssetsUsd ?? 0);
-  if (otherUsd > 0) treasuryLines.push(`- Other assets: ${formatUsd(otherUsd)}`);
+  if (otherUsd > minSignificant) {
+    treasuryLines.push(`- Other assets: ${formatUsd(otherUsd)}`);
+  }
 
   const treasurySection = `
 ## Current Treasury (${period})

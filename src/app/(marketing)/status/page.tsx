@@ -222,31 +222,25 @@ export default async function StatusPage() {
           </a>
         </p>
 
-        {/* Incidents */}
-        <h2
-          style={{
-            fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-            fontSize: 22,
-            fontWeight: 600,
-            color: "var(--vb-text)",
-            margin: "0 0 24px",
-            letterSpacing: "-0.02em",
-          }}
-        >
-          Past incidents
-        </h2>
-        {INCIDENTS.length === 0 ? (
-          <p
-            style={{
-              fontFamily: "var(--font-inter), Inter, sans-serif",
-              fontSize: 14,
-              color: "var(--vb-dim)",
-            }}
-          >
-            No incidents reported.
-          </p>
-        ) : (
-          INCIDENTS.map((inc) => (
+        {/* Incidents — only render the section once we actually have one to
+            report. An empty "Past incidents · No incidents reported" stub
+            historically read as "site is so new we have nothing to say"
+            rather than "stable." Hide entirely instead. */}
+        {INCIDENTS.length > 0 && (
+          <>
+            <h2
+              style={{
+                fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                fontSize: 22,
+                fontWeight: 600,
+                color: "var(--vb-text)",
+                margin: "0 0 24px",
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Past incidents
+            </h2>
+            {INCIDENTS.map((inc) => (
             <div
               key={inc.title}
               style={{
@@ -308,7 +302,8 @@ export default async function StatusPage() {
                 {inc.desc}
               </p>
             </div>
-          ))
+            ))}
+          </>
         )}
       </section>
     </div>

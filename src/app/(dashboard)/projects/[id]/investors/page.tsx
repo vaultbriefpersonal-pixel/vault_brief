@@ -366,8 +366,10 @@ export default function InvestorsPage({ params }: Props) {
                 color: "var(--vb-dim)",
                 display: "flex",
               }}
+              aria-label={`Remove ${inv.name}`}
+              title="Remove investor"
             >
-              <Trash2 size={15} />
+              <Trash2 size={15} aria-hidden="true" />
             </button>
           </div>
         ))}

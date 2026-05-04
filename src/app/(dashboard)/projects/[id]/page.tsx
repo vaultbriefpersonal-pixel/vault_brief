@@ -266,7 +266,12 @@ export default async function ProjectPage({ params }: Props) {
           )}
           {statCard(
             "Burn / mo",
-            latestSnapshot.burnRateUsd
+            // burn_rate is a numeric column → comes back as a string "0.00".
+            // Truthy check on the raw value falsely flips $0 into the formatted
+            // path; coerce to Number before testing. ENS-style projects whose
+            // only outflows are token_sale rebalances legitimately have burn=0,
+            // and "—" reads truer than "$0.00" for that case.
+            Number(latestSnapshot.burnRateUsd ?? 0) > 0
               ? formatUsd(Number(latestSnapshot.burnRateUsd))
               : "—",
             "#f87171"

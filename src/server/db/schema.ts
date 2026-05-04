@@ -238,6 +238,10 @@ export const reports = pgTable("reports", {
   sentAt: timestamp("sent_at", { withTimezone: true }),
   sentToCount: integer("sent_to_count").default(0),
   openedCount: integer("opened_count").default(0),
+  // Aggregate "clicked the View Full Report CTA" count. Per-recipient detail
+  // lives in `report_engagements`; this is the dashboard-list summary so we
+  // can show "Sent to 12 · 9 opened · 3 clicked" without joining.
+  clickedCount: integer("clicked_count").default(0),
 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

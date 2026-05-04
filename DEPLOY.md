@@ -29,7 +29,7 @@ npx drizzle-kit push
 
 1. Go to console.cloud.google.com → New project
 2. Enable OAuth 2.0 → Create credentials
-3. Authorized redirect URIs: `https://vaultbrief.com/api/auth/callback/google`
+3. Authorized redirect URIs: `https://vaultbrief.io/api/auth/callback/google`
 4. Copy Client ID → `AUTH_GOOGLE_ID`
 5. Copy Client Secret → `AUTH_GOOGLE_SECRET`
 6. Generate auth secret: `openssl rand -base64 32` → `AUTH_SECRET`
@@ -54,7 +54,7 @@ npx drizzle-kit push
 3. API Keys → copy:
    - Secret key → `STRIPE_SECRET_KEY`
    - Publishable key → `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
-4. Webhooks → Add endpoint: `https://vaultbrief.com/api/webhooks/stripe`
+4. Webhooks → Add endpoint: `https://vaultbrief.io/api/webhooks/stripe`
    - Events: `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.deleted`
    - Copy signing secret → `STRIPE_WEBHOOK_SECRET`
 
@@ -109,7 +109,7 @@ vercel --prod
 Required env vars for production:
 - `DATABASE_URL`
 - `AUTH_SECRET`
-- `AUTH_URL=https://vaultbrief.com`
+- `AUTH_URL=https://www.vaultbrief.io` — must be the canonical (www) origin. Apex `vaultbrief.io` 307s to www; using apex here drops session cookies on the redirect.
 - `AUTH_GOOGLE_ID`
 - `AUTH_GOOGLE_SECRET`
 - `RESEND_API_KEY`
@@ -129,20 +129,20 @@ Required env vars for production:
 - `GITHUB_TOKEN` — recommended; without it GitHub API caps at 60 req/hr per IP and snapshots record zeros for any project syncing GitHub data. Read-only `public_repo` scope is sufficient.
 - `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN` — optional; sets up server + browser error tracking. Without these the SDK silently no-ops (app behaves identically). To enable: create a project at sentry.io, copy the DSN to both vars, redeploy.
 - `STRIPE_PRICE_*_ANNUAL` — optional. To enable annual billing for the /pricing toggle: in Stripe Dashboard create three additional recurring prices (annual interval, 20% discount on the monthly amount), copy the IDs into `STRIPE_PRICE_STARTER_ANNUAL` / `STRIPE_PRICE_GROWTH_ANNUAL` / `STRIPE_PRICE_VC_SUITE_ANNUAL`. Without them checkout falls back to the monthly variant when "Annual" is selected.
-- `NEXT_PUBLIC_APP_URL=https://vaultbrief.com`
+- `NEXT_PUBLIC_APP_URL=https://vaultbrief.io`
 
 ---
 
 ## Step 7: Custom Domain
 
-In Vercel dashboard → Domains → Add `vaultbrief.com`
+In Vercel dashboard → Domains → Add `vaultbrief.io`
 Update DNS at your registrar as shown.
 
 ---
 
 ## Verification Checklist
 
-- [ ] `https://vaultbrief.com` returns 200
+- [ ] `https://vaultbrief.io` returns 200
 - [ ] Login with Google works
 - [ ] Magic link email arrives
 - [ ] Create project → add wallet → see it listed

@@ -145,6 +145,9 @@ export default async function ReportsPage({ params }: Props) {
                   >
                     Sent to {report.sentToCount} · {report.openedCount ?? 0}{" "}
                     opened
+                    {(report.clickedCount ?? 0) > 0
+                      ? ` · ${report.clickedCount} clicked`
+                      : ""}
                   </span>
                 )}
                 <span

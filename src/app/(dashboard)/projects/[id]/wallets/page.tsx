@@ -270,8 +270,10 @@ export default function WalletsPage({ params }: Props) {
                 color: "var(--vb-dim)",
                 display: "flex",
               }}
+              aria-label={`Remove wallet ${w.label ?? w.address}`}
+              title="Remove wallet"
             >
-              <Trash2 size={15} />
+              <Trash2 size={15} aria-hidden="true" />
             </button>
           </div>
         ))}

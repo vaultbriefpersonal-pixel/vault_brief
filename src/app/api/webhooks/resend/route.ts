@@ -120,12 +120,18 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Aggregate counter (legacy, used by analytics/list views). Only opened
-    // events bump it for now — keeps backward compatibility with existing UI.
+    // Aggregate counters: separate columns per event so the dashboard list
+    // can render "Sent to N · M opened · K clicked" without re-aggregating
+    // report_engagements on every render.
     if (event.type === "email.opened") {
       await db
         .update(reports)
         .set({ openedCount: sql`COALESCE(${reports.openedCount}, 0) + 1` })
+        .where(eq(reports.id, reportId));
+    } else if (event.type === "email.clicked") {
+      await db
+        .update(reports)
+        .set({ clickedCount: sql`COALESCE(${reports.clickedCount}, 0) + 1` })
         .where(eq(reports.id, reportId));
     }
   } catch (err) {

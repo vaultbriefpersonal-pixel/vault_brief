@@ -161,7 +161,7 @@ export function PayWithUsdcButton({
         aria-label={`Pay with USDC for ${plan} plan`}
       >
         {/* Inline USDC-ish circle icon — keeps zero-deps. */}
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <circle cx="12" cy="12" r="11" stroke="currentColor" strokeWidth="2" />
           <text
             x="12"
