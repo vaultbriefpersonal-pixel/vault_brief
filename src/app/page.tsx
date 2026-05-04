@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
 import { Nav } from "@/components/marketing/Nav";
 import { Footer } from "@/components/marketing/Footer";
 import { FAQ } from "@/components/marketing/FAQ";
@@ -86,7 +88,17 @@ const TESTIMONIALS = [
 
 const LOGOS = ["Meridian Protocol", "Lattice DAO", "Prism Finance", "Atlas Labs", "Nova Network", "Cascade Finance"];
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  // Logged-in users skip the marketing splash and go straight to their
+  // dashboard. Guests see the full landing page. Mirrors the standard SaaS
+  // UX (Linear, Stripe, Vercel) — and removes the route conflict that used
+  // to live at (dashboard)/page.tsx.
+  const session = await auth();
+  if (session?.user) redirect("/projects");
+  return <LandingPageContent />;
+}
+
+function LandingPageContent() {
   return (
     <div style={{ background: "var(--vb-bg)", minHeight: "100dvh" }}>
       <Nav />
