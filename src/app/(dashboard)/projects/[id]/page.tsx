@@ -157,6 +157,93 @@ export default async function ProjectPage({ params }: Props) {
         <SyncNowButton projectId={id} />
       </div>
 
+      {/* Sync warnings — surfaced when one or more wallets failed to fetch
+          during the latest sync. Without this banner, founders see plausible-
+          looking-but-incomplete numbers on every tile and chart, then send
+          a wrong report to investors. The schema's `sync_warnings` column
+          was added for this; we just need to render it. */}
+      {Array.isArray(latestSnapshot?.syncWarnings) &&
+        latestSnapshot.syncWarnings.length > 0 && (
+          <div
+            style={{
+              marginBottom: 24,
+              padding: "12px 16px",
+              background: "rgba(251,191,36,0.08)",
+              border: "1px solid rgba(251,191,36,0.25)",
+              borderRadius: 10,
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 12,
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+            }}
+          >
+            <span style={{ fontSize: 18, lineHeight: 1 }}>⚠️</span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <p
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#fbbf24",
+                  margin: "0 0 4px",
+                }}
+              >
+                Snapshot is partial — {latestSnapshot.syncWarnings.length}{" "}
+                wallet
+                {latestSnapshot.syncWarnings.length === 1 ? "" : "s"} failed
+                to sync
+              </p>
+              <ul
+                style={{
+                  margin: 0,
+                  padding: 0,
+                  listStyle: "none",
+                  fontSize: 12,
+                  color: "var(--vb-muted)",
+                }}
+              >
+                {(
+                  latestSnapshot.syncWarnings as Array<{
+                    wallet?: string;
+                    chain?: string;
+                    error?: string;
+                  }>
+                )
+                  .slice(0, 3)
+                  .map((w, i) => (
+                    <li key={i} style={{ lineHeight: 1.6 }}>
+                      <code
+                        style={{
+                          fontFamily: "var(--font-geist-mono), monospace",
+                          opacity: 0.7,
+                        }}
+                      >
+                        {w.wallet?.slice(0, 10)}…{w.wallet?.slice(-4)}
+                      </code>{" "}
+                      ({w.chain}) — {w.error}
+                    </li>
+                  ))}
+                {latestSnapshot.syncWarnings.length > 3 && (
+                  <li
+                    style={{ lineHeight: 1.6, opacity: 0.7, marginTop: 2 }}
+                  >
+                    + {latestSnapshot.syncWarnings.length - 3} more
+                  </li>
+                )}
+              </ul>
+              <p
+                style={{
+                  fontSize: 12,
+                  color: "var(--vb-dim)",
+                  margin: "6px 0 0",
+                }}
+              >
+                Numbers below reflect only the wallets that synced
+                successfully. Click <strong>Sync now</strong> to retry.
+              </p>
+            </div>
+          </div>
+        )}
+
       {latestSnapshot && (
         <div
           className="vb-grid-4"

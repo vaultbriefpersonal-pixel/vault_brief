@@ -105,19 +105,47 @@ export default function ProjectSettingsPage({ params }: Props) {
 
   return (
     <div style={{ padding: "24px 28px", minHeight: "100dvh" }}>
-      <h2
+      <div
         style={{
-          fontFamily:
-            "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-          fontSize: 18,
-          fontWeight: 700,
-          color: "var(--vb-text)",
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 16,
           margin: "0 0 20px",
-          letterSpacing: "-0.02em",
+          flexWrap: "wrap",
         }}
       >
-        Project settings
-      </h2>
+        <h2
+          style={{
+            fontFamily:
+              "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+            fontSize: 18,
+            fontWeight: 700,
+            color: "var(--vb-text)",
+            margin: 0,
+            letterSpacing: "-0.02em",
+          }}
+        >
+          Project settings
+        </h2>
+        {/* Below-the-fold delete button got reported as missing more than
+            once — surface a top-of-page anchor to the danger zone. Subtle
+            styling so it doesn't look like the primary action. */}
+        <a
+          href="#danger-zone"
+          style={{
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            fontSize: 12,
+            color: "var(--vb-dim)",
+            textDecoration: "none",
+            border: "1px solid rgba(248,113,113,0.18)",
+            borderRadius: 6,
+            padding: "5px 10px",
+          }}
+        >
+          Danger zone ↓
+        </a>
+      </div>
 
       <form
         onSubmit={handleSubmit}
@@ -186,11 +214,13 @@ export default function ProjectSettingsPage({ params }: Props) {
       </form>
 
       <div
+        id="danger-zone"
         style={{
           border: "1px solid rgba(248,113,113,0.2)",
           background: "rgba(248,113,113,0.04)",
           borderRadius: 12,
           padding: 20,
+          scrollMarginTop: 24,
         }}
       >
         <h3

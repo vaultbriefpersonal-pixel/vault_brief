@@ -6,13 +6,23 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatUsd(amount: number, decimals = 2): string {
-  if (amount >= 1_000_000) {
-    return `$${(amount / 1_000_000).toFixed(1)}M`;
+  // Negative balances are uncommon (overdrawn / pending settlement) but
+  // surface naturally in net flow. Preserve the sign.
+  const sign = amount < 0 ? "-" : "";
+  const abs = Math.abs(amount);
+  // Threshold escalation: B → M → K → cents. Two decimals once we cross
+  // 100B (else "$2400.0M" leaks through for whale-tier treasuries; that's
+  // the literal bug we just hit on the Whale Treasury mock).
+  if (abs >= 1_000_000_000) {
+    return `${sign}$${(abs / 1_000_000_000).toFixed(2)}B`;
   }
-  if (amount >= 1_000) {
-    return `$${(amount / 1_000).toFixed(1)}K`;
+  if (abs >= 1_000_000) {
+    return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
   }
-  return `$${amount.toFixed(decimals)}`;
+  if (abs >= 1_000) {
+    return `${sign}$${(abs / 1_000).toFixed(1)}K`;
+  }
+  return `${sign}$${abs.toFixed(decimals)}`;
 }
 
 export function formatDate(date: Date | string): string {
