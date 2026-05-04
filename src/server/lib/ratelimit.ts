@@ -46,6 +46,10 @@ export const syncLimiter = makeLimiter(3, "1 h", "rl:sync");
 // Backfill (>1 month at once) is much more expensive — one trigger spans
 // dozens of API calls per month × N months. Keep it rare.
 export const backfillLimiter = makeLimiter(2, "1 d", "rl:backfill");
+// Marketing chat widget — keyed by visitor IP since the user isn't logged
+// in. Generous cap (10/hr) keeps tire-kickers happy while bounding cost
+// from a stray script smashing /api/chat in a loop.
+export const chatLimiter = makeLimiter(10, "1 h", "rl:chat");
 
 type LimiterFactory = () => Ratelimit | null;
 

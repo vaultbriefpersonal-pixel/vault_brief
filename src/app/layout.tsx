@@ -19,18 +19,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "VaultBrief — Automated Investor Reporting for Web3",
+  title: "Vault Brief — Automated Investor Reporting for Web3",
   description:
     "Turn your on-chain treasury into investor-ready reports. Automatically. Connect wallets, generate AI reports, send to investors every month.",
   openGraph: {
-    title: "VaultBrief — Automated Investor Reporting for Web3",
+    title: "Vault Brief — Automated Investor Reporting for Web3",
     description:
       "Turn your on-chain treasury into investor-ready reports. Automatically.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "VaultBrief — Automated Investor Reporting for Web3",
+    title: "Vault Brief — Automated Investor Reporting for Web3",
     description:
       "Turn your on-chain treasury into investor-ready reports. Automatically.",
   },

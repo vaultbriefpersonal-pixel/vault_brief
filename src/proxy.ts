@@ -22,6 +22,11 @@ const PUBLIC_PATHS = [
   "/api/webhooks",
   // Public health endpoint — used by /status page and external uptime monitors.
   "/api/health",
+  // Marketing chat widget — anonymous visitors. Rate-limited per IP via
+  // chatLimiter. Forcing auth here would defeat the whole point.
+  "/api/chat",
+  // Public API waitlist — single-shot email capture from /docs.
+  "/api/waitlist",
 ];
 
 export default auth((req: NextRequest & { auth: unknown }) => {

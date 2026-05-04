@@ -109,7 +109,7 @@ export function ReportsEmptyState({
         </div>
         <p style={titleStyle}>No data synced yet</p>
         <p style={bodyStyle}>
-          Add at least one wallet so VaultBrief can pull treasury data.
+          Add at least one wallet so Vault Brief can pull treasury data.
           Reports also generate automatically on the 1st of each month.
         </p>
         <Link href={`/projects/${projectId}/wallets`} style={primaryBtn}>

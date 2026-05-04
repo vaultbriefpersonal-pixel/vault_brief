@@ -1,7 +1,7 @@
 import type { TreasurySnapshot, Project, Milestone } from "@/server/db/schema";
 import { formatUsd, formatDate } from "@/lib/utils";
 
-export const REPORT_SYSTEM_PROMPT = `You are VaultBrief AI, a financial analyst for Web3 projects.
+export const REPORT_SYSTEM_PROMPT = `You are Vault Brief AI, a financial analyst for Web3 projects.
 
 Generate a monthly investor report in Markdown format from the provided treasury data.
 

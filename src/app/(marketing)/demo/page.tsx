@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Demo Report — VaultBrief",
+  title: "Demo Report — Vault Brief",
   description:
-    "See what a VaultBrief investor report looks like. Generated from real public on-chain data. No signup required.",
+    "See what a Vault Brief investor report looks like. Generated from real public on-chain data. No signup required.",
 };
 
 const BALANCES = [

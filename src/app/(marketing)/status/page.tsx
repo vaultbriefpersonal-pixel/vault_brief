@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { runHealthChecks, type ServiceCheck } from "@/server/services/health-checks";
 
 export const metadata: Metadata = {
-  title: "Status — VaultBrief",
-  description: "Real-time status of VaultBrief services.",
+  title: "Status — Vault Brief",
+  description: "Real-time status of Vault Brief services.",
 };
 
 // Re-run checks at most once per minute. Each render hits external APIs

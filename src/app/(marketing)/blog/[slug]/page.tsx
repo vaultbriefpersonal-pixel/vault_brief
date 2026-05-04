@@ -10,9 +10,9 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const post = POSTS.find((p) => p.slug === slug);
-  if (!post) return { title: "Blog — VaultBrief" };
+  if (!post) return { title: "Blog — Vault Brief" };
   return {
-    title: `${post.title} — VaultBrief`,
+    title: `${post.title} — Vault Brief`,
     description: post.excerpt,
   };
 }
@@ -186,7 +186,7 @@ export default async function BlogPostPage({ params }: Props) {
                 margin: "0 0 20px",
               }}
             >
-              VaultBrief generates investor-ready reports from your on-chain
+              Vault Brief generates investor-ready reports from your on-chain
               data. No spreadsheets.
             </p>
             <Link

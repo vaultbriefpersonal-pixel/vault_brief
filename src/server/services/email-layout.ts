@@ -51,7 +51,7 @@ export interface EmailLayoutArgs {
   /** Email body HTML — already styled, inline. */
   bodyHtml: string;
   palette?: BrandPalette;
-  /** Footer attribution. Falls back to default VaultBrief tagline. */
+  /** Footer attribution. Falls back to default Vault Brief tagline. */
   footerHtml?: string;
 }
 
@@ -64,7 +64,7 @@ export function renderEmailLayout(args: EmailLayoutArgs): string {
   const palette = args.palette ?? DEFAULT_PALETTE;
   const footer =
     args.footerHtml ??
-    `Sent via <a href="https://vaultbrief.io" style="color: ${palette.accent}; text-decoration: none;">VaultBrief</a> · Automated investor reporting for Web3`;
+    `Sent via <a href="https://vaultbrief.io" style="color: ${palette.accent}; text-decoration: none;">Vault Brief</a> · Automated investor reporting for Web3`;
 
   const logoBlock = args.logoUrl
     ? `<img src="${args.logoUrl}" alt="" style="max-height: 32px; max-width: 140px; margin-bottom: 12px; display: block;" />`

@@ -100,7 +100,7 @@ function LoginForm() {
               textAlign: "center",
             }}
           >
-            Sign in to VaultBrief
+            Sign in to Vault Brief
           </h1>
           <p
             style={{

@@ -1,14 +1,32 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Wallet, Cable, Sparkles, Send } from "lucide-react";
 import { Nav } from "@/components/marketing/Nav";
 import { Footer } from "@/components/marketing/Footer";
 import { FAQ } from "@/components/marketing/FAQ";
+import { ChatWidget } from "@/components/marketing/ChatWidget";
+import { db } from "@/server/db";
+import { reports, wallets, treasurySnapshots } from "@/server/db/schema";
+import { count } from "drizzle-orm";
+
+// Icon-key → lucide component. Keeps the STEPS constant plain-data while
+// the render block looks up the right glyph. New steps just add a key.
+const STEP_ICONS = {
+  connect: Wallet,
+  sync: Cable,
+  ai: Sparkles,
+  send: Send,
+} as const;
 
 export const metadata: Metadata = {
-  title: "VaultBrief — Automated Investor Reporting for Web3",
+  title: "Vault Brief — Automated Investor Reporting for Web3",
   description:
-    "Connect wallets and GitHub once. Every month, VaultBrief pulls your data, writes the narrative, and sends polished PDF reports to investors.",
+    "Connect wallets and GitHub once. Every month, Vault Brief pulls your data, writes the narrative, and sends polished PDF reports to investors.",
 };
+
+// Re-render the homepage at most every 5 minutes so the stat strip's
+// counts grow without hammering the DB on every visit. Static otherwise.
+export const revalidate = 300;
 
 const FEATURES = [
   {
@@ -43,50 +61,84 @@ const FEATURES = [
   },
 ];
 
+// Each step keys to a lucide icon imported below. "iconKey" is a string
+// rather than the component itself so the constant stays plain-data and
+// the actual icon resolution happens in the render block. Copy aims to
+// name the real machinery (Alchemy / Dune / Helius / OpenRouter) so the
+// section reads as "here's the engineering" rather than "the magic
+// happens behind the curtain."
 const STEPS = [
   {
     num: "01",
+    iconKey: "connect" as const,
     title: "Connect",
-    desc: "Link your wallets and GitHub repos. Takes about 2 minutes. We support 15+ chains and any GitHub org.",
+    desc:
+      "Add your treasury wallets — multisig, EOA, or exchange — across 20+ chains. Connect a GitHub org for dev metrics. Two minutes, no read-write keys ever.",
   },
   {
     num: "02",
+    iconKey: "sync" as const,
     title: "We pull the data",
-    desc: "On the 1st of each month, VaultBrief syncs balances, transactions, dev activity, and token metrics automatically.",
+    desc:
+      "On the 1st of each month we pull balances from Alchemy + Dune + Helius, classify on-chain transactions into expense categories, and snapshot GitHub commit / PR / contributor activity. Cached aggressively so re-runs are free.",
   },
   {
     num: "03",
+    iconKey: "ai" as const,
     title: "AI writes the report",
-    desc: "Expenses are classified, burn rate calculated, and a readable narrative is generated from your data.",
+    desc:
+      "An LLM (Claude or Gemini, via OpenRouter) reads the snapshot — current treasury, prior month, anomalies, milestones — and produces a structured Markdown narrative. Numbers are validated against the source data; the model can't fabricate a balance.",
   },
   {
     num: "04",
+    iconKey: "send" as const,
     title: "Review and send",
-    desc: "Edit anything you want, add a personal note, hit send. Investors get a polished PDF in their inbox.",
+    desc:
+      "Edit anything in the in-app Markdown editor. Mark Ready → Send. Investors get a branded PDF + an email with key KPIs already inline. Open / click tracking via Resend webhooks.",
   },
 ];
 
-const TESTIMONIALS = [
-  {
-    text: "We used to spend 8 hours every month pulling data from Etherscan and formatting Google Docs. Now it is 15 minutes of review.",
-    author: "Sarah Chen",
-    role: "CFO, Meridian Protocol",
-  },
-  {
-    text: "Our investors actually read the reports now. The AI narratives are surprisingly good — we barely edit them.",
-    author: "Marcus Rivera",
-    role: "Co-founder, Lattice Finance",
-  },
-  {
-    text: "The multi-chain tracking alone is worth it. Having everything in one place changed how we think about treasury ops.",
-    author: "Anika Patel",
-    role: "Head of Finance, Prism DAO",
-  },
+// Replaces the original three placeholder testimonials. The numbers come
+// straight from the production DB (reports, wallets, treasury_snapshots);
+// "20+ chains" is hard-coded because the support list is in `chains.ts`
+// and the count rarely changes mid-month. Pattern matches the rest of the
+// site: hide-when-zero / no-fake-padding (see /status past incidents and
+// the dashboard sync warnings).
+const STATS_FALLBACK = { reports: 0, wallets: 0, snapshots: 0 };
+async function loadPublicStats() {
+  try {
+    const [r] = await db.select({ n: count() }).from(reports);
+    const [w] = await db.select({ n: count() }).from(wallets);
+    const [s] = await db.select({ n: count() }).from(treasurySnapshots);
+    return {
+      reports: r?.n ?? 0,
+      wallets: w?.n ?? 0,
+      snapshots: s?.n ?? 0,
+    };
+  } catch (err) {
+    // DB not reachable from a marketing edge cache — render fallbacks
+    // rather than 500ing the homepage. Logged for ops visibility.
+    console.warn("loadPublicStats: falling back to zeros", err);
+    return STATS_FALLBACK;
+  }
+}
+
+// The actual stack the product runs on. Renders as colored brand chips in
+// the "Built on the stack you already trust" strip — replaces the original
+// fake-DAO logo placeholders. Each chip uses the tool's brand color so the
+// row reads as a real engineering manifest, not generic "powered by" filler.
+const TOOL_STACK: Array<{ name: string; color: string }> = [
+  { name: "Alchemy", color: "#0C0C0E" },
+  { name: "Dune", color: "#FE6F37" },
+  { name: "Helius", color: "#B8FF36" },
+  { name: "OpenRouter", color: "#10A37F" },
+  { name: "Resend", color: "#FFFFFF" },
+  { name: "Neon", color: "#00E599" },
+  { name: "Vercel", color: "#FFFFFF" },
+  { name: "Stripe", color: "#635BFF" },
 ];
 
-const LOGOS = ["Meridian Protocol", "Lattice DAO", "Prism Finance", "Atlas Labs", "Nova Network", "Cascade Finance"];
-
-export default function LandingPage() {
+export default async function LandingPage() {
   // "/" always renders the marketing landing — even for logged-in users.
   // The marketing Nav surfaces a "Dashboard" link when a session is present
   // so authenticated users can jump back to /projects without reloading.
@@ -95,6 +147,7 @@ export default function LandingPage() {
   // signed in (and made share-links to / from inside the app land back on
   // the dashboard, never showing the actual landing). Net: keep "/" as a
   // public surface; navigation does the rest.
+  const stats = await loadPublicStats();
   return (
     <div style={{ background: "var(--vb-bg)", minHeight: "100dvh" }}>
       <Nav />
@@ -186,7 +239,7 @@ export default function LandingPage() {
               margin: "0 auto 44px",
             }}
           >
-            Connect wallets and GitHub once. Every month, VaultBrief pulls your
+            Connect wallets and GitHub once. Every month, Vault Brief pulls your
             data, writes the narrative, and sends polished PDF reports to
             investors.
           </p>
@@ -362,30 +415,34 @@ export default function LandingPage() {
             fontWeight: 500,
           }}
         >
-          Used by crypto projects worldwide
+          Built on the stack you already trust
         </p>
         <div
           style={{
             display: "flex",
             justifyContent: "center",
-            gap: 56,
+            gap: 28,
             flexWrap: "wrap",
             alignItems: "center",
           }}
         >
-          {LOGOS.map((l) => (
+          {TOOL_STACK.map((t) => (
             <span
-              key={l}
+              key={t.name}
               style={{
                 fontFamily:
                   "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-                fontSize: 15,
+                fontSize: 14,
                 fontWeight: 600,
-                color: "var(--vb-dim)",
+                color: t.color,
                 letterSpacing: "-0.01em",
+                padding: "8px 16px",
+                borderRadius: 8,
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
               }}
             >
-              {l}
+              {t.name}
             </span>
           ))}
         </div>
@@ -521,55 +578,88 @@ export default function LandingPage() {
             className="vb-grid-4"
             style={{ gap: 24 }}
           >
-            {STEPS.map((s) => (
-              <div key={s.num}>
-                <div
-                  style={{
-                    fontFamily:
-                      "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-                    fontSize: 64,
-                    fontWeight: 700,
-                    color: "var(--accent)",
-                    opacity: 0.25,
-                    lineHeight: 1,
-                    marginBottom: 16,
-                  }}
-                >
-                  {s.num}
+            {STEPS.map((s) => {
+              const Icon = STEP_ICONS[s.iconKey];
+              return (
+                <div key={s.num}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      marginBottom: 16,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 10,
+                        background: "rgba(0,232,123,0.08)",
+                        border: "1px solid rgba(0,232,123,0.18)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Icon
+                        size={18}
+                        color="var(--accent)"
+                        strokeWidth={2}
+                        aria-hidden="true"
+                      />
+                    </div>
+                    <span
+                      style={{
+                        fontFamily:
+                          "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                        fontSize: 28,
+                        fontWeight: 700,
+                        color: "var(--accent)",
+                        opacity: 0.4,
+                        lineHeight: 1,
+                      }}
+                    >
+                      {s.num}
+                    </span>
+                  </div>
+                  <h3
+                    style={{
+                      fontFamily:
+                        "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                      fontSize: 20,
+                      fontWeight: 600,
+                      color: "var(--vb-text)",
+                      margin: "0 0 10px",
+                    }}
+                  >
+                    {s.title}
+                  </h3>
+                  <p
+                    style={{
+                      fontFamily: "var(--font-inter), Inter, sans-serif",
+                      fontSize: 15,
+                      color: "var(--vb-muted)",
+                      lineHeight: 1.6,
+                      margin: 0,
+                    }}
+                  >
+                    {s.desc}
+                  </p>
                 </div>
-                <h3
-                  style={{
-                    fontFamily:
-                      "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-                    fontSize: 20,
-                    fontWeight: 600,
-                    color: "var(--vb-text)",
-                    margin: "0 0 10px",
-                  }}
-                >
-                  {s.title}
-                </h3>
-                <p
-                  style={{
-                    fontFamily: "var(--font-inter), Inter, sans-serif",
-                    fontSize: 15,
-                    color: "var(--vb-muted)",
-                    lineHeight: 1.6,
-                    margin: 0,
-                  }}
-                >
-                  {s.desc}
-                </p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
 
-      {/* Testimonials */}
+      {/* Built in public — replaces the testimonials section.
+          Numbers come from the live DB (revalidate every 5 min); chains
+          count is static because it's pinned to chains.ts. */}
       <section className="vb-section" style={{ background: "var(--vb-alt)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div style={{ textAlign: "center", marginBottom: 64 }}>
+          <div style={{ textAlign: "center", marginBottom: 48 }}>
             <p
               style={{
                 fontSize: 13,
@@ -581,7 +671,7 @@ export default function LandingPage() {
                 fontWeight: 600,
               }}
             >
-              Testimonials
+              Built in public
             </p>
             <h2
               style={{
@@ -594,67 +684,87 @@ export default function LandingPage() {
                 margin: 0,
               }}
             >
-              What teams are saying
+              Live numbers, not paid quotes
             </h2>
+            <p
+              style={{
+                fontFamily: "var(--font-inter), Inter, sans-serif",
+                fontSize: 15,
+                color: "var(--vb-muted)",
+                marginTop: 16,
+                maxWidth: 540,
+                margin: "16px auto 0",
+                lineHeight: 1.6,
+              }}
+            >
+              We&apos;re early. Instead of fake testimonials, here&apos;s
+              what the system has actually done so far. Updated every five
+              minutes from the production database.
+            </p>
           </div>
 
-          <div
-            className="vb-grid-3"
-            style={{ gap: 20 }}
-          >
-            {TESTIMONIALS.map((q) => (
+          <div className="vb-grid-4" style={{ gap: 20 }}>
+            {[
+              { value: "20+", label: "Chains supported", note: "Ethereum + L2s + Solana" },
+              {
+                value: stats.wallets.toLocaleString(),
+                label: "Wallets tracked",
+                note: "across all projects",
+              },
+              {
+                value: stats.snapshots.toLocaleString(),
+                label: "Monthly snapshots",
+                note: "balances · flows · GitHub",
+              },
+              {
+                value: stats.reports.toLocaleString(),
+                label: "Reports generated",
+                note: "AI narratives shipped",
+              },
+            ].map((s) => (
               <div
-                key={q.author}
-                className="card-hover"
+                key={s.label}
                 style={{
                   background: "var(--vb-card)",
                   borderRadius: 14,
                   border: "1px solid var(--vb-border)",
-                  padding: 32,
+                  padding: "28px 24px",
+                  textAlign: "center",
                 }}
               >
                 <div
                   style={{
-                    fontSize: 28,
+                    fontFamily:
+                      "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                    fontSize: 36,
+                    fontWeight: 700,
                     color: "var(--accent)",
-                    marginBottom: 16,
-                    lineHeight: 1,
+                    letterSpacing: "-0.02em",
+                    lineHeight: 1.1,
                   }}
                 >
-                  "
+                  {s.value}
                 </div>
-                <p
+                <div
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",
-                    fontSize: 15,
+                    fontSize: 14,
+                    fontWeight: 600,
                     color: "var(--vb-text)",
-                    lineHeight: 1.65,
-                    margin: "0 0 24px",
+                    marginTop: 10,
                   }}
                 >
-                  {q.text}
-                </p>
-                <div>
-                  <div
-                    style={{
-                      fontFamily:
-                        "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-                      fontSize: 14,
-                      fontWeight: 600,
-                      color: "var(--vb-text)",
-                    }}
-                  >
-                    {q.author}
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: "var(--font-inter), Inter, sans-serif",
-                      fontSize: 13,
-                      color: "var(--vb-dim)",
-                    }}
-                  >
-                    {q.role}
-                  </div>
+                  {s.label}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "var(--font-inter), Inter, sans-serif",
+                    fontSize: 12,
+                    color: "var(--vb-dim)",
+                    marginTop: 4,
+                  }}
+                >
+                  {s.note}
                 </div>
               </div>
             ))}
@@ -728,6 +838,7 @@ export default function LandingPage() {
       </section>
 
       <Footer />
+      <ChatWidget />
     </div>
   );
 }

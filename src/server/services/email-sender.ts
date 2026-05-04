@@ -154,7 +154,7 @@ export async function sendReportReadyForReviewEmail(
   const body = `
     <p style="${paragraphStyle(palette)}">Hi ${to.name},</p>
     ${badgeHtml("Draft", "amber")}
-    <p style="${paragraphStyle(palette)} margin-top: 12px;">VaultBrief auto-generated this month's investor report from your latest treasury snapshot. Review the numbers, edit the narrative, then send it to your investors when you're happy with it.</p>
+    <p style="${paragraphStyle(palette)} margin-top: 12px;">Vault Brief auto-generated this month's investor report from your latest treasury snapshot. Review the numbers, edit the narrative, then send it to your investors when you're happy with it.</p>
     ${report.executiveSummary ? execSummaryHtml(report.executiveSummary, palette) : ""}
     ${ctaButtonHtml(reviewUrl, "Review and edit →", palette)}
     ${
@@ -200,7 +200,7 @@ export async function sendMagicLinkEmail(to: string, url: string) {
   `;
 
   const html = renderEmailLayout({
-    title: "Sign in to VaultBrief",
+    title: "Sign in to Vault Brief",
     palette,
     bodyHtml: body,
   });
@@ -208,7 +208,7 @@ export async function sendMagicLinkEmail(to: string, url: string) {
   const { error } = await getResend().emails.send({
     from: FROM,
     to,
-    subject: "Sign in to VaultBrief",
+    subject: "Sign in to Vault Brief",
     html,
   });
   if (error) throw new Error(`Magic link email failed: ${error.message}`);

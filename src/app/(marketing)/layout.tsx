@@ -1,5 +1,6 @@
 import { Nav } from "@/components/marketing/Nav";
 import { Footer } from "@/components/marketing/Footer";
+import { ChatWidget } from "@/components/marketing/ChatWidget";
 
 export default function MarketingLayout({
   children,
@@ -13,6 +14,9 @@ export default function MarketingLayout({
         {children}
       </main>
       <Footer />
+      {/* Visitor-facing AI chat. Mounted only in the marketing layout —
+          dashboard users have other support channels. */}
+      <ChatWidget />
     </>
   );
 }

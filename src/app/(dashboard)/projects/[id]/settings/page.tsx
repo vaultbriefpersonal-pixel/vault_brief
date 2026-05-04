@@ -87,7 +87,7 @@ export default function ProjectSettingsPage({ params }: Props) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     // Branding: only send when at least one field changed from the default.
-    // null clears the row → no styles → falls back to VaultBrief default.
+    // null clears the row → no styles → falls back to Vault Brief default.
     const hasBrand =
       form.primaryColor.toLowerCase() !== "#6366f1" || form.logoUrl.trim();
     update.mutate({

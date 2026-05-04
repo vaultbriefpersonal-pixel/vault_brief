@@ -84,7 +84,7 @@ export default function GlobalSettingsPage() {
           lineHeight: 1.6,
         }}
       >
-        Profile and notification preferences for your VaultBrief account.
+        Profile and notification preferences for your Vault Brief account.
       </p>
 
       <form

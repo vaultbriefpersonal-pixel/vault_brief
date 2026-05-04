@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Cookie Policy — VaultBrief",
+  title: "Cookie Policy — Vault Brief",
 };
 
 const s = {
@@ -22,7 +22,7 @@ export default function CookiesPage() {
         <p style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "var(--vb-dim)", marginBottom: 12 }}>Last updated: May 1, 2026</p>
         <h1 style={{ fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif", fontSize: "clamp(32px, 4vw, 44px)", fontWeight: 700, color: "var(--vb-text)", letterSpacing: "-0.03em", margin: "0 0 40px" }}>Cookie Policy</h1>
 
-        <p style={s.p}>VaultBrief uses a small number of cookies to make the service work and to understand how it is being used. We do not use advertising cookies or sell data to ad networks.</p>
+        <p style={s.p}>Vault Brief uses a small number of cookies to make the service work and to understand how it is being used. We do not use advertising cookies or sell data to ad networks.</p>
 
         <h2 style={s.h2}>Cookies we use</h2>
 
@@ -45,7 +45,7 @@ export default function CookiesPage() {
         </div>
 
         <h2 style={s.h2}>Your choices</h2>
-        <p style={s.p}>Essential cookies are required for VaultBrief to function and cannot be disabled. Analytics cookies can be opted out of by clicking "Decline" on the cookie banner when you first visit, or by emailing us.</p>
+        <p style={s.p}>Essential cookies are required for Vault Brief to function and cannot be disabled. Analytics cookies can be opted out of by clicking "Decline" on the cookie banner when you first visit, or by emailing us.</p>
         <p style={s.p}>You can also clear cookies at any time in your browser settings. Note that clearing essential cookies will log you out of your account.</p>
 
         <h2 style={s.h2}>Contact</h2>

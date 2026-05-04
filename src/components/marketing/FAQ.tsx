@@ -4,7 +4,7 @@ import { useState } from "react";
 
 const ITEMS = [
   {
-    q: "How does VaultBrief connect to my wallets?",
+    q: "How does Vault Brief connect to my wallets?",
     a: "We use read-only connections. You provide wallet addresses and we pull balances and transaction data from on-chain sources. We never have access to your private keys or the ability to move funds.",
   },
   {

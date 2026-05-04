@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Changelog — VaultBrief",
-  description: "A log of every improvement, fix, and new feature shipped to VaultBrief.",
+  title: "Changelog — Vault Brief",
+  description: "A log of every improvement, fix, and new feature shipped to Vault Brief.",
 };
 
 type TagType = "new" | "improvement" | "fix";

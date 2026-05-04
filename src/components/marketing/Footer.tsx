@@ -11,7 +11,9 @@ const COLS = [
       { label: "Pricing", href: "/pricing" },
       { label: "Demo", href: "/demo" },
       { label: "Changelog", href: "/changelog" },
-      { label: "API Docs", href: "/docs" },
+      // "API Docs" → roadmap stub. Surface that it's coming, don't pretend
+      // we have a public API today.
+      { label: "API (coming soon)", href: "/docs" },
     ],
   },
   {
@@ -20,7 +22,9 @@ const COLS = [
       { label: "About", href: "/about" },
       { label: "Blog", href: "/blog" },
       { label: "Security", href: "/security" },
-      { label: "Status", href: "/status" },
+      // "Status" link removed — page still reachable via /status and
+      // /api/health for external monitors, just not advertised in nav
+      // until we have an "all systems operational" public reason to.
     ],
   },
   {
@@ -197,7 +201,7 @@ export function Footer() {
             color: "var(--vb-dim)",
           }}
         >
-          © {new Date().getFullYear()} VaultBrief. All rights reserved.
+          © {new Date().getFullYear()} Vault Brief. All rights reserved.
         </span>
         <a
           href="mailto:hello@vaultbrief.com"

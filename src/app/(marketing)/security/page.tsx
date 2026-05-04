@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Security — VaultBrief",
-  description: "How VaultBrief handles your data, encryption, and access controls.",
+  title: "Security — Vault Brief",
+  description: "How Vault Brief handles your data, encryption, and access controls.",
 };
 
 const ITEMS = [
-  { icon: "🔒", title: "Read-only access", desc: "We connect to your wallets using public addresses only. VaultBrief cannot sign transactions, move funds, or modify on-chain state in any way." },
+  { icon: "🔒", title: "Read-only access", desc: "We connect to your wallets using public addresses only. Vault Brief cannot sign transactions, move funds, or modify on-chain state in any way." },
   { icon: "🔐", title: "Encryption at rest and in transit", desc: "All data is encrypted using AES-256 at rest and TLS 1.3 in transit. Sensitive fields like GitHub tokens are encrypted separately before storage." },
   { icon: "🧑‍💻", title: "No private key storage", desc: "We never ask for, store, or handle private keys or seed phrases. Wallet integration is done entirely via public addresses and read-only RPC calls." },
   { icon: "📋", title: "SOC 2 Type II (roadmap)", desc: "We are targeting SOC 2 Type II certification in Q3 2026. In the meantime, we follow SOC 2 controls internally and conduct quarterly security reviews." },
@@ -21,7 +21,7 @@ export default function SecurityPage() {
         <p style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 600, marginBottom: 16 }}>Security</p>
         <h1 style={{ fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif", fontSize: "clamp(36px, 5vw, 52px)", fontWeight: 700, color: "var(--vb-text)", letterSpacing: "-0.035em", margin: "0 0 16px" }}>Your data is safe with us</h1>
         <p style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 17, color: "var(--vb-muted)", maxWidth: 600, lineHeight: 1.65, margin: "0 0 72px" }}>
-          We take a security-first approach to building VaultBrief. Here is exactly how we protect your data and your investors' information.
+          We take a security-first approach to building Vault Brief. Here is exactly how we protect your data and your investors' information.
         </p>
 
         <div className="vb-grid-2" style={{ gap: 24 }}>

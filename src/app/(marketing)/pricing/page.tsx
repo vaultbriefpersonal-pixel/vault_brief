@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { PricingCards } from "@/components/marketing/PricingCards";
 
 export const metadata: Metadata = {
-  title: "Pricing — VaultBrief",
+  title: "Pricing — Vault Brief",
   description:
     "Simple, transparent pricing for automated Web3 investor reporting. Start free, upgrade when you need more.",
 };

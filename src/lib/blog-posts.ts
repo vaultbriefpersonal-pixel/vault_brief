@@ -47,10 +47,10 @@ export const POSTS: BlogPost[] = [
         type: "p",
         text: "This gives you a more honest picture of how much time you actually have. Share this number with your investors — they will respect the transparency more than an inflated figure.",
       },
-      { type: "h2", text: "What VaultBrief does automatically" },
+      { type: "h2", text: "What Vault Brief does automatically" },
       {
         type: "p",
-        text: "VaultBrief calculates both the nominal runway (based on spot prices) and the liquidity-adjusted runway in every monthly report. Your investors see both numbers and understand the methodology. No spreadsheets, no manual calculations.",
+        text: "Vault Brief calculates both the nominal runway (based on spot prices) and the liquidity-adjusted runway in every monthly report. Your investors see both numbers and understand the methodology. No spreadsheets, no manual calculations.",
       },
     ],
   },
@@ -83,7 +83,7 @@ export const POSTS: BlogPost[] = [
       },
       {
         type: "p",
-        text: "VaultBrief generates your monthly report automatically from on-chain data on the 1st of every month. You review, add a personal note, and send. The whole process takes 15 minutes instead of half a day.",
+        text: "Vault Brief generates your monthly report automatically from on-chain data on the 1st of every month. You review, add a personal note, and send. The whole process takes 15 minutes instead of half a day.",
       },
     ],
   },
@@ -182,10 +182,10 @@ export const POSTS: BlogPost[] = [
         type: "p",
         text: "A single Safe transaction can move multiple tokens in one on-chain call. Most reporting tools treat this as one transaction and miss the individual line items. You need to parse the internal transfer events from the transaction receipt to get accurate per-asset accounting. This is where most manual reporting goes wrong.",
       },
-      { type: "h2", text: "What VaultBrief does" },
+      { type: "h2", text: "What Vault Brief does" },
       {
         type: "p",
-        text: "VaultBrief connects directly to the Safe Transaction Service for all EVM chains where Safe operates. We parse internal transfers, categorize transactions by type (payroll, vendor, protocol interaction), and aggregate everything into a clean monthly statement. Gnosis Safe multisigs are first-class citizens — not an afterthought.",
+        text: "Vault Brief connects directly to the Safe Transaction Service for all EVM chains where Safe operates. We parse internal transfers, categorize transactions by type (payroll, vendor, protocol interaction), and aggregate everything into a clean monthly statement. Gnosis Safe multisigs are first-class citizens — not an afterthought.",
       },
     ],
   },
@@ -205,12 +205,12 @@ export const POSTS: BlogPost[] = [
       { type: "h2", text: "GitHub integration" },
       {
         type: "p",
-        text: "Connect your GitHub organization and VaultBrief will pull commits, pull requests merged, active contributors, and releases from the previous month. This data is included automatically in the development activity section of every report. Investors get a real picture of engineering output without you having to compile it manually.",
+        text: "Connect your GitHub organization and Vault Brief will pull commits, pull requests merged, active contributors, and releases from the previous month. This data is included automatically in the development activity section of every report. Investors get a real picture of engineering output without you having to compile it manually.",
       },
       { type: "h2", text: "Custom branding" },
       {
         type: "p",
-        text: "You can now upload your logo, set your primary color, and customize the header of PDF reports. Reports sent to investors will show your branding rather than the VaultBrief default. This feature is available on Growth and VC Suite plans.",
+        text: "You can now upload your logo, set your primary color, and customize the header of PDF reports. Reports sent to investors will show your branding rather than the Vault Brief default. This feature is available on Growth and VC Suite plans.",
       },
       { type: "h2", text: "Improved expense classification" },
       {
