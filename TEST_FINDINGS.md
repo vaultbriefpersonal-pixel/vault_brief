@@ -31,40 +31,55 @@ P0 ships in the same hour. P2/Polish gets batched at end of phase.
 | 1.9 | Long-name project (86-char title) | Single-line on desktop ≥1180px main; needs mobile retest | — | check Phase 5 |
 
 ## Phase 2 — Variant cycles
-
-| # | Scenario | Finding | Severity | Status |
-|---|---|---|---|---|
-| | _Empty_ | | | |
+Folded into Phase 1 (covered all 7 mock-shapes during walk-through).
 
 ## Phase 3 — UI scale (mock data)
 
-| # | Page | Finding | Severity | Status |
+| # | Surface | Finding | Severity | Status |
 |---|---|---|---|---|
-| | _Empty_ | | | |
+| 3.1 | /wallets at 15 rows | All render, no h-scroll, page=1340px scrolls inside main | — | ✅ |
+| 3.2 | Dashboard 12-month chart | Recharts auto-thins x-axis labels (5 visible: Jun '25 → Apr '26), no overlap | — | ✅ |
+| 3.3 | /investors at 31 rows | Renders, scrolls; **no search/sort/filter** controls | Polish | open (defer until 100+) |
+| 3.4 | /projects at 7 cards desktop | 3-column grid, mixed-height cards (long-name is taller) — acceptable | — | ✅ |
 
 ## Phase 4 — Edge / error states
 
 | # | Scenario | Finding | Severity | Status |
 |---|---|---|---|---|
-| | _Empty_ | | | |
+| 4.1 | Project with 0 snapshots | Treasury/Burn/Runway/Stables tiles were **hidden entirely** — empty dashboard looked broken | P2 | ✅ Fixed (placeholder "—" tiles) |
+| 4.2 | /investors empty | "No investors added yet" — minimal but functional | — | ✅ |
+| 4.3 | /wallets empty | Add-wallet form first, "No wallets added yet" — fine | — | ✅ |
+| 4.4 | /reports empty | ReportsEmptyState handles 3 branches (no snapshot / snapshot has report / snapshot ready) | — | ✅ |
 
 ## Phase 5 — Mobile / a11y
 
 | # | Viewport | Finding | Severity | Status |
 |---|---|---|---|---|
-| | _Empty_ | | | |
+| 5.1 | 375×812 — long-name dashboard | h2 wraps to 3 lines, tiles stack, no h-scroll | — | ✅ |
+| 5.2 | 375×812 — Lido dashboard (charts) | 13 charts fit (278×200 each), no h-scroll | — | ✅ |
+| 5.3 | 375×812 — billing (free user) | All 3 USDC buttons fit (262 wide in 375 viewport) | — | ✅ |
+| 5.4 | 375×812 — pricing comparison table | Table internal-scrolls (600 in 334 container) — graceful | — | ✅ |
+| 5.5 | a11y | Color contrast `var(--vb-dim)` on dark — not formally tested with Lighthouse, defer | Polish | open |
 
 ## Phase 6 — Security spot-checks
 
 | # | Surface | Finding | Severity | Status |
 |---|---|---|---|---|
-| | _Empty_ | | | |
+| 6.1 | `/projects/[other-user-id]` page | 404 (server component checks `userId`) | — | ✅ |
+| 6.2 | tRPC `projects.getById` cross-user | NOT_FOUND via `requireProject` guard | — | ✅ |
+| 6.3 | tRPC `projects.update` cross-user | NOT_FOUND — guard fires before mutation | — | ✅ |
+| 6.4 | tRPC `projects.delete` cross-user | NOT_FOUND — guard fires before mutation | — | ✅ |
+| 6.5 | tRPC `wallets.list` cross-user | NOT_FOUND | — | ✅ |
+| 6.6 | ATLOS webhook no signature | 500 "Webhook secret not configured" (fail-closed locally); HMAC `timingSafeEqual` in code path when secret present | — | ✅ |
+| 6.7 | tRPC error stack leaks file paths in dev mode | Dev-only, prod hides — Next.js default behavior | Polish | open |
 
 ## Phase 7 — Perf / bundle
 
-| # | Page | Metric | Finding | Severity |
-|---|---|---|---|---|
-| | _Empty_ | | | |
+| Surface | Metric | Notes |
+|---|---|---|
+| Total `.next/static` | 1.8 MB | Reasonable for a SaaS w/ Recharts |
+| Largest chunk | 416 KB | Likely Recharts; acceptable |
+| Routes | 28 (mix `○`/`ƒ`) | All build clean |
 
 ---
 

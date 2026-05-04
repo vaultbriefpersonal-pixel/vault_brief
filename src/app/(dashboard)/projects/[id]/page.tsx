@@ -244,6 +244,17 @@ export default async function ProjectPage({ params }: Props) {
           </div>
         )}
 
+      {/* Tiles render even before first sync — empty placeholders ("—")
+          are clearer than a blank section, and they double as a visual
+          anchor for "Sync now" so the user understands what populates here. */}
+      {!latestSnapshot && (
+        <div className="vb-grid-4" style={{ gap: 12, marginBottom: 24 }}>
+          {statCard("Treasury", "—")}
+          {statCard("Burn / mo", "—")}
+          {statCard("Runway", "—")}
+          {statCard("Stablecoins", "—")}
+        </div>
+      )}
       {latestSnapshot && (
         <div
           className="vb-grid-4"
