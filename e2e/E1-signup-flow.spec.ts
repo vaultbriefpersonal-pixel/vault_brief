@@ -16,7 +16,7 @@ test.describe("E1 - Signup flow (magic link, requires DB)", () => {
     await page.goto("/login");
 
     // Page loads correctly
-    await expect(page.getByText("VaultBrief")).toBeVisible();
+    await expect(page.getByText("VAULT BRIEF")).toBeVisible();
     await expect(page.getByPlaceholder("you@example.com")).toBeVisible();
 
     // Fill in email and submit

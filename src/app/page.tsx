@@ -105,7 +105,21 @@ const STEPS = [
 // site: hide-when-zero / no-fake-padding (see /status past incidents and
 // the dashboard sync warnings).
 const STATS_FALLBACK = { reports: 0, wallets: 0, snapshots: 0 };
+
+// Cheap signal that the env is using the .env.example placeholder URL —
+// CI / preview deploys often fall in this bucket. Skip the network round-
+// trip rather than letting it fail and dump a stack into the logs.
+function dbConfigured(): boolean {
+  const url = process.env.DATABASE_URL ?? "";
+  return Boolean(url) && !url.includes("placeholder");
+}
+
+// Single-line warning, deduped per process so CI logs aren't flooded
+// when the homepage renders 30 times during a Playwright run.
+let warnedFallback = false;
+
 async function loadPublicStats() {
+  if (!dbConfigured()) return STATS_FALLBACK;
   try {
     const [r] = await db.select({ n: count() }).from(reports);
     const [w] = await db.select({ n: count() }).from(wallets);
@@ -116,9 +130,14 @@ async function loadPublicStats() {
       snapshots: s?.n ?? 0,
     };
   } catch (err) {
-    // DB not reachable from a marketing edge cache — render fallbacks
-    // rather than 500ing the homepage. Logged for ops visibility.
-    console.warn("loadPublicStats: falling back to zeros", err);
+    // DB unreachable (CI sandbox without network egress to Neon, brief
+    // outage, etc.) — render fallback zeros rather than 500ing the
+    // homepage. One-line log, no stack, deduped.
+    if (!warnedFallback) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[landing] loadPublicStats fallback: ${msg.split("\n")[0]}`);
+      warnedFallback = true;
+    }
     return STATS_FALLBACK;
   }
 }

@@ -11,6 +11,6 @@ test.describe("E3 - Report generation", () => {
 
   test("reports page is accessible when authenticated", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByText("VaultBrief")).toBeVisible();
+    await expect(page.getByText("VAULT BRIEF")).toBeVisible();
   });
 });

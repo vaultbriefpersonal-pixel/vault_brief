@@ -19,7 +19,7 @@ test.describe("E6 - Mobile responsiveness", () => {
 
   test("login page renders at 375px", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByText("VaultBrief")).toBeVisible();
+    await expect(page.getByText("VAULT BRIEF")).toBeVisible();
     await expect(page.getByPlaceholder("you@example.com")).toBeVisible();
     const button = page.getByRole("button", { name: /send magic link/i });
     await expect(button).toBeVisible();
