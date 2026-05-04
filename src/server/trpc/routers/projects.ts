@@ -51,13 +51,17 @@ export const projectsRouter = router({
   create: protectedProcedure
     .input(
       z.object({
-        name: z.string().min(1).max(100),
-        website: z.string().url().optional(),
-        description: z.string().max(500).optional(),
-        tokenSymbol: z.string().max(20).optional(),
-        tokenContract: z.string().optional(),
-        tokenChain: z.string().optional(),
-        githubOrg: z.string().optional(),
+        // .trim() on every text input so a stray copy-paste space doesn't
+        // wreck downstream API calls. We hit a real bug where ` ensdomains`
+        // (leading space) hit GitHub as `/orgs/ ensdomains/repos` → 404 →
+        // commits silently 0. Trim at the gateway, not the consumer.
+        name: z.string().trim().min(1).max(100),
+        website: z.string().trim().url().optional(),
+        description: z.string().trim().max(500).optional(),
+        tokenSymbol: z.string().trim().max(20).optional(),
+        tokenContract: z.string().trim().optional(),
+        tokenChain: z.string().trim().optional(),
+        githubOrg: z.string().trim().optional(),
         teamSize: z.number().int().positive().optional(),
         // Optional onboarding context — surfaced in the report prompt and
         // makes the LLM narrative materially less generic on first runs.
@@ -170,13 +174,13 @@ export const projectsRouter = router({
     .input(
       z.object({
         id: z.string().uuid(),
-        name: z.string().min(1).max(100).optional(),
-        website: z.string().url().optional().nullable(),
-        description: z.string().max(500).optional().nullable(),
-        tokenSymbol: z.string().max(20).optional().nullable(),
-        tokenContract: z.string().optional().nullable(),
-        tokenChain: z.string().optional().nullable(),
-        githubOrg: z.string().optional().nullable(),
+        name: z.string().trim().min(1).max(100).optional(),
+        website: z.string().trim().url().optional().nullable(),
+        description: z.string().trim().max(500).optional().nullable(),
+        tokenSymbol: z.string().trim().max(20).optional().nullable(),
+        tokenContract: z.string().trim().optional().nullable(),
+        tokenChain: z.string().trim().optional().nullable(),
+        githubOrg: z.string().trim().optional().nullable(),
         teamSize: z.number().int().positive().optional().nullable(),
         foundedDate: z
           .string()
