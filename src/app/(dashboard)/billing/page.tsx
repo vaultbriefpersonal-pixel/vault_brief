@@ -326,7 +326,9 @@ export default async function BillingPage() {
             )}
           </div>
 
-          {/* Usage tips */}
+          {/* Onboarding nudge — only render for users with zero projects.
+              Once they've shipped their first project this card becomes
+              noise; switch to a "Manage projects" pointer instead. */}
           <div
             style={{
               ...cardStyle,
@@ -343,7 +345,7 @@ export default async function BillingPage() {
                 margin: "0 0 10px",
               }}
             >
-              Getting started
+              {(projectCount?.value ?? 0) === 0 ? "Getting started" : "Your projects"}
             </p>
             <p
               style={{
@@ -354,10 +356,12 @@ export default async function BillingPage() {
                 lineHeight: 1.6,
               }}
             >
-              Create a project, connect a wallet, and generate your first investor report in under 5 minutes.
+              {(projectCount?.value ?? 0) === 0
+                ? "Create a project, connect a wallet, and generate your first investor report in under 5 minutes."
+                : `You're tracking ${projectCount?.value} project${(projectCount?.value ?? 0) === 1 ? "" : "s"}. Open Projects to manage wallets, run a sync, or send a report.`}
             </p>
             <Link
-              href="/projects/new"
+              href={(projectCount?.value ?? 0) === 0 ? "/projects/new" : "/projects"}
               style={{
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 fontSize: 15,
@@ -368,7 +372,9 @@ export default async function BillingPage() {
                 marginTop: 8,
               }}
             >
-              Create your first project →
+              {(projectCount?.value ?? 0) === 0
+                ? "Create your first project →"
+                : "Open Projects →"}
             </Link>
           </div>
         </div>
