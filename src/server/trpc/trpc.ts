@@ -6,10 +6,16 @@ import type { Context } from "./context";
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
   errorFormatter({ shape, error }) {
+    // Strip the stack trace from JSON responses entirely. The default
+    // Next.js / tRPC behaviour leaks file paths in dev mode (it's hidden
+    // in prod), but those file paths reveal repo layout to anyone curling
+    // the API. Keep the error code + message; drop the stack string.
+    const { stack: _stack, ...dataWithoutStack } = shape.data ?? {};
+    void _stack;
     return {
       ...shape,
       data: {
-        ...shape.data,
+        ...dataWithoutStack,
         zodError:
           error.cause instanceof ZodError ? error.cause.flatten() : null,
       },

@@ -81,6 +81,27 @@ Folded into Phase 1 (covered all 7 mock-shapes during walk-through).
 | Largest chunk | 416 KB | Likely Recharts; acceptable |
 | Routes | 28 (mix `○`/`ƒ`) | All build clean |
 
+## Phase 8 — Live LLM + email send (real APIs)
+
+| # | Surface | Finding | Severity | Status |
+|---|---|---|---|---|
+| 8.1 | `reports.generate` against ENS mock | Real OpenRouter→Gemini 2.5 Flash response, 100% structured: ExecSummary / Treasury table / Financial Health / Token Metrics / Dev Activity / Highlights / Risks | — | ✅ Verified |
+| 8.2 | LLM omits milestones | `buildReportPrompt` never received the project's milestones — produced "Not available" despite seed having 2 active milestones | P1 | ✅ Fixed (prompts.ts + report-generator.ts) |
+| 8.3 | LLM emits `$0` rows for assets the project doesn't hold | Token / Other rows render as `$0 \| 0%` instead of being suppressed | Polish | open (prompt-side fix) |
+| 8.4 | `investors.sendReport` against ENS mock | 2 emails dispatched via Resend, status flips to `sent`, `sentToCount=2`, in-app notification created | — | ✅ Verified |
+| 8.5 | `sendReport` marks status='sent' even if all sends fail | If Resend rejects every email (sent=0), report is still flipped to "sent". Founder thinks email went out. | P1 | open |
+| 8.6 | Dev "tRPC stale" 500 | After source edits, dev sometimes serves "Internal Server Error" until restart. Not a prod issue — Next.js dev quirk. | Polish | open |
+
+## Phase 9 — A11y / DX hardening shipped this loop
+
+| What | Why |
+|---|---|
+| `--vb-dim` `#555` → `#787878` | 2.8:1 → 4.6:1 contrast on `--vb-bg` (now passes WCAG AA) |
+| Global `:focus-visible` outline (accent green, 2px) | Keyboard tab-nav was invisible on dark theme |
+| `<ChainIcon>` component | Replaces text chain labels on /wallets with colored brand pill |
+| Investors `<input type="search">` + sort/firm filter | Renders only when ≥5 investors; collapses noise on small lists |
+| tRPC `errorFormatter` strips `stack` | Even in dev, JSON responses no longer leak file paths |
+
 ---
 
 ## Pre-existing bugs already fixed in this session

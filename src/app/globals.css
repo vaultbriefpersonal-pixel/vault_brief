@@ -9,9 +9,9 @@
   --vb-alt: #111111;
   --vb-card: #161616;
   --vb-card-hover: #1c1c1c;
-  --vb-text: #f0f0f0;
-  --vb-muted: #888888;
-  --vb-dim: #555555;
+  --vb-text: #f0f0f0;     /* contrast 17.4:1 on bg — AAA */
+  --vb-muted: #888888;    /* contrast  5.4:1 on bg — AA  */
+  --vb-dim: #787878;      /* contrast  4.6:1 on bg — AA. Was #555 (2.8:1, fail). */
   --vb-border: rgba(255, 255, 255, 0.08);
   --vb-border-strong: rgba(255, 255, 255, 0.12);
   --vb-border-faint: rgba(255, 255, 255, 0.06);
@@ -414,4 +414,21 @@ body {
 }
 .vb-input::placeholder {
   color: var(--vb-dim);
+}
+
+/* Keyboard focus outline. Browsers default to a thin ring that's hard to see
+   on dark backgrounds; use the brand accent to make tab-navigation legible.
+   :focus-visible (not :focus) so mouse-clicks don't draw a ring. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

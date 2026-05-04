@@ -5,6 +5,7 @@ import { use } from "react";
 import { useSearchParams } from "next/navigation";
 import { trpc } from "@/lib/api";
 import { Plus, Trash2 } from "lucide-react";
+import { ChainIcon } from "@/components/ui/ChainIcon";
 
 const CHAINS = [
   { value: "ethereum", label: "Ethereum" },
@@ -243,17 +244,8 @@ export default function WalletsPage({ params }: Props) {
               >
                 {w.address}
               </p>
-              <div style={{ display: "flex", gap: 8 }}>
-                <span
-                  style={{
-                    fontFamily: "var(--font-inter), Inter, sans-serif",
-                    fontSize: 12,
-                    color: "var(--vb-dim)",
-                    textTransform: "capitalize",
-                  }}
-                >
-                  {w.chain}
-                </span>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <ChainIcon chain={w.chain} size={14} withLabel />
                 {w.label && (
                   <span
                     style={{

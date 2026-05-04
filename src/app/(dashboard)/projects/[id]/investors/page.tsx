@@ -1,8 +1,8 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useMemo, useState } from "react";
 import { trpc } from "@/lib/api";
-import { Trash2, Plus, UserPlus } from "lucide-react";
+import { Trash2, Plus, UserPlus, Search } from "lucide-react";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -21,14 +21,60 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
+type SortKey = "name" | "firm" | "added";
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: "name", label: "Name (A→Z)" },
+  { key: "firm", label: "Firm (A→Z)" },
+  { key: "added", label: "Recently added" },
+];
+
 export default function InvestorsPage({ params }: Props) {
   const { id: projectId } = use(params);
   const [form, setForm] = useState({ name: "", email: "", firm: "", role: "" });
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [firmFilter, setFirmFilter] = useState<string>("");
+  const [sortKey, setSortKey] = useState<SortKey>("name");
 
   const { data: investorList, refetch } = trpc.investors.list.useQuery({
     projectId,
   });
+
+  // Distinct firm names for the filter dropdown — recompute only when the
+  // raw list changes. Empty / null firms collapse to "—" bucket.
+  const firmOptions = useMemo(() => {
+    if (!investorList) return [];
+    const set = new Set<string>();
+    for (const inv of investorList) {
+      if (inv.firm) set.add(inv.firm);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [investorList]);
+
+  const visible = useMemo(() => {
+    if (!investorList) return [];
+    const q = search.trim().toLowerCase();
+    const filtered = investorList.filter((inv) => {
+      if (firmFilter && (inv.firm ?? "") !== firmFilter) return false;
+      if (!q) return true;
+      return (
+        inv.name.toLowerCase().includes(q) ||
+        inv.email.toLowerCase().includes(q) ||
+        (inv.firm?.toLowerCase().includes(q) ?? false) ||
+        (inv.role?.toLowerCase().includes(q) ?? false)
+      );
+    });
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortKey === "name") return a.name.localeCompare(b.name);
+      if (sortKey === "firm")
+        return (a.firm ?? "").localeCompare(b.firm ?? "");
+      // "added" — newest first; createdAt comes back as Date | string
+      const at = new Date(a.createdAt ?? 0).getTime();
+      const bt = new Date(b.createdAt ?? 0).getTime();
+      return bt - at;
+    });
+    return sorted;
+  }, [investorList, search, firmFilter, sortKey]);
 
   const add = trpc.investors.add.useMutation({
     onSuccess: () => {
@@ -166,6 +212,84 @@ export default function InvestorsPage({ params }: Props) {
         </button>
       </div>
 
+      {/* Toolbar — only render once the list is meaningful enough to need
+          filtering. Below 5 investors the search/sort/filter bar adds noise. */}
+      {investorList && investorList.length >= 5 && (
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            marginBottom: 12,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ flex: "1 1 240px", minWidth: 200, position: "relative" }}>
+            <Search
+              size={14}
+              style={{
+                position: "absolute",
+                left: 12,
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "var(--vb-dim)",
+                pointerEvents: "none",
+              }}
+            />
+            <input
+              type="search"
+              placeholder="Search by name, email, firm, role…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search investors"
+              style={{
+                ...inputStyle,
+                paddingLeft: 36,
+                fontSize: 14,
+                padding: "11px 14px 11px 36px",
+              }}
+            />
+          </div>
+          {firmOptions.length > 0 && (
+            <select
+              value={firmFilter}
+              onChange={(e) => setFirmFilter(e.target.value)}
+              aria-label="Filter by firm"
+              style={{ ...inputStyle, width: "auto", fontSize: 14, padding: "11px 14px" }}
+            >
+              <option value="">All firms</option>
+              {firmOptions.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          )}
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            aria-label="Sort investors"
+            style={{ ...inputStyle, width: "auto", fontSize: 14, padding: "11px 14px" }}
+          >
+            {SORT_OPTIONS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <span
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 12,
+              color: "var(--vb-dim)",
+              marginLeft: "auto",
+            }}
+          >
+            {visible.length} / {investorList.length}
+          </span>
+        </div>
+      )}
+
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {investorList?.length === 0 && (
           <p
@@ -180,7 +304,20 @@ export default function InvestorsPage({ params }: Props) {
             No investors added yet.
           </p>
         )}
-        {investorList?.map((inv) => (
+        {investorList && investorList.length > 0 && visible.length === 0 && (
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 14,
+              color: "var(--vb-dim)",
+              textAlign: "center",
+              padding: "40px 0",
+            }}
+          >
+            No investors match the current filters.
+          </p>
+        )}
+        {visible.map((inv) => (
           <div
             key={inv.id}
             style={{

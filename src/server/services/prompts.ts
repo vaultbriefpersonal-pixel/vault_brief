@@ -1,4 +1,4 @@
-import type { TreasurySnapshot, Project } from "@/server/db/schema";
+import type { TreasurySnapshot, Project, Milestone } from "@/server/db/schema";
 import { formatUsd, formatDate } from "@/lib/utils";
 
 export const REPORT_SYSTEM_PROMPT = `You are VaultBrief AI, a financial analyst for Web3 projects.
@@ -65,7 +65,8 @@ Generate a monthly investor report in Markdown format from the provided treasury
 export function buildReportPrompt(
   snapshot: TreasurySnapshot,
   prevSnapshot: TreasurySnapshot | undefined | null,
-  project: Project
+  project: Project,
+  projectMilestones: Milestone[] = []
 ): string {
   const period = `${snapshot.snapshotDate}`;
 
@@ -147,11 +148,38 @@ ${snapshot.tokenCirculatingSupply ? `- Circulating supply: ${Number(snapshot.tok
 - Amount raised: ${project.lastFundingAmount ? formatUsd(Number(project.lastFundingAmount)) : "Not specified"}
 - Report period: ${formatDate(period)}`;
 
+  // Milestone block — only emit when there's something specific to say.
+  // System prompt instructs the model to silence the "Looking Ahead" section
+  // when neither milestones nor a fresh funding round are present, so an
+  // empty block is fine; we just don't render the header.
+  const milestoneSection = (() => {
+    const active = projectMilestones.filter(
+      (m) => m.status === "in_progress" || m.status === "planned" || m.status === "delayed"
+    );
+    const recentlyCompleted = projectMilestones
+      .filter((m) => m.status === "completed" && m.completedDate)
+      .sort((a, b) =>
+        String(b.completedDate ?? "").localeCompare(String(a.completedDate ?? ""))
+      )
+      .slice(0, 3);
+    if (active.length === 0 && recentlyCompleted.length === 0) return "";
+    const fmt = (m: Milestone) => {
+      const date = m.targetDate ? ` (target: ${m.targetDate})` : m.completedDate ? ` (completed: ${m.completedDate})` : "";
+      const desc = m.description ? ` — ${m.description}` : "";
+      return `- [${m.status}] ${m.title}${date}${desc}`;
+    };
+    return `
+## Milestones
+${active.length ? `Active / upcoming:\n${active.map(fmt).join("\n")}` : ""}
+${recentlyCompleted.length ? `\nRecently completed:\n${recentlyCompleted.map(fmt).join("\n")}` : ""}`.trim();
+  })();
+
   return `${projectContext}
 ${treasurySection}
 ${financialSection}
 ${githubSection}
 ${tokenSection}
+${milestoneSection ? "\n" + milestoneSection : ""}
 
 Generate the investor report now.`;
 }
