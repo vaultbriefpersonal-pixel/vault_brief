@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, eq, gte, lte } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
-import { projects, reports } from "@/server/db/schema";
+import { projects, reports, wallets } from "@/server/db/schema";
 import { slugify } from "@/lib/utils";
 import { TRPCError } from "@trpc/server";
 import { requireProject } from "../guards";
@@ -13,6 +13,24 @@ import {
 } from "@/server/lib/ratelimit";
 import { createMonthlySnapshot, getLastMonthPeriod } from "@/server/services/data-sync";
 import { generateAndSaveReport } from "@/server/services/report-generator";
+
+// Mirror of validation in walletsRouter — keep in sync. Inlined here so the
+// create-project mutation can validate wallets before any DB writes (one
+// failed wallet shouldn't leave a half-onboarded project sitting around).
+const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const WALLET_CHAINS = [
+  "ethereum",
+  "polygon",
+  "arbitrum",
+  "base",
+  "optimism",
+  "solana",
+] as const;
+function isValidWalletAddress(address: string, chain: string): boolean {
+  if (chain === "solana") return SOLANA_ADDRESS_RE.test(address);
+  return EVM_ADDRESS_RE.test(address);
+}
 
 const PLAN_PROJECT_LIMITS: Record<string, number> = {
   free: 1,
@@ -55,6 +73,21 @@ export const projectsRouter = router({
             if (v === undefined || v === "") return undefined;
             return typeof v === "number" ? v.toString() : v;
           }),
+        // Treasury wallets supplied during onboarding. Validated up-front so
+        // a typo'd address doesn't create a half-onboarded project. Empty
+        // array is fine (user can add later on /wallets), but providing them
+        // here is the recommended path because it makes the post-create
+        // dashboard non-empty on first visit.
+        initialWallets: z
+          .array(
+            z.object({
+              address: z.string().min(1),
+              chain: z.enum(WALLET_CHAINS),
+              label: z.string().max(100).optional(),
+            })
+          )
+          .max(20)
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -73,6 +106,18 @@ export const projectsRouter = router({
         });
       }
 
+      // Pre-flight wallet validation. Pull this BEFORE the slug-uniqueness
+      // loop so a bad address fails fast without N round-trips to Postgres.
+      const initialWallets = input.initialWallets ?? [];
+      for (const w of initialWallets) {
+        if (!isValidWalletAddress(w.address, w.chain)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Invalid ${w.chain} address: ${w.address.slice(0, 10)}…`,
+          });
+        }
+      }
+
       const baseSlug = slugify(input.name);
       // Ensure unique slug
       let slug = baseSlug;
@@ -86,10 +131,27 @@ export const projectsRouter = router({
         slug = `${baseSlug}-${attempt}`;
       }
 
+      // Strip the wallets array — it's not a column on `projects`. Drizzle
+      // would otherwise try to INSERT it and blow up.
+      const { initialWallets: _omit, ...projectFields } = input;
+      void _omit;
+
       const [project] = await ctx.db
         .insert(projects)
-        .values({ ...input, userId, slug })
+        .values({ ...projectFields, userId, slug })
         .returning();
+
+      if (initialWallets.length > 0) {
+        await ctx.db.insert(wallets).values(
+          initialWallets.map((w) => ({
+            projectId: project.id,
+            address: w.address,
+            chain: w.chain,
+            label: w.label,
+          }))
+        );
+      }
+
       return project;
     }),
 

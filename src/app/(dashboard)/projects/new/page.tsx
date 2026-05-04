@@ -42,6 +42,16 @@ const TOKEN_CHAINS = [
   "solana",
 ] as const;
 
+type WalletChain = (typeof TOKEN_CHAINS)[number];
+
+interface WalletRow {
+  address: string;
+  chain: WalletChain;
+  label: string;
+}
+
+const EMPTY_WALLET: WalletRow = { address: "", chain: "ethereum", label: "" };
+
 export default function NewProjectPage() {
   const router = useRouter();
   const [form, setForm] = useState({
@@ -58,6 +68,7 @@ export default function NewProjectPage() {
     tokenChain: "",
   });
   const [contextOpen, setContextOpen] = useState(false);
+  const [walletRows, setWalletRows] = useState<WalletRow[]>([{ ...EMPTY_WALLET }]);
   const [error, setError] = useState<string | null>(null);
 
   // Land on /wallets, not the empty dashboard. Without at least one wallet
@@ -77,6 +88,15 @@ export default function NewProjectPage() {
       ? Number(form.lastFundingAmount)
       : undefined;
 
+    // Strip empty rows; user gets one default row but isn't forced to fill it.
+    const initialWallets = walletRows
+      .map((w) => ({
+        address: w.address.trim(),
+        chain: w.chain,
+        label: w.label.trim() || undefined,
+      }))
+      .filter((w) => w.address.length > 0);
+
     createProject.mutate({
       name: form.name,
       website: form.website || undefined,
@@ -93,7 +113,20 @@ export default function NewProjectPage() {
         Number.isFinite(lastFundingAmount) && (lastFundingAmount ?? 0) > 0
           ? lastFundingAmount
           : undefined,
+      initialWallets: initialWallets.length > 0 ? initialWallets : undefined,
     });
+  }
+
+  function updateWallet(index: number, patch: Partial<WalletRow>) {
+    setWalletRows((rows) =>
+      rows.map((r, i) => (i === index ? { ...r, ...patch } : r))
+    );
+  }
+  function addWalletRow() {
+    setWalletRows((rows) => [...rows, { ...EMPTY_WALLET }]);
+  }
+  function removeWalletRow(index: number) {
+    setWalletRows((rows) => (rows.length === 1 ? rows : rows.filter((_, i) => i !== index)));
   }
 
   function field(key: keyof typeof form) {
@@ -189,6 +222,106 @@ export default function NewProjectPage() {
           />
           <p style={helperStyle}>
             Pulls commits, PRs and active contributors into every monthly report.
+          </p>
+        </div>
+
+        {/* Treasury wallets — primary onboarding input. Without at least one
+            of these the dashboard is empty and the first sync produces a
+            zeros-everywhere report. We default to one empty row to make the
+            field visually obvious without forcing a wallet. */}
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={labelStyle}>
+            Treasury wallets{" "}
+            <span style={{ color: "var(--vb-dim)", fontWeight: 400 }}>
+              — multisig, EOA, or exchange address
+            </span>
+          </label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {walletRows.map((row, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "140px 1fr 160px 36px",
+                  gap: 8,
+                  alignItems: "stretch",
+                }}
+              >
+                <select
+                  value={row.chain}
+                  onChange={(e) =>
+                    updateWallet(i, { chain: e.target.value as WalletChain })
+                  }
+                  style={inputStyle}
+                  aria-label="Wallet chain"
+                >
+                  {TOKEN_CHAINS.map((c) => (
+                    <option key={c} value={c}>
+                      {c.charAt(0).toUpperCase() + c.slice(1)}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  placeholder="0x… or Solana base58"
+                  value={row.address}
+                  onChange={(e) =>
+                    updateWallet(i, { address: e.target.value })
+                  }
+                  style={inputStyle}
+                  spellCheck={false}
+                  aria-label="Wallet address"
+                />
+                <input
+                  placeholder="Label (optional)"
+                  value={row.label}
+                  onChange={(e) => updateWallet(i, { label: e.target.value })}
+                  style={inputStyle}
+                  aria-label="Wallet label"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeWalletRow(i)}
+                  disabled={walletRows.length === 1}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid var(--vb-border)",
+                    borderRadius: 8,
+                    color: "var(--vb-dim)",
+                    cursor:
+                      walletRows.length === 1 ? "not-allowed" : "pointer",
+                    fontSize: 18,
+                    lineHeight: 1,
+                    opacity: walletRows.length === 1 ? 0.4 : 1,
+                  }}
+                  aria-label="Remove wallet row"
+                  title="Remove"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addWalletRow}
+              style={{
+                alignSelf: "flex-start",
+                background: "transparent",
+                border: "1px dashed var(--vb-border)",
+                borderRadius: 8,
+                padding: "8px 14px",
+                fontSize: 13,
+                color: "var(--vb-muted)",
+                fontFamily: "var(--font-inter), Inter, sans-serif",
+                cursor: "pointer",
+              }}
+            >
+              + Add another wallet
+            </button>
+          </div>
+          <p style={helperStyle}>
+            Don&apos;t paste a token contract here — those go in &ldquo;Token
+            contract&rdquo; under project context. We pull balances, inflows
+            and outflows from each wallet you add.
           </p>
         </div>
 
