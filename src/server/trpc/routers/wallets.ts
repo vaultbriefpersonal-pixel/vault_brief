@@ -73,11 +73,27 @@ export const walletsRouter = router({
         });
       }
 
-      const [wallet] = await ctx.db
-        .insert(wallets)
-        .values(input)
-        .returning();
-      return wallet;
+      try {
+        const [wallet] = await ctx.db
+          .insert(wallets)
+          .values(input)
+          .returning();
+        return wallet;
+      } catch (err) {
+        // Postgres 23505 = unique_violation. Schema has a unique index on
+        // (projectId, address, chain) — friendlier than the raw "Failed query"
+        // wrapper Drizzle would otherwise surface.
+        const code = (err as { code?: string; cause?: { code?: string } })
+          ?.code
+          ?? (err as { cause?: { code?: string } })?.cause?.code;
+        if (code === "23505") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "This wallet is already added on this chain.",
+          });
+        }
+        throw err;
+      }
     }),
 
   remove: protectedProcedure
