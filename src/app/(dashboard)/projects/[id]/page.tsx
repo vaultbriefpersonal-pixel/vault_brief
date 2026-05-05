@@ -26,13 +26,20 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
-const statCard = (label: string, value: string, accent?: string) => (
+const statCard = (
+  label: string,
+  value: string,
+  accent?: string,
+  opts?: { subtitle?: string; tooltip?: string; small?: boolean }
+) => (
   <div
+    title={opts?.tooltip}
     style={{
       background: "var(--vb-card)",
       border: "1px solid var(--vb-border)",
       borderRadius: 12,
       padding: "18px 20px",
+      cursor: opts?.tooltip ? "help" : "default",
     }}
   >
     <p
@@ -51,14 +58,30 @@ const statCard = (label: string, value: string, accent?: string) => (
       style={{
         fontFamily:
           "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-        fontSize: 22,
-        fontWeight: 700,
+        // The "no outflows" copy is longer than a dollar figure — drop the
+        // size so it fits the same tile width without wrapping awkwardly.
+        fontSize: opts?.small ? 14 : 22,
+        fontWeight: opts?.small ? 600 : 700,
         color: accent ?? "#f0f0f0",
         margin: 0,
+        lineHeight: opts?.small ? 1.4 : 1.2,
       }}
     >
       {value}
     </p>
+    {opts?.subtitle && (
+      <p
+        style={{
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          fontSize: 11,
+          color: "var(--vb-dim)",
+          margin: "4px 0 0",
+          lineHeight: 1.4,
+        }}
+      >
+        {opts.subtitle}
+      </p>
+    )}
   </div>
 );
 
@@ -95,6 +118,36 @@ export default async function ProjectPage({ params }: Props) {
     (latestSnapshot?.expensesByCategory as Record<string, number> | null) ?? {};
   const incomeData =
     (latestSnapshot?.incomeByCategory as Record<string, number> | null) ?? {};
+
+  // Burn / mo logic. ENS-style treasuries can legitimately have $0 burn
+  // in a given month (all outflows that period were token_sale rebalances,
+  // which are reclassified as treasury operations, not opex). Showing
+  // "$0.00" or "—" alone leaves the founder wondering if data is missing,
+  // especially when the trailing chart bars ARE non-zero.
+  //
+  // So: if latest burn is 0 but earlier months had real outflows, label
+  // it explicitly ("No outflows this period") and surface the trailing
+  // 3-mo average as a tooltip. Founders who want the comparison get it
+  // on hover; investors looking at the dashboard see truthful, calm copy.
+  const latestBurn = Number(latestSnapshot?.burnRateUsd ?? 0);
+  const trailingBurns = snapshots
+    .slice(1, 4) // 3 prior months
+    .map((s) => Number(s.burnRateUsd ?? 0))
+    .filter((n) => n > 0);
+  const trailingAvgBurn =
+    trailingBurns.length > 0
+      ? trailingBurns.reduce((a, b) => a + b, 0) / trailingBurns.length
+      : 0;
+  const burnTile =
+    latestBurn > 0
+      ? statCard("Burn / mo", formatUsd(latestBurn), "#f87171")
+      : trailingAvgBurn > 0
+        ? statCard("Burn / mo", "No outflows this period", "var(--vb-muted)", {
+            subtitle: `${formatUsd(trailingAvgBurn)} avg over prior ${trailingBurns.length} mo`,
+            tooltip: `Latest snapshot reports zero operating outflows. Trailing ${trailingBurns.length}-month average: ${formatUsd(trailingAvgBurn)}. token_sale rebalances are tracked separately as treasury operations.`,
+            small: true,
+          })
+        : statCard("Burn / mo", "—", "#f87171");
 
   return (
     <>
@@ -205,18 +258,7 @@ export default async function ProjectPage({ params }: Props) {
             "Treasury",
             formatUsd(Number(latestSnapshot.totalBalanceUsd ?? 0))
           )}
-          {statCard(
-            "Burn / mo",
-            // burn_rate is a numeric column → comes back as a string "0.00".
-            // Truthy check on the raw value falsely flips $0 into the formatted
-            // path; coerce to Number before testing. ENS-style projects whose
-            // only outflows are token_sale rebalances legitimately have burn=0,
-            // and "—" reads truer than "$0.00" for that case.
-            Number(latestSnapshot.burnRateUsd ?? 0) > 0
-              ? formatUsd(Number(latestSnapshot.burnRateUsd))
-              : "—",
-            "#f87171"
-          )}
+          {burnTile}
           {statCard(
             "Runway",
             latestSnapshot.runwayMonths
