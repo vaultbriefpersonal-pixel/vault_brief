@@ -5,6 +5,11 @@ import {
   reports,
   investors,
   wallets,
+  grants,
+  governanceProposals,
+  partners,
+  asks,
+  qaHighlights,
 } from "@/server/db/schema";
 import type { Context } from "./context";
 
@@ -60,4 +65,45 @@ export async function requireInvestor(ctx: GuardCtx, investorId: string) {
   if (!investor) throw new TRPCError({ code: "NOT_FOUND" });
   await requireProject(ctx, investor.projectId);
   return investor;
+}
+
+export async function requireGrant(ctx: GuardCtx, id: string) {
+  const row = await ctx.db.query.grants.findFirst({ where: eq(grants.id, id) });
+  if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+  await requireProject(ctx, row.projectId);
+  return row;
+}
+
+export async function requireGovernanceProposal(ctx: GuardCtx, id: string) {
+  const row = await ctx.db.query.governanceProposals.findFirst({
+    where: eq(governanceProposals.id, id),
+  });
+  if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+  await requireProject(ctx, row.projectId);
+  return row;
+}
+
+export async function requirePartner(ctx: GuardCtx, id: string) {
+  const row = await ctx.db.query.partners.findFirst({
+    where: eq(partners.id, id),
+  });
+  if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+  await requireProject(ctx, row.projectId);
+  return row;
+}
+
+export async function requireAsk(ctx: GuardCtx, id: string) {
+  const row = await ctx.db.query.asks.findFirst({ where: eq(asks.id, id) });
+  if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+  await requireProject(ctx, row.projectId);
+  return row;
+}
+
+export async function requireQaHighlight(ctx: GuardCtx, id: string) {
+  const row = await ctx.db.query.qaHighlights.findFirst({
+    where: eq(qaHighlights.id, id),
+  });
+  if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+  await requireProject(ctx, row.projectId);
+  return row;
 }

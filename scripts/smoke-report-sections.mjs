@@ -1,24 +1,13 @@
-// Phase 5 smoke verification for the report-template constructor.
+// Smoke verification for the report-template constructor + manual-entry
+// sections (Phase 6). No LLM calls — we exercise buildReportPrompts()
+// with synthetic data and assert the resolved prompt reflects:
 //
-// No LLM calls — we just exercise buildReportPrompts() with synthetic
-// snapshot/project/milestones data and assert the resolved prompt
-// reflects the per-project config.
+//   - Per-project section config (toggle off/on, reorder)
+//   - Silence rules (single-chain, missing prev snapshot, no token)
+//   - Manual-entry sections render only when matching-period data exists
+//     (grants, governance, partners, qa) or open status (asks)
 //
-// Test cases:
-//   1) null config              → product defaults (matches old prompt set)
-//   2) toggle off treasury_ops  → that section absent from system prompt
-//   3) toggle on asks for proj  → asks section present in system prompt
-//   4) reorder governance ↑     → governance appears before financial_health
-//
-// Run:    node scripts/smoke-report-sections.mjs
-//
-// Uses tsx so we can import the TS module directly.
-
-// We import the TS modules through a tsx-spawned child process via the
-// shebang in the runner; here we just re-export the entry. To keep the
-// runner self-contained, this script must be invoked with:
-//   npx tsx scripts/smoke-report-sections.mjs
-// (renamed to .ts loader path below if needed).
+// Run: npx tsx scripts/smoke-report-sections.mjs
 
 const { buildReportPrompts } = await import(
   "../src/server/services/prompts.ts"
@@ -28,6 +17,8 @@ const { SECTION_LIBRARY_META } = await import(
 );
 
 // ─── fixtures ──────────────────────────────────────────────────────────────
+
+const PERIOD = "2026-04";
 
 const project = {
   id: "p1",
@@ -91,6 +82,91 @@ const milestones = [
   },
 ];
 
+// Period-bound manual data (matches PERIOD = "2026-04")
+const grants = [
+  {
+    id: "g1",
+    projectId: "p1",
+    recipient: "Acme Research",
+    amountUsd: "50000",
+    status: "committed",
+    category: "research",
+    period: "2026-04",
+    notes: null,
+    createdAt: new Date(),
+  },
+  {
+    id: "g2",
+    projectId: "p1",
+    recipient: "Beta Tooling",
+    amountUsd: "25000",
+    status: "disbursed",
+    category: null,
+    period: "2026-04",
+    notes: "delivered SDK v2",
+    createdAt: new Date(),
+  },
+];
+
+const governanceProposals = [
+  {
+    id: "gp1",
+    projectId: "p1",
+    title: "EP-12: Treasury rebalance to 60/40 stables",
+    status: "passed",
+    url: "https://snapshot.org/x",
+    voteResult: "78% / 22% with 14M tokens",
+    period: "2026-04",
+    notes: null,
+    createdAt: new Date(),
+  },
+];
+
+const partnersList = [
+  {
+    id: "pa1",
+    projectId: "p1",
+    name: "Coinbase Custody",
+    type: "integration",
+    url: "https://example.com",
+    period: "2026-04",
+    notes: null,
+    createdAt: new Date(),
+  },
+];
+
+const asksList = [
+  {
+    id: "a1",
+    projectId: "p1",
+    request: "Intro to L2 BD lead at any major DEX",
+    category: "intros",
+    status: "open",
+    createdAt: new Date(),
+  },
+  {
+    id: "a2",
+    projectId: "p1",
+    request: "Already-resolved historical ask",
+    category: "hiring",
+    status: "resolved",
+    createdAt: new Date(),
+  },
+];
+
+const qaHighlights = [
+  {
+    id: "q1",
+    projectId: "p1",
+    question: "Why the L2 push now?",
+    answer: "Gas costs eat into smaller transactions and we want broader reach.",
+    askedBy: "@frens",
+    period: "2026-04",
+    displayOrder: 0,
+    createdAt: new Date(),
+  },
+];
+
 // ─── assertions ─────────────────────────────────────────────────────────────
 
 let passed = 0;
@@ -106,15 +182,21 @@ function check(name, cond, hint = "") {
   }
 }
 
-// 1) null config = product defaults
+const baseInput = {
+  snapshot,
+  prevSnapshot,
+  project,
+  milestones,
+  grants,
+  governanceProposals,
+  partners: partnersList,
+  asks: asksList,
+  qaHighlights,
+};
+
+// 1) null config = product defaults (manual sections off-by-default)
 {
-  const { system, user, enabled } = buildReportPrompts(
-    snapshot,
-    prevSnapshot,
-    project,
-    milestones,
-    null
-  );
+  const { system, user, enabled } = buildReportPrompts({ ...baseInput });
   const ids = enabled.map((s) => s.id);
   const defaults = SECTION_LIBRARY_META.filter((m) => m.defaultEnabled).map(
     (m) => m.id
@@ -124,62 +206,100 @@ function check(name, cond, hint = "") {
     JSON.stringify(ids) === JSON.stringify(defaults),
     `got [${ids.join(",")}] expected [${defaults.join(",")}]`
   );
+  check("system prompt mentions Executive Summary", system.includes("### Executive Summary"));
+  check("system prompt mentions Wins", system.includes("### Wins"));
+  check("system prompt mentions Treasury Overview", system.includes("### Treasury Overview"));
+  check("user prompt has Project Context", user.includes("## Project Context"));
+  check("user prompt has Treasury by chain", user.includes("## Treasury by chain"));
+  check("user prompt has Token Metrics", user.includes("## Token Metrics"));
+  check("user prompt has Development Activity", user.includes("## Development Activity"));
+  check("user prompt has Treasury operations block", user.includes("Treasury operations"));
+
+  // Manual sections OFF by default — neither user nor system blocks render
   check(
-    "system prompt mentions Executive Summary",
-    system.includes("### Executive Summary")
+    "default config: NO Grants Distributed in system prompt",
+    !system.includes("### Grants Distributed")
   );
   check(
-    "system prompt mentions Wins (new section)",
-    system.includes("### Wins")
-  );
-  check(
-    "system prompt mentions Treasury Overview",
-    system.includes("### Treasury Overview")
-  );
-  check(
-    "user prompt has Project Context block",
-    user.includes("## Project Context")
-  );
-  check(
-    "user prompt has Treasury by chain (3 chains in fixture)",
-    user.includes("## Treasury by chain")
-  );
-  check(
-    "user prompt has Token Metrics (project has tokenSymbol)",
-    user.includes("## Token Metrics")
-  );
-  check(
-    "user prompt has Development Activity (commits > 0)",
-    user.includes("## Development Activity")
-  );
-  check(
-    "user prompt has Active / Upcoming Milestones",
-    user.includes("## Active / Upcoming Milestones")
-  );
-  check(
-    "user prompt has Milestones Completed",
-    user.includes("## Milestones Completed")
-  );
-  // Default config: token_sale is set in fixture, treasury_operations is default-on
-  check(
-    "user prompt has Treasury operations block (token_sale=150000)",
-    user.includes("Treasury operations")
+    "default config: NO Asks in system prompt",
+    !system.includes("### Asks")
   );
 }
 
-// 2) toggle off treasury_operations
+// 2) Enable all 5 manual sections WITH data → all 5 render in user prompt
+{
+  const config = SECTION_LIBRARY_META.map((m) => ({
+    id: m.id,
+    enabled:
+      m.defaultEnabled ||
+      [
+        "grants_distributed",
+        "governance_updates",
+        "partners_integrations",
+        "asks",
+        "qa_highlights",
+      ].includes(m.id),
+  }));
+  const { system, user } = buildReportPrompts({
+    ...baseInput,
+    storedSections: config,
+  });
+
+  check("system prompt includes Grants rules when enabled", system.includes("### Grants Distributed"));
+  check("system prompt includes Governance rules when enabled", system.includes("### Governance Updates"));
+  check("system prompt includes Partners rules when enabled", system.includes("### Partners & Integrations"));
+  check("system prompt includes Asks rules when enabled", system.includes("### Asks"));
+  check("system prompt includes Q&A rules when enabled", system.includes("### Q&A Highlights"));
+
+  check(
+    "user prompt has Grants this period block",
+    user.includes("## Grants this period") &&
+      user.includes("Acme Research") &&
+      user.includes("Beta Tooling")
+  );
+  check(
+    "user prompt has Grants totals (committed + disbursed)",
+    user.includes("Committed:") && user.includes("Disbursed:")
+  );
+  check(
+    "user prompt has Governance this period block",
+    user.includes("## Governance this period") &&
+      user.includes("EP-12") &&
+      user.includes("[passed]")
+  );
+  check(
+    "user prompt has Partners this period block",
+    user.includes("## Partners this period") &&
+      user.includes("Coinbase Custody") &&
+      user.includes("(integration)")
+  );
+  check(
+    "user prompt has Asks (open) block",
+    user.includes("## Asks (open)") && user.includes("Intro to L2 BD lead")
+  );
+  check(
+    "user prompt does NOT include resolved asks",
+    !user.includes("Already-resolved historical ask")
+  );
+  check(
+    "user prompt has Q&A this period block",
+    user.includes("## Q&A this period") &&
+      user.includes("Why the L2 push now?") &&
+      user.includes("Q: ") &&
+      user.includes("A: ")
+  );
+}
+
+// 3) Toggle off treasury_operations (regression check from Phase 5)
 {
   const config = SECTION_LIBRARY_META.map((m) => ({
     id: m.id,
     enabled: m.id === "treasury_operations" ? false : m.defaultEnabled,
   }));
-  const { system, user } = buildReportPrompts(
-    snapshot,
-    prevSnapshot,
-    project,
-    milestones,
-    config
-  );
+  const { system, user } = buildReportPrompts({
+    ...baseInput,
+    storedSections: config,
+  });
   check(
     "system prompt has no Treasury Operations rules when disabled",
     !system.includes("### Treasury Operations")
@@ -190,28 +310,48 @@ function check(name, cond, hint = "") {
   );
 }
 
-// 3) toggle on asks
+// 4) Period mismatch — grants for a different period don't render
 {
+  const wrongPeriodGrants = grants.map((g) => ({ ...g, period: "2026-01" }));
   const config = SECTION_LIBRARY_META.map((m) => ({
     id: m.id,
-    enabled: m.id === "asks" ? true : m.defaultEnabled,
+    enabled: m.defaultEnabled || m.id === "grants_distributed",
   }));
-  const { system } = buildReportPrompts(
-    snapshot,
-    prevSnapshot,
-    project,
-    milestones,
-    config
-  );
+  const { user } = buildReportPrompts({
+    ...baseInput,
+    grants: wrongPeriodGrants,
+    storedSections: config,
+  });
   check(
-    "system prompt includes Asks section rules when enabled",
-    system.includes("### Asks")
+    "Grants from a different period are filtered out",
+    !user.includes("## Grants this period")
   );
 }
 
-// 4) reorder governance_updates above financial_health
+// 5) silence rules from Phase 5 (still pass)
 {
-  // governance is off-by-default; turn it on AND move it before financial_health
+  const noToken = { ...project, tokenSymbol: null };
+  const { user } = buildReportPrompts({ ...baseInput, project: noToken });
+  check("Token Metrics omitted when no tokenSymbol", !user.includes("## Token Metrics"));
+}
+{
+  const { user } = buildReportPrompts({ ...baseInput, prevSnapshot: null });
+  check(
+    "Previous Month Treasury omitted when prevSnapshot is null",
+    !user.includes("## Previous Month Treasury")
+  );
+}
+{
+  const single = { ...snapshot, balancesByChain: { ethereum: 8500000 } };
+  const { user } = buildReportPrompts({ ...baseInput, snapshot: single });
+  check(
+    "Treasury by chain omitted for single-chain treasury",
+    !user.includes("## Treasury by chain")
+  );
+}
+
+// 6) reorder governance above financial_health (still works)
+{
   const order = [
     "executive_summary",
     "wins",
@@ -219,7 +359,7 @@ function check(name, cond, hint = "") {
     "treasury_overview",
     "treasury_by_chain",
     "previous_month_comparison",
-    "governance_updates", // moved up
+    "governance_updates",
     "financial_health",
     "expense_breakdown",
     "treasury_operations",
@@ -230,54 +370,13 @@ function check(name, cond, hint = "") {
     "looking_ahead",
   ];
   const config = order.map((id) => ({ id, enabled: true }));
-  const { system } = buildReportPrompts(
-    snapshot,
-    prevSnapshot,
-    project,
-    milestones,
-    config
-  );
+  const { system } = buildReportPrompts({ ...baseInput, storedSections: config });
   const govIdx = system.indexOf("### Governance Updates");
   const finIdx = system.indexOf("### Financial Health");
   check(
     "governance section appears before financial health in system prompt",
     govIdx > -1 && finIdx > -1 && govIdx < finIdx,
     `gov=${govIdx}, fin=${finIdx}`
-  );
-}
-
-// 5) silence rule: project without tokenSymbol → no Token Metrics in user prompt
-{
-  const noToken = { ...project, tokenSymbol: null };
-  const { user } = buildReportPrompts(
-    snapshot,
-    prevSnapshot,
-    noToken,
-    milestones,
-    null
-  );
-  check(
-    "Token Metrics omitted from user prompt when no tokenSymbol",
-    !user.includes("## Token Metrics")
-  );
-}
-
-// 6) silence rule: snapshot without prevSnapshot → no Previous Month block
-{
-  const { user } = buildReportPrompts(snapshot, null, project, milestones, null);
-  check(
-    "Previous Month Treasury omitted when prevSnapshot is null",
-    !user.includes("## Previous Month Treasury")
-  );
-}
-
-// 7) silence rule: single-chain treasury → no by-chain block
-{
-  const single = { ...snapshot, balancesByChain: { ethereum: 8500000 } };
-  const { user } = buildReportPrompts(single, prevSnapshot, project, milestones, null);
-  check(
-    "Treasury by chain omitted for single-chain treasury",
-    !user.includes("## Treasury by chain")
   );
 }
 

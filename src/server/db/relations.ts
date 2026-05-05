@@ -7,6 +7,11 @@ import {
   reports,
   investors,
   milestones,
+  grants,
+  governanceProposals,
+  partners,
+  asks,
+  qaHighlights,
 } from "./schema";
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -20,6 +25,11 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   reports: many(reports),
   investors: many(investors),
   milestones: many(milestones),
+  grants: many(grants),
+  governanceProposals: many(governanceProposals),
+  partners: many(partners),
+  asks: many(asks),
+  qaHighlights: many(qaHighlights),
 }));
 
 export const walletsRelations = relations(wallets, ({ one }) => ({
@@ -57,6 +67,44 @@ export const investorsRelations = relations(investors, ({ one }) => ({
 export const milestonesRelations = relations(milestones, ({ one }) => ({
   project: one(projects, {
     fields: [milestones.projectId],
+    references: [projects.id],
+  }),
+}));
+
+export const grantsRelations = relations(grants, ({ one }) => ({
+  project: one(projects, {
+    fields: [grants.projectId],
+    references: [projects.id],
+  }),
+}));
+
+export const governanceProposalsRelations = relations(
+  governanceProposals,
+  ({ one }) => ({
+    project: one(projects, {
+      fields: [governanceProposals.projectId],
+      references: [projects.id],
+    }),
+  })
+);
+
+export const partnersRelations = relations(partners, ({ one }) => ({
+  project: one(projects, {
+    fields: [partners.projectId],
+    references: [projects.id],
+  }),
+}));
+
+export const asksRelations = relations(asks, ({ one }) => ({
+  project: one(projects, {
+    fields: [asks.projectId],
+    references: [projects.id],
+  }),
+}));
+
+export const qaHighlightsRelations = relations(qaHighlights, ({ one }) => ({
+  project: one(projects, {
+    fields: [qaHighlights.projectId],
     references: [projects.id],
   }),
 }));

@@ -315,6 +315,79 @@ export const milestones = pgTable("milestones", {
 });
 
 // =============================================
+// MANUAL-ENTRY REPORT-SECTION DATA
+// Five tables back the report sections that require founder-provided
+// content (no automated source). All share a per-project shape; four
+// of them scope rows to a report period via a 'YYYY-MM' text column,
+// asks scope by status instead so an open ask flows into every report
+// until resolved.
+// =============================================
+export const grants = pgTable("grants", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  recipient: text("recipient").notNull(),
+  amountUsd: numeric("amount_usd", { precision: 18, scale: 2 }).notNull(),
+  status: text("status").notNull().default("committed"), // committed | disbursed
+  category: text("category"), // optional program/theme bucket
+  period: text("period").notNull(), // 'YYYY-MM'
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const governanceProposals = pgTable("governance_proposals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  status: text("status").notNull().default("submitted"), // submitted | passed | rejected | active
+  url: text("url"), // Snapshot/Tally link
+  voteResult: text("vote_result"), // free-text "78% / 22% with 14M ENS"
+  period: text("period").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const partners = pgTable("partners", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  type: text("type"), // partnership | integration | listing | bridge | other
+  url: text("url"),
+  period: text("period").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const asks = pgTable("asks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  request: text("request").notNull(),
+  category: text("category"), // intros | governance | hiring | other
+  status: text("status").notNull().default("open"), // open | resolved
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const qaHighlights = pgTable("qa_highlights", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  question: text("question").notNull(),
+  answer: text("answer").notNull(),
+  askedBy: text("asked_by"),
+  period: text("period").notNull(),
+  displayOrder: integer("display_order").default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// =============================================
 // TOKEN PRICE CACHE
 // Historical USD prices per (symbol, date). Historic prices never change,
 // so rows live forever and any future sync hits the cache instead of an API.
@@ -412,6 +485,16 @@ export type Investor = typeof investors.$inferSelect;
 export type NewInvestor = typeof investors.$inferInsert;
 export type Milestone = typeof milestones.$inferSelect;
 export type NewMilestone = typeof milestones.$inferInsert;
+export type Grant = typeof grants.$inferSelect;
+export type NewGrant = typeof grants.$inferInsert;
+export type GovernanceProposal = typeof governanceProposals.$inferSelect;
+export type NewGovernanceProposal = typeof governanceProposals.$inferInsert;
+export type Partner = typeof partners.$inferSelect;
+export type NewPartner = typeof partners.$inferInsert;
+export type Ask = typeof asks.$inferSelect;
+export type NewAsk = typeof asks.$inferInsert;
+export type QaHighlight = typeof qaHighlights.$inferSelect;
+export type NewQaHighlight = typeof qaHighlights.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
 export type TokenPrice = typeof tokenPrices.$inferSelect;

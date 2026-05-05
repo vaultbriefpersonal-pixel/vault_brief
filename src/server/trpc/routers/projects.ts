@@ -8,6 +8,11 @@ import {
   treasurySnapshots,
   investors,
   milestones,
+  grants,
+  governanceProposals,
+  partners,
+  asks,
+  qaHighlights,
 } from "@/server/db/schema";
 import { slugify } from "@/lib/utils";
 import { TRPCError } from "@trpc/server";
@@ -369,9 +374,33 @@ export const projectsRouter = router({
             orderBy: [desc(treasurySnapshots.snapshotDate)],
           })
         : undefined;
-      const projectMilestones = await ctx.db.query.milestones.findMany({
-        where: eq(milestones.projectId, input.projectId),
-      });
+      const [
+        projectMilestones,
+        grantsRows,
+        govProposalsRows,
+        partnersRows,
+        asksRows,
+        qaRows,
+      ] = await Promise.all([
+        ctx.db.query.milestones.findMany({
+          where: eq(milestones.projectId, input.projectId),
+        }),
+        ctx.db.query.grants.findMany({
+          where: eq(grants.projectId, input.projectId),
+        }),
+        ctx.db.query.governanceProposals.findMany({
+          where: eq(governanceProposals.projectId, input.projectId),
+        }),
+        ctx.db.query.partners.findMany({
+          where: eq(partners.projectId, input.projectId),
+        }),
+        ctx.db.query.asks.findMany({
+          where: eq(asks.projectId, input.projectId),
+        }),
+        ctx.db.query.qaHighlights.findMany({
+          where: eq(qaHighlights.projectId, input.projectId),
+        }),
+      ]);
 
       // No snapshot at all → every section is "Run a sync first".
       if (!snapshot) {
@@ -386,11 +415,18 @@ export const projectsRouter = router({
       }
 
       const total = Number(snapshot.totalBalanceUsd ?? 0);
+      const period = String(snapshot.snapshotDate).slice(0, 7);
       const readiness = evaluateReadiness({
         snapshot,
         prevSnapshot,
         project,
         milestones: projectMilestones,
+        grants: grantsRows,
+        governanceProposals: govProposalsRows,
+        partners: partnersRows,
+        asks: asksRows,
+        qaHighlights: qaRows,
+        period,
         total,
         minSignificant: total > 0 ? total * 0.001 : 0,
       });

@@ -1,4 +1,13 @@
-import type { TreasurySnapshot, Project, Milestone } from "@/server/db/schema";
+import type {
+  TreasurySnapshot,
+  Project,
+  Milestone,
+  Grant,
+  GovernanceProposal,
+  Partner,
+  Ask,
+  QaHighlight,
+} from "@/server/db/schema";
 import { formatUsd, formatDate } from "@/lib/utils";
 
 /**
@@ -28,6 +37,13 @@ export interface ReportSectionContext {
   prevSnapshot: TreasurySnapshot | undefined | null;
   project: Project;
   milestones: Milestone[];
+  /** 'YYYY-MM' derived from snapshot.snapshotDate; used for period match. */
+  period: string;
+  grants: Grant[];
+  governanceProposals: GovernanceProposal[];
+  partners: Partner[];
+  asks: Ask[];
+  qaHighlights: QaHighlight[];
   /** Total balance in USD, computed once. */
   total: number;
   /** Minimum balance to be worth mentioning (0.1% of total). */
@@ -289,13 +305,31 @@ const grantsDistributed: ReportSection = {
   description:
     "Grant commitments and disbursements for the period. Foundation-shaped projects.",
   defaultEnabled: false,
-  requires: () => false, // gated until we have a grants pipeline
-  userPromptFragment: () => "",
+  requires: (ctx) =>
+    ctx.grants.some((g) => g.period === ctx.period),
+  userPromptFragment: (ctx) => {
+    const list = ctx.grants.filter((g) => g.period === ctx.period);
+    if (list.length === 0) return "";
+    const committed = list
+      .filter((g) => g.status === "committed")
+      .reduce((s, g) => s + Number(g.amountUsd), 0);
+    const disbursed = list
+      .filter((g) => g.status === "disbursed")
+      .reduce((s, g) => s + Number(g.amountUsd), 0);
+    const lines = list.map(
+      (g) =>
+        `- ${g.recipient}: ${formatUsd(Number(g.amountUsd))} (${g.status}${
+          g.category ? `, ${g.category}` : ""
+        })${g.notes ? ` — ${g.notes}` : ""}`
+    );
+    return `\n## Grants this period\n- Committed: ${formatUsd(committed)}\n- Disbursed: ${formatUsd(disbursed)}\n\nGrant list:\n${lines.join("\n")}`;
+  },
   systemPromptFragment: `### Grants Distributed (CONDITIONAL)
-- Only render when the input includes a Grants block.
-- Two sub-bullets: total committed this period, total disbursed this period.
-- If a category breakdown is provided (by program / theme), render as a small table.`,
-  notReadyHint: "Coming soon — no grants pipeline yet.",
+- Only render when the input includes a "## Grants this period" block.
+- Lead with two sub-bullets: total committed this period, total disbursed this period (use the figures verbatim from the input).
+- If 5+ grants are listed, group by category (when present) into a short table; otherwise render as bullets.
+- Don't editorialize — state recipients, amounts, status. Investors compare deployment efficiency, not narrative.`,
+  notReadyHint: "Click Edit data to add grants for this period.",
 };
 
 const tokenMetrics: ReportSection = {
@@ -341,13 +375,31 @@ const governanceUpdates: ReportSection = {
   description:
     "Proposals voted, voting turnout, key governance forum activity. DAO-shaped projects.",
   defaultEnabled: false,
-  requires: () => false, // until we have on-chain governance scraping
-  userPromptFragment: () => "",
+  requires: (ctx) =>
+    ctx.governanceProposals.some((p) => p.period === ctx.period),
+  userPromptFragment: (ctx) => {
+    const list = ctx.governanceProposals.filter(
+      (p) => p.period === ctx.period
+    );
+    if (list.length === 0) return "";
+    const lines = list.map((p) => {
+      const tag = `[${p.status}]`;
+      const link = p.url ? ` (${p.url})` : "";
+      const tail = p.voteResult
+        ? ` — ${p.voteResult}`
+        : p.notes
+          ? ` — ${p.notes}`
+          : "";
+      return `- ${tag} ${p.title}${link}${tail}`;
+    });
+    return `\n## Governance this period\n${lines.join("\n")}`;
+  },
   systemPromptFragment: `### Governance Updates (CONDITIONAL)
-- Only render when the input includes a "## Governance" block.
-- Two-three bullets: proposals submitted, proposals passed, notable forum debates.
-- Skip when no governance activity in the period.`,
-  notReadyHint: "Coming soon — no on-chain governance feed yet.",
+- Only render when the input includes a "## Governance this period" block.
+- 2-3 bullets max: proposals submitted, proposals passed/rejected, notable active debates.
+- Quote vote results verbatim if provided. Don't speculate on outcomes for active proposals.
+- Link out via the URL when present (founder may have provided Snapshot/Tally permalinks).`,
+  notReadyHint: "Click Edit data to add proposals for this period.",
 };
 
 const developmentProgress: ReportSection = {
@@ -413,12 +465,23 @@ const partnersIntegrations: ReportSection = {
   description:
     "New partnerships, integrations, exchange listings, bridges. Off by default — user opts in.",
   defaultEnabled: false,
-  requires: () => false, // requires manual entry; surface in V2
-  userPromptFragment: () => "",
+  requires: (ctx) => ctx.partners.some((p) => p.period === ctx.period),
+  userPromptFragment: (ctx) => {
+    const list = ctx.partners.filter((p) => p.period === ctx.period);
+    if (list.length === 0) return "";
+    const lines = list.map((p) => {
+      const type = p.type ? ` (${p.type})` : "";
+      const link = p.url ? ` — ${p.url}` : "";
+      const tail = p.notes ? ` · ${p.notes}` : "";
+      return `- ${p.name}${type}${link}${tail}`;
+    });
+    return `\n## Partners this period\n${lines.join("\n")}`;
+  },
   systemPromptFragment: `### Partners & Integrations (CONDITIONAL)
-- Only render when the input includes a "## Partners" block (manually maintained for now).
-- Bullets only. No marketing prose.`,
-  notReadyHint: "Coming soon — manual entry not yet available.",
+- Only render when the input includes a "## Partners this period" block.
+- Bullets only. No marketing prose ("excited to announce", "thrilled to partner with"). Just: who, what kind, link.
+- Group consecutively when multiple share a type (e.g. several listings, several bridges).`,
+  notReadyHint: "Click Edit data to add partners announced this period.",
 };
 
 const anomalies: ReportSection = {
@@ -480,13 +543,23 @@ const asks: ReportSection = {
   description:
     "Specific requests to investors (intros, governance votes, hiring help). Off by default — opt in when relevant.",
   defaultEnabled: false,
-  requires: () => false,
-  userPromptFragment: () => "",
+  // Asks are NOT period-bound — they live until founder marks resolved.
+  // Open asks ride along with every report until closed.
+  requires: (ctx) => ctx.asks.some((a) => a.status === "open"),
+  userPromptFragment: (ctx) => {
+    const list = ctx.asks.filter((a) => a.status === "open");
+    if (list.length === 0) return "";
+    const lines = list.map(
+      (a) => `- ${a.request}${a.category ? ` _(${a.category})_` : ""}`
+    );
+    return `\n## Asks (open)\n${lines.join("\n")}`;
+  },
   systemPromptFragment: `### Asks (CONDITIONAL)
-- Only render when the input contains an "Asks" block.
+- Only render when the input contains an "## Asks (open)" block.
 - One bullet per ask with the specific action required (intro to X, vote on proposal Y, hire Z role).
-- If the founder enabled the section but provided no asks, omit it entirely. Don't write "no asks this period".`,
-  notReadyHint: "Coming soon — manual entry not yet available.",
+- Preserve the founder's wording. Don't paraphrase.
+- Don't write "no asks this period" — silence beats placeholder.`,
+  notReadyHint: "Click Edit data to add open asks.",
 };
 
 const qaHighlights: ReportSection = {
@@ -495,13 +568,25 @@ const qaHighlights: ReportSection = {
   description:
     "Curated questions + answers from a tokenholder call or AMA. Manually entered.",
   defaultEnabled: false,
-  requires: () => false,
-  userPromptFragment: () => "",
+  requires: (ctx) =>
+    ctx.qaHighlights.some((q) => q.period === ctx.period),
+  userPromptFragment: (ctx) => {
+    const list = ctx.qaHighlights
+      .filter((q) => q.period === ctx.period)
+      .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+    if (list.length === 0) return "";
+    const blocks = list.map(
+      (q) =>
+        `Q: ${q.question}\nA: ${q.answer}${q.askedBy ? ` _— ${q.askedBy}_` : ""}`
+    );
+    return `\n## Q&A this period\n${blocks.join("\n\n")}`;
+  },
   systemPromptFragment: `### Q&A Highlights (CONDITIONAL)
-- Only render when the input contains a "Q&A" block.
+- Only render when the input contains a "## Q&A this period" block.
 - Format: "Q: ..." / "A: ..." pairs. Two-three pairs max — pick the most substantive.
-- Don't paraphrase the founder's answers heavily; preserve their voice.`,
-  notReadyHint: "Coming soon — manual entry not yet available.",
+- Don't paraphrase the founder's answers heavily; preserve their voice.
+- Attribute the asker only when provided (\`_— @username_\` style is fine).`,
+  notReadyHint: "Click Edit data to add Q&A from this period's call.",
 };
 
 // ─── library + helpers ────────────────────────────────────────────────────

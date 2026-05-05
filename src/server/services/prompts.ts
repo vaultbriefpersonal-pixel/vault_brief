@@ -1,4 +1,13 @@
-import type { TreasurySnapshot, Project, Milestone } from "@/server/db/schema";
+import type {
+  TreasurySnapshot,
+  Project,
+  Milestone,
+  Grant,
+  GovernanceProposal,
+  Partner,
+  Ask,
+  QaHighlight,
+} from "@/server/db/schema";
 import { formatUsd } from "@/lib/utils";
 import {
   buildSystemPrompt,
@@ -12,26 +21,54 @@ import {
 /**
  * Composes both prompts for a report from a per-project section config.
  *
- * Pre-Phase-2 this file owned a hand-written monolithic system prompt and
- * a 200-line `buildReportPrompt`. Both have moved into the section library
- * (`report-sections.ts`) — this module now exists to (a) provide the
- * `{ system, user }` pair the generator wants, and (b) keep
- * `validateReportNumbers` (a pure post-LLM check unrelated to the prompt
- * shape) co-located with the prompt code that callers reach for.
+ * Refactored to an options bag in Phase 6 — five new manual-entry data
+ * arrays (grants, governance, partners, asks, qa) inflate the parameter
+ * list past what's readable as positional args. Callers now spread named
+ * fields; required ones first in the JSDoc, optional default to empty.
  */
+export interface BuildReportPromptsInput {
+  snapshot: TreasurySnapshot;
+  prevSnapshot?: TreasurySnapshot | null;
+  project: Project;
+  milestones?: Milestone[];
+  grants?: Grant[];
+  governanceProposals?: GovernanceProposal[];
+  partners?: Partner[];
+  asks?: Ask[];
+  qaHighlights?: QaHighlight[];
+  storedSections?: SectionConfigEntry[] | null;
+}
+
 export function buildReportPrompts(
-  snapshot: TreasurySnapshot,
-  prevSnapshot: TreasurySnapshot | undefined | null,
-  project: Project,
-  projectMilestones: Milestone[] = [],
-  storedSections: SectionConfigEntry[] | null = null
+  input: BuildReportPromptsInput
 ): { system: string; user: string; enabled: ReportSection[] } {
+  const {
+    snapshot,
+    prevSnapshot = null,
+    project,
+    milestones = [],
+    grants = [],
+    governanceProposals = [],
+    partners = [],
+    asks = [],
+    qaHighlights = [],
+    storedSections = null,
+  } = input;
   const total = Number(snapshot.totalBalanceUsd ?? 0);
+  // 'YYYY-MM' for matching against per-row period text. Snapshot date is
+  // a YYYY-MM-DD string from a date column; sliced cleanly.
+  const period = String(snapshot.snapshotDate).slice(0, 7);
   const ctx: ReportSectionContext = {
     snapshot,
     prevSnapshot,
     project,
-    milestones: projectMilestones,
+    milestones,
+    grants,
+    governanceProposals,
+    partners,
+    asks,
+    qaHighlights,
+    period,
     total,
     minSignificant: total > 0 ? total * 0.001 : 0,
   };

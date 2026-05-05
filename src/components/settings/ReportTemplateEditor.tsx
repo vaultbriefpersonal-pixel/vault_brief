@@ -2,11 +2,22 @@
 
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/api";
+import { Pencil } from "lucide-react";
+import { SectionDataModal } from "./SectionDataModal";
 import {
   SECTION_LIBRARY_META,
   type ReportSectionMeta,
   type SectionConfigEntry,
 } from "@/server/services/report-sections";
+
+// Sections backed by manual-entry tables — Edit data button shows here.
+const MANUAL_DATA_SECTIONS = new Set([
+  "grants_distributed",
+  "governance_updates",
+  "partners_integrations",
+  "asks",
+  "qa_highlights",
+]);
 
 /**
  * Per-project report-template constructor.
@@ -32,6 +43,9 @@ export function ReportTemplateEditor({
   );
   const [savedFlash, setSavedFlash] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
+
+  const utils = trpc.useUtils();
 
   const update = trpc.projects.update.useMutation({
     onSuccess: () => {
@@ -199,32 +213,63 @@ export function ReportTemplateEditor({
                 >
                   {meta.description}
                 </div>
-                {/* Readiness chip — shown when section is enabled
-                    but its data prerequisite isn't met. Helps the
-                    founder understand why toggling the section on
-                    didn't visibly change the report. */}
-                {item.enabled &&
-                  (() => {
-                    const r = readinessById[item.id];
-                    if (noSnapshot) {
+                {/* Readiness chip + (for manual sections) Edit data
+                    button. Together they tell the founder whether
+                    enabling this row will produce visible output, and
+                    give a one-click path to fix it when not. */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    marginTop: 6,
+                  }}
+                >
+                  {item.enabled &&
+                    (() => {
+                      const r = readinessById[item.id];
+                      if (noSnapshot) {
+                        return (
+                          <ReadinessChip
+                            tone="warn"
+                            text="Run a sync first to see this section."
+                          />
+                        );
+                      }
+                      if (!r) return null;
+                      if (r.ready) {
+                        return <ReadinessChip tone="ok" text="Ready" />;
+                      }
                       return (
                         <ReadinessChip
                           tone="warn"
-                          text="Run a sync first to see this section."
+                          text={r.reason ?? "Not yet ready"}
                         />
                       );
-                    }
-                    if (!r) return null; // readiness still loading
-                    if (r.ready) {
-                      return <ReadinessChip tone="ok" text="Ready" />;
-                    }
-                    return (
-                      <ReadinessChip
-                        tone="warn"
-                        text={r.reason ?? "Not yet ready"}
-                      />
-                    );
-                  })()}
+                    })()}
+                  {MANUAL_DATA_SECTIONS.has(item.id) && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingSectionId(item.id)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                        background: "transparent",
+                        border: "1px solid var(--vb-border)",
+                        borderRadius: 999,
+                        padding: "2px 9px",
+                        fontSize: 11,
+                        color: "var(--vb-muted)",
+                        cursor: "pointer",
+                        fontFamily: "var(--font-inter), Inter, sans-serif",
+                      }}
+                    >
+                      <Pencil size={10} /> Edit data
+                    </button>
+                  )}
+                </div>
               </div>
               <label
                 style={{
@@ -312,6 +357,18 @@ export function ReportTemplateEditor({
           </button>
         </div>
       </div>
+
+      {editingSectionId && (
+        <SectionDataModal
+          projectId={projectId}
+          sectionId={editingSectionId}
+          onClose={() => {
+            setEditingSectionId(null);
+            // Re-fetch readiness so the chip flips green if data was added.
+            utils.projects.getSectionReadiness.invalidate({ projectId });
+          }}
+        />
+      )}
     </div>
   );
 }
