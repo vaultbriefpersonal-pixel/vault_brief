@@ -1,17 +1,13 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { db } from "@/server/db";
 import { projects, treasurySnapshots } from "@/server/db/schema";
 import { and, eq, desc } from "drizzle-orm";
-import { Wallet, FileText, Users } from "lucide-react";
 import { formatUsd, formatDate } from "@/lib/utils";
 import { TreasuryChart } from "@/components/charts/TreasuryChart";
 import { BurnRateChart } from "@/components/charts/BurnRateChart";
 import { ExpenseBreakdown } from "@/components/charts/ExpenseBreakdown";
 import { IncomeBreakdown } from "@/components/charts/IncomeBreakdown";
-import { SyncNowButton } from "@/components/projects/SyncNowButton";
-import { ProjectActionsMenu } from "@/components/projects/ProjectActionsMenu";
 import { ChainIcon } from "@/components/ui/ChainIcon";
 
 // Brand colors keyed by chain id, used by the per-chain stacked bar so
@@ -100,75 +96,8 @@ export default async function ProjectPage({ params }: Props) {
   const incomeData =
     (latestSnapshot?.incomeByCategory as Record<string, number> | null) ?? {};
 
-  const NAV = [
-    {
-      href: `/projects/${id}/wallets`,
-      label: "Wallets",
-      icon: Wallet,
-      count: project.wallets.length,
-    },
-    {
-      href: `/projects/${id}/reports`,
-      label: "Reports",
-      icon: FileText,
-      count: project.reports.length,
-    },
-    {
-      href: `/projects/${id}/investors`,
-      label: "Investors",
-      icon: Users,
-      count: project.investors.length,
-    },
-  ];
-
   return (
-    <div style={{ padding: "24px 28px", minHeight: "100dvh" }}>
-      <div
-        style={{
-          marginBottom: 28,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: 20,
-          flexWrap: "wrap",
-        }}
-      >
-        <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-          <h2
-            style={{
-              fontFamily:
-                "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-              fontSize: 18,
-              fontWeight: 700,
-              color: "var(--vb-text)",
-              margin: "0 0 4px",
-              letterSpacing: "-0.02em",
-            }}
-          >
-            {project.name}
-          </h2>
-          {project.description && (
-            <p
-              style={{
-                fontFamily: "var(--font-inter), Inter, sans-serif",
-                fontSize: 14,
-                color: "var(--vb-dim)",
-                margin: 0,
-                maxWidth: 720,
-                lineHeight: 1.5,
-                wordBreak: "break-word",
-              }}
-            >
-              {project.description}
-            </p>
-          )}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <SyncNowButton projectId={id} />
-          <ProjectActionsMenu projectId={id} projectSlug={project.slug} />
-        </div>
-      </div>
-
+    <>
       {/* Sync warnings — surfaced when one or more wallets failed to fetch
           during the latest sync. Without this banner, founders see plausible-
           looking-but-incomplete numbers on every tile and chart, then send
@@ -390,71 +319,6 @@ export default async function ProjectPage({ params }: Props) {
       })()}
 
       <div
-        className="vb-grid-3"
-        style={{ gap: 10, marginBottom: 32 }}
-      >
-        {NAV.map(({ href, label, icon: Icon, count }) => (
-          <Link
-            key={href}
-            href={href}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              background: "var(--vb-card)",
-              border: "1px solid var(--vb-border)",
-              borderRadius: 12,
-              padding: "16px 18px",
-              textDecoration: "none",
-            }}
-          >
-            <div
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 8,
-                background: "rgba(0,232,123,0.08)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <Icon size={15} color="#00e87b" />
-            </div>
-            <div>
-              <p
-                style={{
-                  fontFamily: "var(--font-inter), Inter, sans-serif",
-                  fontSize: 11,
-                  color: "var(--vb-dim)",
-                  margin: 0,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                }}
-              >
-                {label}
-              </p>
-              {count !== undefined && (
-                <p
-                  style={{
-                    fontFamily:
-                      "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-                    fontSize: 18,
-                    fontWeight: 700,
-                    color: "var(--vb-text)",
-                    margin: 0,
-                  }}
-                >
-                  {count}
-                </p>
-              )}
-            </div>
-          </Link>
-        ))}
-      </div>
-
-      <div
         className="vb-grid-2"
         style={{ gap: 16 }}
       >
@@ -619,6 +483,6 @@ export default async function ProjectPage({ params }: Props) {
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }
