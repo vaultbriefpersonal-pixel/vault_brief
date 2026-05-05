@@ -53,6 +53,16 @@ export interface ReportSection {
    * `requires` is false — the system prompt is just rules, no data).
    */
   systemPromptFragment: string;
+  /**
+   * Human-readable reason why a section won't render with current
+   * data. Shown in the constructor UI as a chip when `requires()` is
+   * false. Two common shapes:
+   *   • "Coming soon — no <X> pipeline yet" for sections gated on
+   *     features we haven't built yet
+   *   • "Needs <Y>" for sections waiting on user data
+   * If omitted, the editor falls back to a generic "Not yet ready".
+   */
+  notReadyHint?: string;
 }
 
 // ─── individual sections ───────────────────────────────────────────────────
@@ -120,6 +130,7 @@ const treasuryOverview: ReportSection = {
 - **Only include rows where Balance > $0.** Skip categories the project does not currently hold — do NOT emit "$0 / 0%" placeholder rows. If the input doesn't list a balance for an asset, that asset doesn't exist in this treasury; pretend it's not even on the menu.
 - Total treasury value
 - Change vs previous month (absolute and percentage) — only if a Previous Month section appears in the input.`,
+  notReadyHint: "Run a sync to fetch wallet balances first.",
 };
 
 const treasuryByChain: ReportSection = {
@@ -160,6 +171,7 @@ const treasuryByChain: ReportSection = {
 - Only render if the input contains a "## Treasury by chain" block with 2+ chains.
 - One or two sentences explaining the split. Example: "85% sits on Ethereum mainnet; the remaining 15% is split across Optimism and Base for L2 ops."
 - Skip when only one chain is present — "100% on Ethereum" is noise, not analysis.`,
+  notReadyHint: "Add wallets on ≥2 chains.",
 };
 
 const previousMonthComparison: ReportSection = {
@@ -180,6 +192,7 @@ const previousMonthComparison: ReportSection = {
   systemPromptFragment: `### Month-over-Month (CONDITIONAL)
 - Only render if a "## Previous Month Treasury" block appears in the input.
 - Single sentence summarising the delta with a directional verb ("grew", "shrank by", "held steady at"). Don't dramatize a 0.5% move.`,
+  notReadyHint: "Needs at least one prior monthly snapshot.",
 };
 
 const financialHealth: ReportSection = {
@@ -215,6 +228,7 @@ const financialHealth: ReportSection = {
 - Runway in months (only if available).
 - Inflows and outflows totals — only the ones the input provides.
 - Do NOT echo "Not available" for missing fields. Drop the bullet.`,
+  notReadyHint: "Needs at least one period with inflows or outflows.",
 };
 
 const expenseBreakdown: ReportSection = {
@@ -242,6 +256,7 @@ const expenseBreakdown: ReportSection = {
   systemPromptFragment: `### Operating Expenses (CONDITIONAL)
 - Render as a category table only when the input lists at least one operating expense category.
 - Notable changes vs previous month — only if a previous month was provided AND there's a real delta to discuss. Otherwise skip.`,
+  notReadyHint: "Needs operating outflows in this period (rebalances don't count).",
 };
 
 const treasuryOperations: ReportSection = {
@@ -265,6 +280,7 @@ const treasuryOperations: ReportSection = {
   systemPromptFragment: `### Treasury Operations (CONDITIONAL)
 - Render this section ONLY when the input lists a non-zero "token_sale" line in Treasury operations.
 - token_sale outflows are treasury reallocations (e.g. swapping native token for stablecoins or vice versa), NOT operating expenses. Never include them in the expense breakdown table; show them separately here with a one-sentence explanation of what was rebalanced.`,
+  notReadyHint: "Only renders when there's a token_sale rebalance in the period.",
 };
 
 const grantsDistributed: ReportSection = {
@@ -279,6 +295,7 @@ const grantsDistributed: ReportSection = {
 - Only render when the input includes a Grants block.
 - Two sub-bullets: total committed this period, total disbursed this period.
 - If a category breakdown is provided (by program / theme), render as a small table.`,
+  notReadyHint: "Coming soon — no grants pipeline yet.",
 };
 
 const tokenMetrics: ReportSection = {
@@ -315,6 +332,7 @@ const tokenMetrics: ReportSection = {
 - Price and market cap — only if provided.
 - Circulating vs total supply — only if BOTH numbers are provided. Don't write "Circulating: X, total: Not available".
 - If the entire Token Metrics block has only one or two data points, render those without listing the missing ones. Never echo "Not available" to investors.`,
+  notReadyHint: "Set 'Token symbol' in Project settings.",
 };
 
 const governanceUpdates: ReportSection = {
@@ -329,6 +347,7 @@ const governanceUpdates: ReportSection = {
 - Only render when the input includes a "## Governance" block.
 - Two-three bullets: proposals submitted, proposals passed, notable forum debates.
 - Skip when no governance activity in the period.`,
+  notReadyHint: "Coming soon — no on-chain governance feed yet.",
 };
 
 const developmentProgress: ReportSection = {
@@ -353,6 +372,7 @@ const developmentProgress: ReportSection = {
   systemPromptFragment: `### Development Progress (CONDITIONAL)
 - GitHub activity summary (commits, PRs, contributors) — ONLY if the input's "Development Activity" block lists numbers > 0.
 - If the block shows all zeros, OMIT this entire section. Don't echo zeros or "Not available".`,
+  notReadyHint: "Connect a GitHub org in Project settings.",
 };
 
 const milestonesCompleted: ReportSection = {
@@ -384,6 +404,7 @@ const milestonesCompleted: ReportSection = {
 - Only render if the input includes a "## Milestones Completed" block.
 - One bullet per milestone with the date and a tight one-sentence description.
 - Don't editorialize ("massive achievement!"); just state what shipped.`,
+  notReadyHint: "Mark a milestone as completed in Project settings.",
 };
 
 const partnersIntegrations: ReportSection = {
@@ -397,6 +418,7 @@ const partnersIntegrations: ReportSection = {
   systemPromptFragment: `### Partners & Integrations (CONDITIONAL)
 - Only render when the input includes a "## Partners" block (manually maintained for now).
 - Bullets only. No marketing prose.`,
+  notReadyHint: "Coming soon — manual entry not yet available.",
 };
 
 const anomalies: ReportSection = {
@@ -449,6 +471,7 @@ const lookingAhead: ReportSection = {
 - Include this section ONLY when the input contains either active milestones or a recent funding round.
 - If neither is present, OMIT the section entirely. Never write generic placeholders like "the team plans to focus on continuing core development" or "specific milestones are not available at this time" — silence is better than filler.
 - When included: name specific milestones (with target dates if known) or tie next-month focus to the funding round just raised.`,
+  notReadyHint: "Add an active milestone or recent funding round.",
 };
 
 const asks: ReportSection = {
@@ -463,6 +486,7 @@ const asks: ReportSection = {
 - Only render when the input contains an "Asks" block.
 - One bullet per ask with the specific action required (intro to X, vote on proposal Y, hire Z role).
 - If the founder enabled the section but provided no asks, omit it entirely. Don't write "no asks this period".`,
+  notReadyHint: "Coming soon — manual entry not yet available.",
 };
 
 const qaHighlights: ReportSection = {
@@ -477,6 +501,7 @@ const qaHighlights: ReportSection = {
 - Only render when the input contains a "Q&A" block.
 - Format: "Q: ..." / "A: ..." pairs. Two-three pairs max — pick the most substantive.
 - Don't paraphrase the founder's answers heavily; preserve their voice.`,
+  notReadyHint: "Coming soon — manual entry not yet available.",
 };
 
 // ─── library + helpers ────────────────────────────────────────────────────
@@ -522,15 +547,46 @@ export interface ReportSectionMeta {
   title: string;
   description: string;
   defaultEnabled: boolean;
+  /** Static fallback hint surfaced when readiness data isn't loaded yet. */
+  notReadyHint?: string;
 }
 
 export const SECTION_LIBRARY_META: readonly ReportSectionMeta[] =
-  SECTION_LIBRARY.map(({ id, title, description, defaultEnabled }) => ({
+  SECTION_LIBRARY.map(({ id, title, description, defaultEnabled, notReadyHint }) => ({
     id,
     title,
     description,
     defaultEnabled,
+    notReadyHint,
   }));
+
+/** Per-section readiness verdict for the constructor UI. */
+export interface SectionReadiness {
+  id: string;
+  ready: boolean;
+  /** Human reason — present when `ready` is false. */
+  reason?: string;
+}
+
+/**
+ * Run every section's `requires(ctx)` against the current data and
+ * pair the verdict with a human-readable reason. Powers the editor's
+ * status chips ("Ready", "Needs ≥2 chains", "Coming soon"). The
+ * editor itself can't run requires() — those closures live in the
+ * server module — so the readiness map flows through tRPC.
+ */
+export function evaluateReadiness(
+  ctx: ReportSectionContext
+): SectionReadiness[] {
+  return SECTION_LIBRARY.map((s) => {
+    const ready = s.requires(ctx);
+    return {
+      id: s.id,
+      ready,
+      reason: ready ? undefined : s.notReadyHint ?? "Not yet ready",
+    };
+  });
+}
 
 export function getSectionById(id: string): ReportSection | undefined {
   return SECTION_BY_ID[id];

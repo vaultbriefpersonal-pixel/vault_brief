@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, lte, lt, desc } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import {
   projects,
@@ -21,6 +21,7 @@ import {
 import { assertTrialActive } from "@/server/lib/plan-limits";
 import { createMonthlySnapshot, getLastMonthPeriod } from "@/server/services/data-sync";
 import { generateAndSaveReport } from "@/server/services/report-generator";
+import { evaluateReadiness } from "@/server/services/report-sections";
 
 // Mirror of validation in walletsRouter — keep in sync. Inlined here so the
 // create-project mutation can validate wallets before any DB writes (one
@@ -334,6 +335,67 @@ export const projectsRouter = router({
       }
 
       return copy;
+    }),
+
+  /**
+   * Per-section readiness verdict for the constructor UI. Loads the
+   * latest snapshot + previous + milestones, builds the same context
+   * used at report-generation time, runs each section's `requires()`
+   * predicate, and returns a flat array of {id, ready, reason}.
+   *
+   * Lets the editor surface chips like "Needs ≥2 chains" or
+   * "Coming soon — no grants pipeline" so founders understand why
+   * enabling a section doesn't immediately produce visible output.
+   */
+  getSectionReadiness: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await requireProject(ctx, input.projectId);
+      const project = await ctx.db.query.projects.findFirst({
+        where: eq(projects.id, input.projectId),
+      });
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const snapshot = await ctx.db.query.treasurySnapshots.findFirst({
+        where: eq(treasurySnapshots.projectId, input.projectId),
+        orderBy: [desc(treasurySnapshots.snapshotDate)],
+      });
+      const prevSnapshot = snapshot
+        ? await ctx.db.query.treasurySnapshots.findFirst({
+            where: and(
+              eq(treasurySnapshots.projectId, input.projectId),
+              lt(treasurySnapshots.snapshotDate, snapshot.snapshotDate)
+            ),
+            orderBy: [desc(treasurySnapshots.snapshotDate)],
+          })
+        : undefined;
+      const projectMilestones = await ctx.db.query.milestones.findMany({
+        where: eq(milestones.projectId, input.projectId),
+      });
+
+      // No snapshot at all → every section is "Run a sync first".
+      if (!snapshot) {
+        return {
+          hasSnapshot: false as const,
+          readiness: [] as Array<{
+            id: string;
+            ready: false;
+            reason: string;
+          }>,
+        };
+      }
+
+      const total = Number(snapshot.totalBalanceUsd ?? 0);
+      const readiness = evaluateReadiness({
+        snapshot,
+        prevSnapshot,
+        project,
+        milestones: projectMilestones,
+        total,
+        minSignificant: total > 0 ? total * 0.001 : 0,
+      });
+
+      return { hasSnapshot: true as const, readiness };
     }),
 
   /**

@@ -45,6 +45,22 @@ export function ReportTemplateEditor({
     []
   );
 
+  // Live readiness — server runs each section's requires(ctx) against the
+  // latest snapshot + milestones and tells us which sections will actually
+  // produce visible output. Founders enabling 5 manual-only sections
+  // ("Asks", "Q&A") and seeing nothing change otherwise feels broken.
+  const readinessQ = trpc.projects.getSectionReadiness.useQuery({
+    projectId,
+  });
+  const readinessById = useMemo(() => {
+    const m: Record<string, { ready: boolean; reason?: string }> = {};
+    for (const r of readinessQ.data?.readiness ?? []) {
+      m[r.id] = { ready: r.ready, reason: r.reason };
+    }
+    return m;
+  }, [readinessQ.data]);
+  const noSnapshot = readinessQ.data?.hasSnapshot === false;
+
   function toggle(id: string) {
     setItems((prev) =>
       prev.map((it) => (it.id === id ? { ...it, enabled: !it.enabled } : it))
@@ -183,6 +199,32 @@ export function ReportTemplateEditor({
                 >
                   {meta.description}
                 </div>
+                {/* Readiness chip — shown when section is enabled
+                    but its data prerequisite isn't met. Helps the
+                    founder understand why toggling the section on
+                    didn't visibly change the report. */}
+                {item.enabled &&
+                  (() => {
+                    const r = readinessById[item.id];
+                    if (noSnapshot) {
+                      return (
+                        <ReadinessChip
+                          tone="warn"
+                          text="Run a sync first to see this section."
+                        />
+                      );
+                    }
+                    if (!r) return null; // readiness still loading
+                    if (r.ready) {
+                      return <ReadinessChip tone="ok" text="Ready" />;
+                    }
+                    return (
+                      <ReadinessChip
+                        tone="warn"
+                        text={r.reason ?? "Not yet ready"}
+                      />
+                    );
+                  })()}
               </div>
               <label
                 style={{
@@ -270,6 +312,47 @@ export function ReportTemplateEditor({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReadinessChip({
+  tone,
+  text,
+}: {
+  tone: "ok" | "warn";
+  text: string;
+}) {
+  const palette =
+    tone === "ok"
+      ? {
+          bg: "rgba(0,232,123,0.08)",
+          border: "rgba(0,232,123,0.25)",
+          color: "#00e87b",
+        }
+      : {
+          bg: "rgba(240,184,71,0.08)",
+          border: "rgba(240,184,71,0.25)",
+          color: "#f0b847",
+        };
+  return (
+    <div
+      style={{
+        marginTop: 6,
+        display: "inline-flex",
+        alignItems: "center",
+        background: palette.bg,
+        border: `1px solid ${palette.border}`,
+        borderRadius: 999,
+        padding: "2px 8px",
+        fontSize: 11,
+        fontFamily: "var(--font-inter), Inter, sans-serif",
+        fontWeight: 500,
+        color: palette.color,
+        lineHeight: 1.5,
+      }}
+    >
+      {text}
     </div>
   );
 }
