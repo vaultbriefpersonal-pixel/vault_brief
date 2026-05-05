@@ -4,13 +4,14 @@ import { auth } from "@/lib/auth";
 import { db } from "@/server/db";
 import { projects, treasurySnapshots } from "@/server/db/schema";
 import { and, eq, desc } from "drizzle-orm";
-import { Wallet, FileText, Users, Settings } from "lucide-react";
+import { Wallet, FileText, Users } from "lucide-react";
 import { formatUsd, formatDate } from "@/lib/utils";
 import { TreasuryChart } from "@/components/charts/TreasuryChart";
 import { BurnRateChart } from "@/components/charts/BurnRateChart";
 import { ExpenseBreakdown } from "@/components/charts/ExpenseBreakdown";
 import { IncomeBreakdown } from "@/components/charts/IncomeBreakdown";
 import { SyncNowButton } from "@/components/projects/SyncNowButton";
+import { ProjectActionsMenu } from "@/components/projects/ProjectActionsMenu";
 import { ChainIcon } from "@/components/ui/ChainIcon";
 
 // Brand colors keyed by chain id, used by the per-chain stacked bar so
@@ -118,11 +119,6 @@ export default async function ProjectPage({ params }: Props) {
       icon: Users,
       count: project.investors.length,
     },
-    {
-      href: `/projects/${id}/settings`,
-      label: "Settings",
-      icon: Settings,
-    },
   ];
 
   return (
@@ -167,7 +163,10 @@ export default async function ProjectPage({ params }: Props) {
             </p>
           )}
         </div>
-        <SyncNowButton projectId={id} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <SyncNowButton projectId={id} />
+          <ProjectActionsMenu projectId={id} />
+        </div>
       </div>
 
       {/* Sync warnings — surfaced when one or more wallets failed to fetch
@@ -391,7 +390,7 @@ export default async function ProjectPage({ params }: Props) {
       })()}
 
       <div
-        className="vb-grid-4"
+        className="vb-grid-3"
         style={{ gap: 10, marginBottom: 32 }}
       >
         {NAV.map(({ href, label, icon: Icon, count }) => (
