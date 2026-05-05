@@ -148,15 +148,21 @@ export default function WalletsPage({ params }: Props) {
             onChange={(e) => setAddress(e.target.value)}
           />
           <select
-            // Native select renders a caret on the right; without extra
-            // right padding the chain label collides with it. Fix width
-            // so it doesn't shrink to "Base" length when that's selected.
+            // Native select caret sits flush against the right border —
+            // looks crammed. Disable native chrome and paint a chevron via
+            // background-image with explicit right offset so it has the
+            // same breathing room as the text padding. Inline SVG keeps it
+            // a single network-free request and respects var(--vb-muted).
             style={{
               ...inputStyle,
-              background: "var(--vb-alt)",
+              background:
+                "var(--vb-alt) url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>\") no-repeat right 14px center",
               padding: "13px 36px 13px 14px",
               width: 150,
-              appearance: "auto",
+              appearance: "none",
+              WebkitAppearance: "none",
+              MozAppearance: "none",
+              cursor: "pointer",
             }}
             value={chain}
             onChange={(e) => setChain(e.target.value as Chain)}
