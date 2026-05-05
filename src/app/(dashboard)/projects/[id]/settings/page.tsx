@@ -121,32 +121,7 @@ export default function ProjectSettingsPage({ params }: Props) {
   ] as const;
 
   return (
-    <div style={{ padding: "24px 28px", minHeight: "100dvh" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          gap: 16,
-          margin: "0 0 20px",
-          flexWrap: "wrap",
-        }}
-      >
-        <h2
-          style={{
-            fontFamily:
-              "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-            fontSize: 18,
-            fontWeight: 700,
-            color: "var(--vb-text)",
-            margin: 0,
-            letterSpacing: "-0.02em",
-          }}
-        >
-          Project settings
-        </h2>
-      </div>
-
+    <>
       <form
         onSubmit={handleSubmit}
         className="vb-form-2col"
@@ -336,6 +311,6 @@ export default function ProjectSettingsPage({ params }: Props) {
           {saved ? "Saved!" : update.isPending ? "Saving..." : "Save changes"}
         </button>
       </form>
-    </div>
+    </>
   );
 }

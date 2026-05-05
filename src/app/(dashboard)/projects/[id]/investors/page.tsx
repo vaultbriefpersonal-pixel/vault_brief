@@ -90,21 +90,7 @@ export default function InvestorsPage({ params }: Props) {
   });
 
   return (
-    <div style={{ padding: "24px 28px", minHeight: "100dvh" }}>
-      <h2
-        style={{
-          fontFamily:
-            "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-          fontSize: 18,
-          fontWeight: 700,
-          color: "var(--vb-text)",
-          margin: "0 0 24px",
-          letterSpacing: "-0.02em",
-        }}
-      >
-        Investors
-      </h2>
-
+    <>
       <div
         style={{
           background: "var(--vb-card)",
@@ -374,6 +360,6 @@ export default function InvestorsPage({ params }: Props) {
           </div>
         ))}
       </div>
-    </div>
+    </>
   );
 }

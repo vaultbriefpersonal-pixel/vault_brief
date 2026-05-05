@@ -64,21 +64,7 @@ export default function WalletsPage({ params }: Props) {
   });
 
   return (
-    <div style={{ padding: "24px 28px", minHeight: "100dvh" }}>
-      <h2
-        style={{
-          fontFamily:
-            "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-          fontSize: 18,
-          fontWeight: 700,
-          color: "var(--vb-text)",
-          margin: "0 0 24px",
-          letterSpacing: "-0.02em",
-        }}
-      >
-        Wallets
-      </h2>
-
+    <>
       {isOnboarding && (
         <div
           style={{
@@ -162,7 +148,16 @@ export default function WalletsPage({ params }: Props) {
             onChange={(e) => setAddress(e.target.value)}
           />
           <select
-            style={{ ...inputStyle, background: "var(--vb-alt)" }}
+            // Native select renders a caret on the right; without extra
+            // right padding the chain label collides with it. Fix width
+            // so it doesn't shrink to "Base" length when that's selected.
+            style={{
+              ...inputStyle,
+              background: "var(--vb-alt)",
+              padding: "13px 36px 13px 14px",
+              width: 150,
+              appearance: "auto",
+            }}
             value={chain}
             onChange={(e) => setChain(e.target.value as Chain)}
           >
@@ -173,7 +168,8 @@ export default function WalletsPage({ params }: Props) {
             ))}
           </select>
           <input
-            style={{ ...inputStyle, width: 140 }}
+            // 140px clipped "Label (optional)"; bump to 180.
+            style={{ ...inputStyle, width: 180 }}
             placeholder="Label (optional)"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
@@ -278,6 +274,6 @@ export default function WalletsPage({ params }: Props) {
           </div>
         ))}
       </div>
-    </div>
+    </>
   );
 }
