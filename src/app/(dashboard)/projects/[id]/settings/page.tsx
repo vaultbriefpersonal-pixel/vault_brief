@@ -1,7 +1,6 @@
 "use client";
 
 import { use, useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/api";
 import { ReportTemplateEditor } from "@/components/settings/ReportTemplateEditor";
 import type { SectionConfigEntry } from "@/server/services/report-sections";
@@ -33,7 +32,6 @@ const labelStyle: React.CSSProperties = {
 
 export default function ProjectSettingsPage({ params }: Props) {
   const { id } = use(params);
-  const router = useRouter();
   const { data: project } = trpc.projects.getById.useQuery({ id });
   const [form, setForm] = useState({
     name: "",
@@ -80,10 +78,6 @@ export default function ProjectSettingsPage({ params }: Props) {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     },
-  });
-
-  const deleteProject = trpc.projects.delete.useMutation({
-    onSuccess: () => router.push("/projects"),
   });
 
   function handleSubmit(e: React.FormEvent) {
@@ -151,23 +145,6 @@ export default function ProjectSettingsPage({ params }: Props) {
         >
           Project settings
         </h2>
-        {/* Below-the-fold delete button got reported as missing more than
-            once — surface a top-of-page anchor to the danger zone. Subtle
-            styling so it doesn't look like the primary action. */}
-        <a
-          href="#danger-zone"
-          style={{
-            fontFamily: "var(--font-inter), Inter, sans-serif",
-            fontSize: 12,
-            color: "var(--vb-dim)",
-            textDecoration: "none",
-            border: "1px solid rgba(248,113,113,0.18)",
-            borderRadius: 6,
-            padding: "5px 10px",
-          }}
-        >
-          Danger zone ↓
-        </a>
       </div>
 
       <form
@@ -359,62 +336,6 @@ export default function ProjectSettingsPage({ params }: Props) {
           {saved ? "Saved!" : update.isPending ? "Saving..." : "Save changes"}
         </button>
       </form>
-
-      <div
-        id="danger-zone"
-        style={{
-          border: "1px solid rgba(248,113,113,0.2)",
-          background: "rgba(248,113,113,0.04)",
-          borderRadius: 12,
-          padding: 20,
-          scrollMarginTop: 24,
-        }}
-      >
-        <h3
-          style={{
-            fontFamily: "var(--font-inter), Inter, sans-serif",
-            fontSize: 13,
-            fontWeight: 600,
-            color: "#f87171",
-            margin: "0 0 8px",
-          }}
-        >
-          Danger zone
-        </h3>
-        <p
-          style={{
-            fontFamily: "var(--font-inter), Inter, sans-serif",
-            fontSize: 13,
-            color: "var(--vb-muted)",
-            margin: "0 0 16px",
-            lineHeight: 1.6,
-          }}
-        >
-          Deleting this project will remove all wallets, snapshots, and reports
-          permanently.
-        </p>
-        <button
-          onClick={() => {
-            if (window.confirm("Delete this project? This cannot be undone.")) {
-              deleteProject.mutate({ id });
-            }
-          }}
-          disabled={deleteProject.isPending}
-          style={{
-            background: "transparent",
-            border: "1px solid rgba(248,113,113,0.3)",
-            borderRadius: 8,
-            padding: "9px 16px",
-            fontSize: 13,
-            color: "#f87171",
-            fontFamily: "var(--font-inter), Inter, sans-serif",
-            cursor: deleteProject.isPending ? "not-allowed" : "pointer",
-            opacity: deleteProject.isPending ? 0.6 : 1,
-          }}
-        >
-          {deleteProject.isPending ? "Deleting..." : "Delete project"}
-        </button>
-      </div>
     </div>
   );
 }

@@ -165,7 +165,7 @@ export default async function ProjectPage({ params }: Props) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <SyncNowButton projectId={id} />
-          <ProjectActionsMenu projectId={id} />
+          <ProjectActionsMenu projectId={id} projectSlug={project.slug} />
         </div>
       </div>
 

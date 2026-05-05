@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { and, eq, gte, lte } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
-import { projects, reports, wallets } from "@/server/db/schema";
+import {
+  projects,
+  reports,
+  wallets,
+  treasurySnapshots,
+  investors,
+  milestones,
+} from "@/server/db/schema";
 import { slugify } from "@/lib/utils";
 import { TRPCError } from "@trpc/server";
 import { requireProject } from "../guards";
@@ -237,6 +244,139 @@ export const projectsRouter = router({
       await requireProject(ctx, input.id);
       await ctx.db.delete(projects).where(eq(projects.id, input.id));
       return { success: true };
+    }),
+
+  /**
+   * Clone the project's metadata + wallets into a new project. Snapshots,
+   * reports, investors, milestones are NOT copied — those are derived
+   * data; let the duplicate sync them fresh. Useful for "set up a sister
+   * project with the same wallets but different reporting cadence", or
+   * sandboxing a copy before changing branding/template.
+   *
+   * Honors plan project limit + project-create rate limit + trial gate.
+   */
+  duplicate: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id!;
+      await assertTrialActive(userId);
+      await requireProject(ctx, input.id);
+      await checkLimit(projectCreateLimiter, userId);
+
+      const existing = await ctx.db.query.projects.findMany({
+        where: eq(projects.userId, userId),
+      });
+      const plan = (ctx.session.user as { plan?: string }).plan ?? "free";
+      const limit = PLAN_PROJECT_LIMITS[plan] ?? 1;
+      if (existing.length >= limit) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: `Your plan allows up to ${limit} project(s). Upgrade to add more.`,
+        });
+      }
+
+      const original = await ctx.db.query.projects.findFirst({
+        where: eq(projects.id, input.id),
+        with: { wallets: true },
+      });
+      if (!original) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // Find an available slug. " (copy)" suffix is the most legible way
+      // to mark it; collisions get -2, -3, ... appended.
+      const baseSlug = `${original.slug}-copy`;
+      let slug = baseSlug;
+      let attempt = 0;
+      while (true) {
+        const conflict = await ctx.db.query.projects.findFirst({
+          where: eq(projects.slug, slug),
+        });
+        if (!conflict) break;
+        attempt++;
+        slug = `${baseSlug}-${attempt}`;
+      }
+
+      // Strip immutable / derived fields. id/createdAt/updatedAt regenerate;
+      // slug + name we set explicitly.
+      const {
+        id: _id,
+        createdAt: _ca,
+        updatedAt: _ua,
+        slug: _slug,
+        name: _name,
+        wallets: _wallets,
+        ...rest
+      } = original as typeof original & { id: string };
+      void _id;
+      void _ca;
+      void _ua;
+      void _slug;
+      void _wallets;
+
+      const [copy] = await ctx.db
+        .insert(projects)
+        .values({
+          ...rest,
+          userId,
+          name: `${_name} (copy)`,
+          slug,
+        })
+        .returning();
+
+      if (original.wallets.length > 0) {
+        await ctx.db.insert(wallets).values(
+          original.wallets.map((w) => ({
+            projectId: copy.id,
+            address: w.address,
+            chain: w.chain,
+            label: w.label,
+          }))
+        );
+      }
+
+      return copy;
+    }),
+
+  /**
+   * Full project data export. Returns a self-contained JSON object the
+   * client serializes and downloads. Read-only — no trial gate, so users
+   * can export their data even after trial expiry (data portability is
+   * not gated behind payment).
+   */
+  export: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await requireProject(ctx, input.id);
+
+      const [project, walletRows, snapshotRows, reportRows, investorRows, milestoneRows] =
+        await Promise.all([
+          ctx.db.query.projects.findFirst({ where: eq(projects.id, input.id) }),
+          ctx.db.query.wallets.findMany({
+            where: eq(wallets.projectId, input.id),
+          }),
+          ctx.db.query.treasurySnapshots.findMany({
+            where: eq(treasurySnapshots.projectId, input.id),
+          }),
+          ctx.db.query.reports.findMany({
+            where: eq(reports.projectId, input.id),
+          }),
+          ctx.db.query.investors.findMany({
+            where: eq(investors.projectId, input.id),
+          }),
+          ctx.db.query.milestones.findMany({
+            where: eq(milestones.projectId, input.id),
+          }),
+        ]);
+
+      return {
+        exportedAt: new Date().toISOString(),
+        schemaVersion: 1,
+        project,
+        wallets: walletRows,
+        snapshots: snapshotRows,
+        reports: reportRows,
+        investors: investorRows,
+        milestones: milestoneRows,
+      };
     }),
 
   /**
