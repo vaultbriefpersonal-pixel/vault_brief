@@ -40,9 +40,9 @@ export function ProjectTabs({
       style={{
         display: "flex",
         gap: 4,
+        flexWrap: "wrap",
         borderBottom: "1px solid var(--vb-border)",
         marginBottom: 24,
-        overflowX: "auto",
       }}
     >
       {tabs.map(({ href, label, count }) => {
