@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { trpc } from "@/lib/api";
-import { X, Plus, Trash2 } from "lucide-react";
+import { X, Plus, Trash2, Download } from "lucide-react";
 
 /**
  * Single modal that handles CRUD for the 5 manual-entry sections:
@@ -338,11 +338,19 @@ function GovernanceRenderer({ projectId }: { projectId: string }) {
   const { data: list = [], refetch } = trpc.governanceProposals.list.useQuery({
     projectId,
   });
+  const { data: project } = trpc.projects.getById.useQuery({ id: projectId });
+  const utils = trpc.useUtils();
   const add = trpc.governanceProposals.add.useMutation({
     onSuccess: () => refetch(),
   });
   const remove = trpc.governanceProposals.remove.useMutation({
     onSuccess: () => refetch(),
+  });
+  const importMut = trpc.governanceProposals.importFromSnapshot.useMutation({
+    onSuccess: () => refetch(),
+  });
+  const updateProject = trpc.projects.update.useMutation({
+    onSuccess: () => utils.projects.getById.invalidate({ id: projectId }),
   });
 
   const [title, setTitle] = useState("");
@@ -351,6 +359,18 @@ function GovernanceRenderer({ projectId }: { projectId: string }) {
   const [url, setUrl] = useState("");
   const [voteResult, setVoteResult] = useState("");
   const [period, setPeriod] = useState(defaultPeriod());
+
+  // Snapshot-import state. Pre-fill space from project.snapshotSpace if
+  // saved; otherwise founder types it (and we save back on import success).
+  const [snapshotSpace, setSnapshotSpace] = useState("");
+  useEffect(() => {
+    const stored =
+      (project as { snapshotSpace?: string | null } | undefined)
+        ?.snapshotSpace ?? "";
+    if (stored && !snapshotSpace) setSnapshotSpace(stored);
+  }, [project, snapshotSpace]);
+
+  const [importMsg, setImportMsg] = useState<string | null>(null);
 
   function submit() {
     if (!title) return;
@@ -373,8 +393,108 @@ function GovernanceRenderer({ projectId }: { projectId: string }) {
     );
   }
 
+  async function importFromSnapshot() {
+    if (!snapshotSpace.trim()) return;
+    setImportMsg(null);
+    try {
+      const result = await importMut.mutateAsync({
+        projectId,
+        space: snapshotSpace.trim(),
+        period,
+      });
+      setImportMsg(
+        result.fetched === 0
+          ? `No proposals on Snapshot for ${snapshotSpace.trim()} in ${period}.`
+          : `Imported ${result.imported} new proposal${result.imported === 1 ? "" : "s"}${
+              result.skipped > 0 ? `, skipped ${result.skipped} already imported` : ""
+            }.`
+      );
+      // Persist the space on the project so next time it's pre-filled.
+      const stored =
+        (project as { snapshotSpace?: string | null } | undefined)
+          ?.snapshotSpace ?? "";
+      if (stored !== snapshotSpace.trim()) {
+        updateProject.mutate({ id: projectId, snapshotSpace: snapshotSpace.trim() });
+      }
+    } catch (err) {
+      setImportMsg(
+        err instanceof Error ? err.message : "Import failed."
+      );
+    }
+  }
+
   return (
     <>
+      {/* Snapshot.org auto-import. Public GraphQL — no API key. Founder
+          types the governance space ('ens.eth', 'uniswap', etc.), picks
+          the period, and we pull all proposals created in that month. */}
+      <div
+        style={{
+          display: "grid",
+          gap: 8,
+          padding: 12,
+          marginBottom: 14,
+          background: "var(--vb-alt)",
+          border: "1px solid var(--vb-border)",
+          borderRadius: 8,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--vb-muted)",
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+          }}
+        >
+          Auto-import from Snapshot.org
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr auto", gap: 8 }}>
+          <input
+            style={inputStyle}
+            value={snapshotSpace}
+            onChange={(e) => setSnapshotSpace(e.target.value)}
+            placeholder="ens.eth"
+            aria-label="Snapshot space"
+          />
+          <input
+            style={inputStyle}
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+            placeholder="2026-04"
+            aria-label="Period"
+          />
+          <button
+            type="button"
+            style={submitStyle}
+            disabled={
+              !snapshotSpace.trim() ||
+              !PERIOD_RE.test(period) ||
+              importMut.isPending
+            }
+            onClick={importFromSnapshot}
+          >
+            <Download size={12} />
+            {importMut.isPending ? "Importing…" : "Import"}
+          </button>
+        </div>
+        {importMsg && (
+          <div
+            style={{
+              fontSize: 11,
+              color: importMsg.startsWith("Imported")
+                ? "#00e87b"
+                : importMsg.startsWith("No proposals")
+                  ? "var(--vb-muted)"
+                  : "#f87171",
+            }}
+          >
+            {importMsg}
+          </div>
+        )}
+      </div>
+
       <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
         <div>
           <label style={labelStyle}>Proposal title</label>

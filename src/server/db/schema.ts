@@ -121,6 +121,10 @@ export const projects = pgTable("projects", {
   // { id: string, enabled: boolean }. Null means "use product defaults"
   // (every section with defaultEnabled=true in report-sections.ts).
   reportSections: jsonb("report_sections"),
+  // Snapshot.org governance space (e.g. "ens.eth", "uniswap"). When set,
+  // the governance section can auto-import proposals via the Snapshot
+  // public GraphQL API instead of forcing manual entry.
+  snapshotSpace: text("snapshot_space"),
 
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
