@@ -450,21 +450,34 @@ function GovernanceRenderer({ projectId }: { projectId: string }) {
         >
           Auto-import from Snapshot.org
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr auto", gap: 8 }}>
-          <input
-            style={inputStyle}
-            value={snapshotSpace}
-            onChange={(e) => setSnapshotSpace(e.target.value)}
-            placeholder="ens.eth"
-            aria-label="Snapshot space"
-          />
-          <input
-            style={inputStyle}
-            value={period}
-            onChange={(e) => setPeriod(e.target.value)}
-            placeholder="2026-04"
-            aria-label="Period"
-          />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "2fr 1fr auto",
+            gap: 8,
+            alignItems: "end",
+          }}
+        >
+          <div>
+            <label style={labelStyle}>Snapshot space</label>
+            <input
+              style={inputStyle}
+              value={snapshotSpace}
+              onChange={(e) => setSnapshotSpace(e.target.value)}
+              placeholder="e.g. ens.eth"
+              aria-label="Snapshot space"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Period</label>
+            <input
+              style={inputStyle}
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+              placeholder="2026-04"
+              aria-label="Period"
+            />
+          </div>
           <button
             type="button"
             style={submitStyle}
@@ -479,6 +492,19 @@ function GovernanceRenderer({ projectId }: { projectId: string }) {
             {importMut.isPending ? "Importing…" : "Import"}
           </button>
         </div>
+        {/* Hint when the button is disabled — placeholder alone reads
+            like a filled value, so make the empty-state explicit. */}
+        {!snapshotSpace.trim() && !importMsg && (
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--vb-dim)",
+              fontStyle: "italic",
+            }}
+          >
+            Type your DAO&apos;s Snapshot space slug to enable Import.
+          </div>
+        )}
         {importMsg && (
           <div
             style={{
