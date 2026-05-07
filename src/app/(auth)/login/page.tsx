@@ -272,9 +272,15 @@ function LoginForm() {
             color: "var(--vb-dim)",
             textAlign: "center",
             marginTop: 20,
+            lineHeight: 1.5,
           }}
         >
-          No account? Just sign in -- we'll create one automatically.
+          New here? Enter your email and we&apos;ll create your account
+          automatically.
+          <br />
+          <span style={{ color: "var(--vb-muted)", fontSize: 12 }}>
+            No credit card required.
+          </span>
         </p>
       </div>
     </div>

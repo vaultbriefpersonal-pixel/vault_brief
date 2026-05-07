@@ -6,12 +6,13 @@ import { Menu, X } from "lucide-react";
 import { Logo } from "./Logo";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
+// Trimmed for early-conversion: Demo first (visitors need to see output
+// before committing), then Pricing and Docs. Blog/About moved to the
+// footer — they're discoverability surfaces, not conversion paths.
 const NAV_LINKS = [
-  { label: "Home", href: "/" },
+  { label: "Demo", href: "/demo" },
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
-  { label: "Blog", href: "/blog" },
-  { label: "About", href: "/about" },
 ];
 
 export function Nav() {

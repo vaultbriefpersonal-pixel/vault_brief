@@ -4,27 +4,34 @@ import { PricingCards } from "@/components/marketing/PricingCards";
 export const metadata: Metadata = {
   title: "Pricing — Vault Brief",
   description:
-    "Simple, transparent pricing for automated Web3 investor reporting. Start free, upgrade when you need more.",
+    "Start with a free demo report. Upgrade when you are ready to automate monthly investor reporting.",
 };
 
+// Comparison table: Free Demo / Seed / Growth / Custom. We deliberately
+// mark coming-soon items with a "(soon)" suffix rather than a checkmark
+// so the table doesn't quietly imply parity with what's actually live.
 const COMPARISON = [
-  { feature: "Wallets", seed: "1", growth: "10", vc: "Unlimited" },
-  { feature: "GitHub repos", seed: "1", growth: "5", vc: "Unlimited" },
-  { feature: "Monthly reports", seed: "✓", growth: "✓", vc: "✓" },
-  { feature: "PDF export", seed: "✓", growth: "✓", vc: "✓" },
-  { feature: "AI narratives", seed: "—", growth: "✓", vc: "✓" },
-  { feature: "Custom branding", seed: "—", growth: "✓", vc: "✓" },
-  { feature: "Investor portal", seed: "—", growth: "✓", vc: "✓" },
-  { feature: "Multi-project", seed: "—", growth: "—", vc: "✓" },
-  { feature: "White-label reports", seed: "—", growth: "—", vc: "✓" },
-  { feature: "API access", seed: "—", growth: "—", vc: "✓" },
-  { feature: "Dedicated CSM", seed: "—", growth: "—", vc: "✓" },
+  { feature: "Sample report preview", demo: "✓", seed: "—", growth: "—", custom: "—" },
+  { feature: "Wallets", demo: "—", seed: "1", growth: "10", custom: "Unlimited" },
+  { feature: "GitHub repos", demo: "—", seed: "1", growth: "5", custom: "Unlimited" },
+  { feature: "Monthly reports", demo: "—", seed: "✓", growth: "✓", custom: "✓" },
+  { feature: "PDF export", demo: "—", seed: "✓", growth: "✓", custom: "✓" },
+  { feature: "AI narratives", demo: "—", seed: "—", growth: "✓", custom: "✓" },
+  { feature: "Custom branding", demo: "—", seed: "—", growth: "✓", custom: "✓" },
+  { feature: "Investor portal (soon)", demo: "—", seed: "—", growth: "Roadmap", custom: "Roadmap" },
+  { feature: "Multi-project", demo: "—", seed: "—", growth: "—", custom: "✓" },
+  { feature: "White-label reports (soon)", demo: "—", seed: "—", growth: "—", custom: "Roadmap" },
+  { feature: "API access (soon)", demo: "—", seed: "—", growth: "—", custom: "Roadmap" },
 ];
 
 const FAQ_ITEMS = [
   {
     q: "Is there a free trial?",
-    a: "Yes — 14 days starting from your first sign-in. Connect wallets, sync data, generate and send your first investor report. No credit card required. After 14 days, paid plans unlock continued sync and report generation; your existing data stays visible regardless.",
+    a: "Yes — start with the Free Demo to see a sample report, then 14 days of full features starting from your first sign-in. Connect wallets, sync data, generate and send your first investor report. No credit card required. After 14 days, paid plans unlock continued sync and report generation; your existing data stays visible regardless.",
+  },
+  {
+    q: "What's in the demo?",
+    a: "A demo draft report rendered from sample treasury, GitHub, and token data. Lets you preview the structure, sections, and tone before connecting your own wallets.",
   },
   {
     q: "Can I change plans later?",
@@ -36,7 +43,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "Do you offer annual discounts?",
-    a: "Yes. Annual billing saves 20% across all plans.",
+    a: "Yes. Annual billing saves 20% across paid plans.",
   },
 ];
 
@@ -63,7 +70,7 @@ export default function PricingPage() {
             fontWeight: 600,
           }}
         >
-          Pricing
+          Pricing · Private beta
         </p>
         <h1
           style={{
@@ -76,27 +83,27 @@ export default function PricingPage() {
             margin: "0 0 16px",
           }}
         >
-          Simple, transparent pricing
+          Start with a demo. Upgrade when you&apos;re ready.
         </h1>
         <p
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 18,
             color: "var(--vb-muted)",
-            maxWidth: 480,
+            maxWidth: 560,
             margin: "0 auto",
             lineHeight: 1.6,
           }}
         >
-          Start free. Upgrade when you need more. No per-report fees, no seat
-          limits.
+          Generate one free demo report from sample data. Move to a paid plan
+          when you want to automate monthly reporting from your own wallets.
         </p>
       </section>
 
       {/* Pricing cards */}
       <section
         style={{
-          padding: "0 20px 80px",
+          padding: "0 20px 40px",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
@@ -106,13 +113,31 @@ export default function PricingPage() {
         <p
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
-            fontSize: 13,
-            color: "var(--vb-dim)",
+            fontSize: 14,
+            color: "var(--vb-muted)",
             marginTop: 32,
+            maxWidth: 560,
+            textAlign: "center",
+            lineHeight: 1.6,
           }}
         >
-          14-day free trial — full features, no credit card. After that, your
-          data stays; upgrade to keep generating new reports. Questions? Email{" "}
+          Start with a demo report. Upgrade when you are ready to automate
+          monthly reporting.
+        </p>
+        <p
+          style={{
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            fontSize: 13,
+            color: "var(--vb-dim)",
+            marginTop: 14,
+            textAlign: "center",
+            maxWidth: 600,
+            lineHeight: 1.6,
+          }}
+        >
+          14-day free trial on paid plans — no credit card required. Vault
+          Brief is in private beta; some advanced features are still rolling
+          out (marked &ldquo;Roadmap&rdquo; below). Questions? Email{" "}
           <a
             href="mailto:hello@vaultbrief.com"
             style={{ color: "var(--accent)", textDecoration: "none" }}
@@ -127,21 +152,32 @@ export default function PricingPage() {
         className="vb-section-sm"
         style={{ background: "var(--vb-alt)" }}
       >
-        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+        <div style={{ maxWidth: 1000, margin: "0 auto" }}>
           <h2
             style={{
               fontFamily:
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-              fontSize: "clamp(32px, 4vw, 44px)",
+              fontSize: "clamp(28px, 3.6vw, 40px)",
               fontWeight: 700,
               color: "var(--vb-text)",
               letterSpacing: "-0.03em",
               textAlign: "center",
-              margin: "0 0 48px",
+              margin: "0 0 16px",
             }}
           >
             Compare plans
           </h2>
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 13,
+              color: "var(--vb-dim)",
+              textAlign: "center",
+              margin: "0 0 40px",
+            }}
+          >
+            &ldquo;Roadmap&rdquo; = scheduled but not yet shipped.
+          </p>
 
           <div
             className="vb-table-scroll"
@@ -151,25 +187,24 @@ export default function PricingPage() {
               overflow: "hidden",
             }}
           >
-            {/* Header */}
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "2fr 1fr 1fr 1fr",
+                gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
                 background: "var(--vb-card)",
                 borderBottom: "1px solid var(--vb-border)",
               }}
             >
-              <div style={{ padding: "16px 24px" }} />
-              {["Seed", "Growth", "VC Suite"].map((plan) => (
+              <div style={{ padding: "16px 20px" }} />
+              {["Free Demo", "Seed", "Growth", "Custom"].map((plan) => (
                 <div
                   key={plan}
                   style={{
-                    padding: "16px 24px",
+                    padding: "16px 20px",
                     textAlign: "center",
                     fontFamily:
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-                    fontSize: 15,
+                    fontSize: 14,
                     fontWeight: 600,
                     color: plan === "Growth" ? "#00e87b" : "#f0f0f0",
                   }}
@@ -184,7 +219,7 @@ export default function PricingPage() {
                 key={row.feature}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "2fr 1fr 1fr 1fr",
+                  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
                   borderBottom:
                     i < COMPARISON.length - 1
                       ? "1px solid rgba(255,255,255,0.06)"
@@ -194,7 +229,7 @@ export default function PricingPage() {
               >
                 <div
                   style={{
-                    padding: "14px 24px",
+                    padding: "14px 20px",
                     fontFamily: "var(--font-inter), Inter, sans-serif",
                     fontSize: 14,
                     color: "var(--vb-muted)",
@@ -202,16 +237,24 @@ export default function PricingPage() {
                 >
                   {row.feature}
                 </div>
-                {[row.seed, row.growth, row.vc].map((val, j) => (
+                {[row.demo, row.seed, row.growth, row.custom].map((val, j) => (
                   <div
                     key={j}
                     style={{
-                      padding: "14px 24px",
+                      padding: "14px 20px",
                       textAlign: "center",
                       fontFamily: "var(--font-inter), Inter, sans-serif",
-                      fontSize: 14,
-                      color: val === "—" ? "#333333" : val === "✓" ? "#00e87b" : "#f0f0f0",
+                      fontSize: 13,
+                      color:
+                        val === "—"
+                          ? "#333333"
+                          : val === "✓"
+                            ? "#00e87b"
+                            : val === "Roadmap"
+                              ? "var(--vb-dim)"
+                              : "#f0f0f0",
                       fontWeight: val === "✓" || val === "—" ? 600 : 400,
+                      fontStyle: val === "Roadmap" ? "italic" : "normal",
                     }}
                   >
                     {val}
@@ -245,7 +288,11 @@ export default function PricingPage() {
             {FAQ_ITEMS.map((item, i) => (
               <div
                 key={i}
-                style={{ borderBottom: "1px solid var(--vb-border)", paddingBottom: 20, paddingTop: 20 }}
+                style={{
+                  borderBottom: "1px solid var(--vb-border)",
+                  paddingBottom: 20,
+                  paddingTop: 20,
+                }}
               >
                 <p
                   style={{

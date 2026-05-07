@@ -3,11 +3,43 @@
 import Link from "next/link";
 import { useState } from "react";
 
-const TIERS = [
+// Pricing-card data lives outside the component so the JSX stays
+// readable. `customPriceLabel` lets a tier render a non-numeric price
+// (the "Custom" tier shows "Custom" in place of the dollar amount, the
+// "Free Demo" tier shows "Free"). When unset we render "${price}/month"
+// per the standard format.
+interface Tier {
+  name: string;
+  price: number | null;
+  customPriceLabel?: string;
+  desc: string;
+  features: string[];
+  featured: boolean;
+  cta: string;
+  href: string;
+}
+
+const TIERS: Tier[] = [
+  {
+    name: "Free Demo",
+    price: null,
+    customPriceLabel: "Free",
+    desc: "Generate one demo draft report from sample data.",
+    features: [
+      "Sample treasury data",
+      "Sample GitHub activity",
+      "Sample token metrics",
+      "Read-only preview",
+      "No credit card required",
+    ],
+    featured: false,
+    cta: "Generate Demo Report",
+    href: "/demo",
+  },
   {
     name: "Seed",
     price: 99,
-    desc: "For early-stage projects with a single treasury wallet",
+    desc: "For early Web3 teams that need monthly investor reports.",
     features: [
       "1 wallet",
       "1 GitHub repo",
@@ -22,13 +54,12 @@ const TIERS = [
   {
     name: "Growth",
     price: 299,
-    desc: "For scaling projects with multi-chain treasuries",
+    desc: "For teams with multiple wallets, GitHub repos, and recurring reporting needs.",
     features: [
       "10 wallets",
       "5 GitHub repos",
       "AI narratives",
       "Custom branding",
-      "Investor portal",
       "Priority support",
     ],
     featured: true,
@@ -36,16 +67,16 @@ const TIERS = [
     href: "/login",
   },
   {
-    name: "VC Suite",
-    price: 799,
-    desc: "For funds and multi-entity projects",
+    name: "Custom",
+    price: null,
+    customPriceLabel: "Custom",
+    desc: "For funds, DAOs, and teams that need multi-project reporting or white-label exports.",
     features: [
       "Unlimited wallets",
       "Unlimited repos",
       "Multi-project",
       "White-label reports",
-      "API access",
-      "Dedicated CSM",
+      "Tailored support",
     ],
     featured: false,
     cta: "Contact us",
@@ -57,7 +88,7 @@ function PricingCard({
   tier,
   annual,
 }: {
-  tier: (typeof TIERS)[number];
+  tier: Tier;
   annual: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -70,7 +101,7 @@ function PricingCard({
       style={{
         background: tier.featured ? "#1c1c1c" : hovered ? "#1a1a1a" : "#161616",
         borderRadius: 16,
-        padding: "clamp(20px, 4vw, 36px)",
+        padding: "clamp(20px, 4vw, 32px)",
         border: tier.featured
           ? "2px solid #00e87b"
           : `1px solid ${hovered ? "rgba(0,232,123,0.2)" : "rgba(255,255,255,0.08)"}`,
@@ -111,12 +142,12 @@ function PricingCard({
         </div>
       )}
 
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 20 }}>
         <h3
           style={{
             fontFamily:
               "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-            fontSize: 22,
+            fontSize: 20,
             fontWeight: 600,
             color: "var(--vb-text)",
             margin: "0 0 6px",
@@ -130,33 +161,51 @@ function PricingCard({
             fontSize: 13,
             color: "var(--vb-muted)",
             margin: 0,
+            lineHeight: 1.5,
+            minHeight: 39,
           }}
         >
           {tier.desc}
         </p>
       </div>
 
-      <div style={{ marginBottom: 28 }}>
-        <span
-          style={{
-            fontFamily:
-              "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-            fontSize: 48,
-            fontWeight: 700,
-            color: "var(--vb-text)",
-          }}
-        >
-          ${annual ? Math.round(tier.price * 0.8) : tier.price}
-        </span>
-        <span
-          style={{
-            fontFamily: "var(--font-inter), Inter, sans-serif",
-            fontSize: 14,
-            color: "var(--vb-dim)",
-          }}
-        >
-          /month
-        </span>
+      <div style={{ marginBottom: 22 }}>
+        {tier.price === null ? (
+          <span
+            style={{
+              fontFamily:
+                "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+              fontSize: 36,
+              fontWeight: 700,
+              color: "var(--vb-text)",
+            }}
+          >
+            {tier.customPriceLabel}
+          </span>
+        ) : (
+          <>
+            <span
+              style={{
+                fontFamily:
+                  "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                fontSize: 40,
+                fontWeight: 700,
+                color: "var(--vb-text)",
+              }}
+            >
+              ${annual ? Math.round(tier.price * 0.8) : tier.price}
+            </span>
+            <span
+              style={{
+                fontFamily: "var(--font-inter), Inter, sans-serif",
+                fontSize: 13,
+                color: "var(--vb-dim)",
+              }}
+            >
+              /month
+            </span>
+          </>
+        )}
       </div>
 
       <Link
@@ -166,7 +215,7 @@ function PricingCard({
         style={{
           display: "block",
           width: "100%",
-          padding: "13px 0",
+          padding: "12px 0",
           textAlign: "center",
           background: tier.featured
             ? ctaHovered
@@ -180,11 +229,11 @@ function PricingCard({
             ? "none"
             : `1px solid ${ctaHovered ? "rgba(0,232,123,0.3)" : "rgba(255,255,255,0.08)"}`,
           borderRadius: 10,
-          fontSize: 14,
+          fontSize: 13,
           fontWeight: 600,
           fontFamily: "var(--font-inter), Inter, sans-serif",
           textDecoration: "none",
-          marginBottom: 28,
+          marginBottom: 22,
           transition: "all 0.2s",
           boxSizing: "border-box",
           transform: ctaHovered ? "translateY(-1px)" : "none",
@@ -193,7 +242,7 @@ function PricingCard({
         {tier.cta}
       </Link>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {tier.features.map((f) => (
           <div
             key={f}
@@ -280,13 +329,18 @@ export function PricingCards() {
         )}
       </div>
 
+      {/* Four-up grid: Free Demo · Seed · Growth · Custom. We use a CSS
+          override (not vb-grid-3) so the four cards lay out evenly on
+          desktop and stack on mobile. */}
       <div
-        className="vb-grid-3"
         style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
           gap: 20,
           alignItems: "start",
-          maxWidth: 1100,
+          maxWidth: 1180,
           margin: "0 auto",
+          width: "100%",
         }}
       >
         {TIERS.map((t) => (
