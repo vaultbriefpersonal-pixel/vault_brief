@@ -1035,6 +1035,15 @@ function MilestonesRenderer({ projectId }: { projectId: string }) {
   // the row's render swaps to a form when its id matches editingId.
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // Three-way filter so projects with many completed milestones don't
+  // bury the active ones. "all" is default — most projects have <10 rows.
+  const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
+  const visible = list.filter((m) => {
+    if (filter === "all") return true;
+    const isActive = m.status !== "completed";
+    return filter === "active" ? isActive : !isActive;
+  });
+
   function submit() {
     if (!title.trim()) return;
     add.mutate(
@@ -1148,9 +1157,62 @@ function MilestonesRenderer({ projectId }: { projectId: string }) {
         </div>
       </div>
 
+      {list.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            gap: 4,
+            marginBottom: 10,
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+          }}
+          role="tablist"
+          aria-label="Filter milestones"
+        >
+          {(["all", "active", "completed"] as const).map((opt) => {
+            const count =
+              opt === "all"
+                ? list.length
+                : opt === "active"
+                  ? list.filter((m) => m.status !== "completed").length
+                  : list.filter((m) => m.status === "completed").length;
+            const active = filter === opt;
+            return (
+              <button
+                key={opt}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setFilter(opt)}
+                style={{
+                  background: active
+                    ? "rgba(0,232,123,0.12)"
+                    : "transparent",
+                  border: `1px solid ${
+                    active ? "rgba(0,232,123,0.4)" : "var(--vb-border)"
+                  }`,
+                  color: active ? "#00e87b" : "var(--vb-muted)",
+                  borderRadius: 6,
+                  padding: "5px 10px",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  textTransform: "capitalize",
+                }}
+              >
+                {opt} <span style={{ opacity: 0.6 }}>· {count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <ItemList
-        rows={list}
-        empty="No milestones yet. Add one to fill Looking Ahead."
+        rows={visible}
+        empty={
+          list.length === 0
+            ? "No milestones yet. Add one to fill Looking Ahead."
+            : `No ${filter === "active" ? "active" : "completed"} milestones.`
+        }
         render={(m) =>
           editingId === m.id ? (
             <MilestoneEditRow

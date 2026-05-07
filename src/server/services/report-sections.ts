@@ -755,7 +755,13 @@ export function buildUserPrompt(
   // Project context comes first regardless of section order — the model
   // needs to know who it's writing about before reading any data.
   const ctxLines: string[] = [`- Project: ${ctx.project.name}`];
-  if (ctx.project.teamSize) ctxLines.push(`- Team size: ${ctx.project.teamSize}`);
+  // teamSize intentionally NOT emitted. The "Development Activity" block
+  // already gives the model `Active contributors: N` — a live signal that
+  // a) reflects who's actually shipping, and b) updates each cycle. The
+  // legacy `projects.team_size` column may hold stale headcount left over
+  // from before we removed the form field; surfacing it would let that
+  // stale number leak into LLM reports. Manual override path: write to
+  // the column directly via `projects.update`, then re-add a line here.
   if (ctx.project.foundedDate) ctxLines.push(`- Founded: ${ctx.project.foundedDate}`);
   if (ctx.project.lastFundingRound) {
     ctxLines.push(`- Last funding round: ${ctx.project.lastFundingRound}`);
