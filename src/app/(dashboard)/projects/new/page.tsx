@@ -82,7 +82,7 @@ export default function NewProjectPage() {
     onSuccess: (data) => {
       if (!data) {
         setAutofillNote(
-          "We couldn't find this contract on CoinGecko. Fill the fields below manually."
+          "We couldn't find this token on CoinGecko or CoinMarketCap. Fill the fields below manually."
         );
         return;
       }
@@ -109,10 +109,13 @@ export default function NewProjectPage() {
       // Auto-expand the optional context block so the user can see what
       // landed in `description` / `foundedDate` etc.
       if (filled.length > 0) setContextOpen(true);
+      // Honest source label so the founder can sanity-check origin.
+      const sourceLabel =
+        data.source === "coinmarketcap" ? "CoinMarketCap" : "CoinGecko";
       setAutofillNote(
         filled.length === 0
-          ? "Found on CoinGecko, but every relevant field was already filled."
-          : `Prefilled from CoinGecko: ${filled.join(", ")}.`
+          ? `Found on ${sourceLabel}, but every relevant field was already filled.`
+          : `Prefilled from ${sourceLabel}: ${filled.join(", ")}.`
       );
       if (filled.length > 0) {
         setPrefilled(new Set(filled));
@@ -266,8 +269,9 @@ export default function NewProjectPage() {
           Have a token contract?
         </strong>{" "}
         Open <em>Add project context</em> below, paste the contract + chain,
-        and click <em>Autofill from CoinGecko</em> — we&apos;ll prefill
-        description, website, GitHub org, and token symbol.
+        and click <em>Autofill</em> — we&apos;ll pull description, website,
+        GitHub org, and token symbol from CoinGecko (or CoinMarketCap if
+        unlisted).
       </div>
 
       <form
@@ -511,7 +515,7 @@ export default function NewProjectPage() {
                       : 1,
                 }}
               >
-                {autofill.isPending ? "Looking up…" : "Autofill from CoinGecko"}
+                {autofill.isPending ? "Looking up…" : "Autofill from CoinGecko / CMC"}
               </button>
               {autofillNote && (
                 <p
