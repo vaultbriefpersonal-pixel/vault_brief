@@ -40,7 +40,6 @@ export default function ProjectSettingsPage({ params }: Props) {
     tokenSymbol: "",
     githubOrg: "",
     snapshotSpace: "",
-    teamSize: "",
     foundedDate: "",
     lastFundingRound: "",
     lastFundingAmount: "",
@@ -66,7 +65,6 @@ export default function ProjectSettingsPage({ params }: Props) {
         githubOrg: project.githubOrg ?? "",
         snapshotSpace:
           (project as { snapshotSpace?: string | null }).snapshotSpace ?? "",
-        teamSize: project.teamSize?.toString() ?? "",
         foundedDate: project.foundedDate ?? "",
         lastFundingRound: project.lastFundingRound ?? "",
         lastFundingAmount: project.lastFundingAmount?.toString() ?? "",
@@ -97,7 +95,6 @@ export default function ProjectSettingsPage({ params }: Props) {
       tokenSymbol: form.tokenSymbol || null,
       githubOrg: form.githubOrg || null,
       snapshotSpace: form.snapshotSpace.trim() || null,
-      teamSize: form.teamSize ? parseInt(form.teamSize) : null,
       foundedDate: form.foundedDate || null,
       lastFundingRound: form.lastFundingRound || null,
       lastFundingAmount: form.lastFundingAmount
@@ -119,7 +116,6 @@ export default function ProjectSettingsPage({ params }: Props) {
     ["tokenSymbol", "Token symbol", "text", false],
     ["githubOrg", "GitHub org", "text", false],
     ["snapshotSpace", "Snapshot space (e.g. ens.eth)", "text", false],
-    ["teamSize", "Team size", "number", false],
     ["foundedDate", "Founded date", "date", false],
     ["lastFundingRound", "Last funding round", "text", false],
     ["lastFundingAmount", "Last funding amount (USD)", "number", false],

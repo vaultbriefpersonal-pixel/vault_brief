@@ -60,7 +60,6 @@ export default function NewProjectPage() {
     description: "",
     tokenSymbol: "",
     githubOrg: "",
-    teamSize: "",
     foundedDate: "",
     lastFundingRound: "",
     lastFundingAmount: "",
@@ -70,6 +69,62 @@ export default function NewProjectPage() {
   const [contextOpen, setContextOpen] = useState(false);
   const [walletRows, setWalletRows] = useState<WalletRow[]>([{ ...EMPTY_WALLET }]);
   const [error, setError] = useState<string | null>(null);
+  const [autofillNote, setAutofillNote] = useState<string | null>(null);
+
+  // Pulls metadata from CoinGecko by token contract. Only fills *empty*
+  // fields so we never clobber what the user already typed. Failures are
+  // surfaced as a soft note, not a blocking error — manual entry still works.
+  const autofill = trpc.projects.autofillFromContract.useMutation({
+    onSuccess: (data) => {
+      if (!data) {
+        setAutofillNote(
+          "We couldn't find this contract on CoinGecko. Fill the fields below manually."
+        );
+        return;
+      }
+      const filled: string[] = [];
+      setForm((f) => {
+        const next = { ...f };
+        const set = <K extends keyof typeof f>(key: K, value: string | undefined) => {
+          if (value && !f[key]) {
+            next[key] = value as (typeof f)[K];
+            filled.push(key);
+          }
+        };
+        set("description", data.description);
+        set("website", data.website);
+        set("githubOrg", data.githubOrg);
+        set("tokenSymbol", data.symbol);
+        set("foundedDate", data.foundedDate);
+        if (!f.name && data.name) {
+          next.name = data.name;
+          filled.push("name");
+        }
+        return next;
+      });
+      // Auto-expand the optional context block so the user can see what
+      // landed in `description` / `foundedDate` etc.
+      if (filled.length > 0) setContextOpen(true);
+      setAutofillNote(
+        filled.length === 0
+          ? "Found on CoinGecko, but every relevant field was already filled."
+          : `Prefilled from CoinGecko: ${filled.join(", ")}.`
+      );
+    },
+    onError: (e) => setAutofillNote(e.message),
+  });
+
+  function handleAutofill() {
+    setAutofillNote(null);
+    if (!form.tokenContract.trim() || !form.tokenChain) {
+      setAutofillNote("Enter token contract and chain first.");
+      return;
+    }
+    autofill.mutate({
+      chain: form.tokenChain,
+      contract: form.tokenContract.trim(),
+    });
+  }
 
   // Land on /wallets, not the empty dashboard. Without at least one wallet
   // the dashboard shows all-zeros and users get confused (no field on this
@@ -83,7 +138,6 @@ export default function NewProjectPage() {
     e.preventDefault();
     setError(null);
 
-    const teamSize = form.teamSize ? parseInt(form.teamSize, 10) : undefined;
     const lastFundingAmount = form.lastFundingAmount
       ? Number(form.lastFundingAmount)
       : undefined;
@@ -105,8 +159,6 @@ export default function NewProjectPage() {
       tokenContract: form.tokenContract || undefined,
       tokenChain: form.tokenChain || undefined,
       githubOrg: form.githubOrg || undefined,
-      teamSize:
-        Number.isFinite(teamSize) && (teamSize ?? 0) > 0 ? teamSize : undefined,
       foundedDate: form.foundedDate || undefined,
       lastFundingRound: form.lastFundingRound || undefined,
       lastFundingAmount:
@@ -351,17 +403,6 @@ export default function NewProjectPage() {
         {contextOpen && (
           <>
             <div>
-              <label style={labelStyle}>Team size</label>
-              <input
-                type="number"
-                min="1"
-                placeholder="8"
-                style={inputStyle}
-                {...field("teamSize")}
-              />
-              <p style={helperStyle}>e.g. 8 — used in the executive summary.</p>
-            </div>
-            <div>
               <label style={labelStyle}>Founded</label>
               <input
                 type="date"
@@ -412,6 +453,56 @@ export default function NewProjectPage() {
                 ))}
               </select>
               <p style={helperStyle}>Required if token contract is set.</p>
+            </div>
+            {/* Autofill via CoinGecko — pulls description, website, GitHub
+                org, founded date, and token symbol from a single contract
+                lookup. Only fills empty fields, never overwrites. */}
+            <div style={{ gridColumn: "1 / -1" }}>
+              <button
+                type="button"
+                onClick={handleAutofill}
+                disabled={
+                  autofill.isPending ||
+                  !form.tokenContract.trim() ||
+                  !form.tokenChain
+                }
+                style={{
+                  background: "transparent",
+                  border: "1px solid var(--vb-border)",
+                  borderRadius: 8,
+                  padding: "10px 16px",
+                  fontSize: 13,
+                  color: "var(--vb-text)",
+                  fontFamily: "var(--font-inter), Inter, sans-serif",
+                  cursor:
+                    autofill.isPending ||
+                    !form.tokenContract.trim() ||
+                    !form.tokenChain
+                      ? "not-allowed"
+                      : "pointer",
+                  opacity:
+                    autofill.isPending ||
+                    !form.tokenContract.trim() ||
+                    !form.tokenChain
+                      ? 0.5
+                      : 1,
+                }}
+              >
+                {autofill.isPending ? "Looking up…" : "Autofill from CoinGecko"}
+              </button>
+              {autofillNote && (
+                <p
+                  style={{
+                    ...helperStyle,
+                    marginTop: 10,
+                    color: autofill.isError
+                      ? "#f87171"
+                      : "var(--vb-muted)",
+                  }}
+                >
+                  {autofillNote}
+                </p>
+              )}
             </div>
           </>
         )}

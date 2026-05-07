@@ -50,6 +50,9 @@ export const backfillLimiter = makeLimiter(2, "1 d", "rl:backfill");
 // in. Generous cap (10/hr) keeps tire-kickers happy while bounding cost
 // from a stray script smashing /api/chat in a loop.
 export const chatLimiter = makeLimiter(10, "1 h", "rl:chat");
+// CoinGecko autofill — keyed by userId, gives some headroom for retries
+// on typo'd contract addresses without burning the global CG budget.
+export const autofillLimiter = makeLimiter(15, "1 h", "rl:autofill");
 
 type LimiterFactory = () => Ratelimit | null;
 
