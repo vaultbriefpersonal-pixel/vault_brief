@@ -159,7 +159,11 @@ export const investorsRouter = router({
             to: { name: inv.name, email: inv.email },
             projectName: project.name,
             report,
-            reportUrl: `${process.env.NEXT_PUBLIC_APP_URL}/projects/${input.projectId}/reports/${input.reportId}`,
+            // Public investor view at /r/<reportId>. The dashboard route
+            // /projects/:id/reports/:reportId requires auth and would
+            // bounce the (account-less) investor to /login, leaving them
+            // stuck. /r/ is the read-only mirror gated on status='sent'.
+            reportUrl: `${process.env.NEXT_PUBLIC_APP_URL}/r/${input.reportId}`,
           })
         )
       );
