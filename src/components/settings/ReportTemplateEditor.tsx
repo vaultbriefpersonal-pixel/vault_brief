@@ -11,12 +11,16 @@ import {
 } from "@/server/services/report-sections";
 
 // Sections backed by manual-entry tables — Edit data button shows here.
+// milestones_completed + looking_ahead share one milestones table; the
+// modal routes both section IDs to the same MilestonesRenderer.
 const MANUAL_DATA_SECTIONS = new Set([
   "grants_distributed",
   "governance_updates",
   "partners_integrations",
   "asks",
   "qa_highlights",
+  "milestones_completed",
+  "looking_ahead",
 ]);
 
 /**

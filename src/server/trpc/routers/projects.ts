@@ -22,7 +22,9 @@ import {
   projectCreateLimiter,
   syncLimiter,
   backfillLimiter,
+  autofillLimiter,
 } from "@/server/lib/ratelimit";
+import { fetchTokenMetadata } from "@/server/services/project-autofill";
 import { assertTrialActive } from "@/server/lib/plan-limits";
 import { createMonthlySnapshot, getLastMonthPeriod } from "@/server/services/data-sync";
 import { generateAndSaveReport } from "@/server/services/report-generator";
@@ -251,6 +253,28 @@ export const projectsRouter = router({
       await requireProject(ctx, input.id);
       await ctx.db.delete(projects).where(eq(projects.id, input.id));
       return { success: true };
+    }),
+
+  /**
+   * Look up a token contract on CoinGecko and return project metadata
+   * (name, symbol, description, website, github org, founded date,
+   * category) for the create/edit form to prefill empty fields. The
+   * client decides which fields to merge — we never write to the DB.
+   *
+   * Returns `null` when the token isn't on CG, the chain isn't supported,
+   * or CG is unreachable. The form falls back to manual entry in all of
+   * those cases.
+   */
+  autofillFromContract: protectedProcedure
+    .input(
+      z.object({
+        chain: z.string().min(1),
+        contract: z.string().trim().min(1).max(100),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await checkLimit(autofillLimiter, ctx.session.user.id!);
+      return await fetchTokenMetadata(input);
     }),
 
   /**

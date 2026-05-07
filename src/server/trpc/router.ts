@@ -11,6 +11,7 @@ import { governanceProposalsRouter } from "./routers/governance-proposals";
 import { partnersRouter } from "./routers/partners";
 import { asksRouter } from "./routers/asks";
 import { qaHighlightsRouter } from "./routers/qa-highlights";
+import { milestonesRouter } from "./routers/milestones";
 
 export const appRouter = router({
   projects: projectsRouter,
@@ -25,6 +26,7 @@ export const appRouter = router({
   partners: partnersRouter,
   asks: asksRouter,
   qaHighlights: qaHighlightsRouter,
+  milestones: milestonesRouter,
 });
 
 export type AppRouter = typeof appRouter;

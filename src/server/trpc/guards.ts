@@ -10,6 +10,7 @@ import {
   partners,
   asks,
   qaHighlights,
+  milestones,
 } from "@/server/db/schema";
 import type { Context } from "./context";
 
@@ -102,6 +103,15 @@ export async function requireAsk(ctx: GuardCtx, id: string) {
 export async function requireQaHighlight(ctx: GuardCtx, id: string) {
   const row = await ctx.db.query.qaHighlights.findFirst({
     where: eq(qaHighlights.id, id),
+  });
+  if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+  await requireProject(ctx, row.projectId);
+  return row;
+}
+
+export async function requireMilestone(ctx: GuardCtx, id: string) {
+  const row = await ctx.db.query.milestones.findFirst({
+    where: eq(milestones.id, id),
   });
   if (!row) throw new TRPCError({ code: "NOT_FOUND" });
   await requireProject(ctx, row.projectId);

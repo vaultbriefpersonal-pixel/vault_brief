@@ -60,7 +60,6 @@ export default function NewProjectPage() {
     description: "",
     tokenSymbol: "",
     githubOrg: "",
-    teamSize: "",
     foundedDate: "",
     lastFundingRound: "",
     lastFundingAmount: "",
@@ -70,6 +69,72 @@ export default function NewProjectPage() {
   const [contextOpen, setContextOpen] = useState(false);
   const [walletRows, setWalletRows] = useState<WalletRow[]>([{ ...EMPTY_WALLET }]);
   const [error, setError] = useState<string | null>(null);
+  const [autofillNote, setAutofillNote] = useState<string | null>(null);
+  // Tracks which form fields were just populated by autofill so we can
+  // briefly flash them green. Cleared after 2.5s — long enough to notice,
+  // short enough that it doesn't linger when the user starts editing.
+  const [prefilled, setPrefilled] = useState<Set<string>>(new Set());
+
+  // Pulls metadata from CoinGecko by token contract. Only fills *empty*
+  // fields so we never clobber what the user already typed. Failures are
+  // surfaced as a soft note, not a blocking error — manual entry still works.
+  const autofill = trpc.projects.autofillFromContract.useMutation({
+    onSuccess: (data) => {
+      if (!data) {
+        setAutofillNote(
+          "We couldn't find this contract on CoinGecko. Fill the fields below manually."
+        );
+        return;
+      }
+      const filled: string[] = [];
+      setForm((f) => {
+        const next = { ...f };
+        const set = <K extends keyof typeof f>(key: K, value: string | undefined) => {
+          if (value && !f[key]) {
+            next[key] = value as (typeof f)[K];
+            filled.push(key);
+          }
+        };
+        set("description", data.description);
+        set("website", data.website);
+        set("githubOrg", data.githubOrg);
+        set("tokenSymbol", data.symbol);
+        set("foundedDate", data.foundedDate);
+        if (!f.name && data.name) {
+          next.name = data.name;
+          filled.push("name");
+        }
+        return next;
+      });
+      // Auto-expand the optional context block so the user can see what
+      // landed in `description` / `foundedDate` etc.
+      if (filled.length > 0) setContextOpen(true);
+      setAutofillNote(
+        filled.length === 0
+          ? "Found on CoinGecko, but every relevant field was already filled."
+          : `Prefilled from CoinGecko: ${filled.join(", ")}.`
+      );
+      if (filled.length > 0) {
+        setPrefilled(new Set(filled));
+        // Auto-clear so the highlight doesn't stick once the user
+        // navigates away and comes back.
+        setTimeout(() => setPrefilled(new Set()), 2500);
+      }
+    },
+    onError: (e) => setAutofillNote(e.message),
+  });
+
+  function handleAutofill() {
+    setAutofillNote(null);
+    if (!form.tokenContract.trim() || !form.tokenChain) {
+      setAutofillNote("Enter token contract and chain first.");
+      return;
+    }
+    autofill.mutate({
+      chain: form.tokenChain,
+      contract: form.tokenContract.trim(),
+    });
+  }
 
   // Land on /wallets, not the empty dashboard. Without at least one wallet
   // the dashboard shows all-zeros and users get confused (no field on this
@@ -83,7 +148,6 @@ export default function NewProjectPage() {
     e.preventDefault();
     setError(null);
 
-    const teamSize = form.teamSize ? parseInt(form.teamSize, 10) : undefined;
     const lastFundingAmount = form.lastFundingAmount
       ? Number(form.lastFundingAmount)
       : undefined;
@@ -105,8 +169,6 @@ export default function NewProjectPage() {
       tokenContract: form.tokenContract || undefined,
       tokenChain: form.tokenChain || undefined,
       githubOrg: form.githubOrg || undefined,
-      teamSize:
-        Number.isFinite(teamSize) && (teamSize ?? 0) > 0 ? teamSize : undefined,
       foundedDate: form.foundedDate || undefined,
       lastFundingRound: form.lastFundingRound || undefined,
       lastFundingAmount:
@@ -136,6 +198,19 @@ export default function NewProjectPage() {
         e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
       ) => setForm((f) => ({ ...f, [key]: e.target.value })),
     };
+  }
+
+  // Adds a soft accent border + bg flash to inputs that autofill just
+  // populated. Inputs are inline-styled, so we merge an override style.
+  function styleFor(key: keyof typeof form): React.CSSProperties {
+    return prefilled.has(key)
+      ? {
+          ...inputStyle,
+          borderColor: "rgba(0,232,123,0.55)",
+          background: "rgba(0,232,123,0.08)",
+          transition: "background 0.4s, border-color 0.4s",
+        }
+      : { ...inputStyle, transition: "background 0.4s, border-color 0.4s" };
   }
 
   return (
@@ -171,6 +246,30 @@ export default function NewProjectPage() {
         </div>
       )}
 
+      {/* Discovery hint — autofill UI lives behind the collapsed
+          "Add project context" toggle below; without this banner most users
+          finish the form by hand and never find the prefill. */}
+      <div
+        style={{
+          marginBottom: 20,
+          background: "rgba(0,232,123,0.08)",
+          border: "1px solid rgba(0,232,123,0.25)",
+          borderRadius: 8,
+          padding: "12px 16px",
+          fontSize: 13,
+          color: "var(--vb-muted)",
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          lineHeight: 1.5,
+        }}
+      >
+        <strong style={{ color: "var(--vb-text)", fontWeight: 600 }}>
+          Have a token contract?
+        </strong>{" "}
+        Open <em>Add project context</em> below, paste the contract + chain,
+        and click <em>Autofill from CoinGecko</em> — we&apos;ll prefill
+        description, website, GitHub org, and token symbol.
+      </div>
+
       <form
         onSubmit={handleSubmit}
         className="vb-form-2col"
@@ -183,7 +282,7 @@ export default function NewProjectPage() {
           <input
             required
             placeholder="My Web3 Project"
-            style={inputStyle}
+            style={styleFor("name")}
             {...field("name")}
           />
         </div>
@@ -192,7 +291,7 @@ export default function NewProjectPage() {
           <input
             type="url"
             placeholder="https://example.com"
-            style={inputStyle}
+            style={styleFor("website")}
             {...field("website")}
           />
         </div>
@@ -200,7 +299,7 @@ export default function NewProjectPage() {
           <label style={labelStyle}>Token symbol</label>
           <input
             placeholder="ETH"
-            style={inputStyle}
+            style={styleFor("tokenSymbol")}
             {...field("tokenSymbol")}
           />
         </div>
@@ -209,7 +308,7 @@ export default function NewProjectPage() {
           <textarea
             rows={4}
             placeholder="What does your project do?"
-            style={{ ...inputStyle, resize: "vertical" }}
+            style={{ ...styleFor("description"), resize: "vertical" }}
             {...field("description")}
           />
         </div>
@@ -217,7 +316,7 @@ export default function NewProjectPage() {
           <label style={labelStyle}>GitHub org</label>
           <input
             placeholder="my-org"
-            style={inputStyle}
+            style={styleFor("githubOrg")}
             {...field("githubOrg")}
           />
           <p style={helperStyle}>
@@ -350,46 +449,10 @@ export default function NewProjectPage() {
 
         {contextOpen && (
           <>
-            <div>
-              <label style={labelStyle}>Team size</label>
-              <input
-                type="number"
-                min="1"
-                placeholder="8"
-                style={inputStyle}
-                {...field("teamSize")}
-              />
-              <p style={helperStyle}>e.g. 8 — used in the executive summary.</p>
-            </div>
-            <div>
-              <label style={labelStyle}>Founded</label>
-              <input
-                type="date"
-                style={inputStyle}
-                {...field("foundedDate")}
-              />
-              <p style={helperStyle}>YYYY-MM-DD. Helps frame "we&apos;re N months in".</p>
-            </div>
-            <div>
-              <label style={labelStyle}>Last funding round</label>
-              <input
-                placeholder="Series A"
-                style={inputStyle}
-                {...field("lastFundingRound")}
-              />
-              <p style={helperStyle}>e.g. Seed, Series A, Strategic.</p>
-            </div>
-            <div>
-              <label style={labelStyle}>Amount raised (USD)</label>
-              <input
-                type="number"
-                min="0"
-                placeholder="5000000"
-                style={inputStyle}
-                {...field("lastFundingAmount")}
-              />
-              <p style={helperStyle}>Whole dollars. e.g. 5000000 → "$5.0M raised".</p>
-            </div>
+            {/* Token contract + chain go first — they're the autofill
+                primer. Layout reads top-down: paste token, hit autofill,
+                fill the remaining bits manually. Founded sits with Amount
+                so each row stays balanced after team_size came out. */}
             <div>
               <label style={labelStyle}>Token contract</label>
               <input
@@ -412,6 +475,90 @@ export default function NewProjectPage() {
                 ))}
               </select>
               <p style={helperStyle}>Required if token contract is set.</p>
+            </div>
+            {/* Autofill via CoinGecko — pulls description, website, GitHub
+                org, founded date, and token symbol from a single contract
+                lookup. Only fills empty fields, never overwrites. */}
+            <div style={{ gridColumn: "1 / -1" }}>
+              <button
+                type="button"
+                onClick={handleAutofill}
+                disabled={
+                  autofill.isPending ||
+                  !form.tokenContract.trim() ||
+                  !form.tokenChain
+                }
+                style={{
+                  background: "rgba(0,232,123,0.1)",
+                  border: "1px solid rgba(0,232,123,0.4)",
+                  borderRadius: 8,
+                  padding: "10px 18px",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#00e87b",
+                  fontFamily: "var(--font-inter), Inter, sans-serif",
+                  cursor:
+                    autofill.isPending ||
+                    !form.tokenContract.trim() ||
+                    !form.tokenChain
+                      ? "not-allowed"
+                      : "pointer",
+                  opacity:
+                    autofill.isPending ||
+                    !form.tokenContract.trim() ||
+                    !form.tokenChain
+                      ? 0.5
+                      : 1,
+                }}
+              >
+                {autofill.isPending ? "Looking up…" : "Autofill from CoinGecko"}
+              </button>
+              {autofillNote && (
+                <p
+                  style={{
+                    ...helperStyle,
+                    marginTop: 10,
+                    color: autofill.isError
+                      ? "#f87171"
+                      : "var(--vb-muted)",
+                  }}
+                >
+                  {autofillNote}
+                </p>
+              )}
+            </div>
+
+            {/* Founded + funding context — not pulled by autofill (CG
+                doesn't expose funding rounds). Pair Founded with Amount,
+                give Last funding round its own full-width row to balance. */}
+            <div>
+              <label style={labelStyle}>Founded</label>
+              <input
+                type="date"
+                style={styleFor("foundedDate")}
+                {...field("foundedDate")}
+              />
+              <p style={helperStyle}>YYYY-MM-DD. Helps frame &quot;we&apos;re N months in&quot;.</p>
+            </div>
+            <div>
+              <label style={labelStyle}>Amount raised (USD)</label>
+              <input
+                type="number"
+                min="0"
+                placeholder="5000000"
+                style={inputStyle}
+                {...field("lastFundingAmount")}
+              />
+              <p style={helperStyle}>Whole dollars. e.g. 5000000 → &quot;$5.0M raised&quot;.</p>
+            </div>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={labelStyle}>Last funding round</label>
+              <input
+                placeholder="Series A"
+                style={inputStyle}
+                {...field("lastFundingRound")}
+              />
+              <p style={helperStyle}>e.g. Seed, Series A, Strategic.</p>
             </div>
           </>
         )}
