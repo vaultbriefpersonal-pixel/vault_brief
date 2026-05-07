@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Demo Report — Vault Brief",
+  title: "Demo Investor Report — Vault Brief",
   description:
-    "See what a Vault Brief investor report looks like. Generated from real public on-chain data. No signup required.",
+    "Sample investor report generated from public-style data. See the structure, sections, and tone before you connect your own wallets.",
 };
 
 const BALANCES = [
@@ -35,6 +35,29 @@ const GITHUB = [
   { label: "Active Contributors", val: "12" },
 ];
 
+// Sample token metrics. Mirrors what the live product shows when a
+// project supplies a token contract — price + market cap + holder
+// count come from Dune Sim, vesting cliff date is project-supplied.
+const TOKEN_METRICS = [
+  { label: "Token Price", val: "$0.84", note: "+18.5% MoM" },
+  { label: "Market Cap", val: "$84.0M", note: "Fully diluted: $210M" },
+  { label: "Holders", val: "12,847", note: "+412 this period" },
+  { label: "Next Unlock", val: "Aug 2026", note: "5% to team + advisors" },
+];
+
+// Real production data sources, surfaced so a visitor sees the engineering
+// behind the polished output rather than an opaque "AI does it" promise.
+const DATA_SOURCES = [
+  {
+    label: "Alchemy + Helius",
+    note: "EVM and Solana RPC for wallet balances and transaction history",
+  },
+  { label: "Dune Sim", note: "Token price, market cap, holder count, liquidity" },
+  { label: "GitHub API", note: "Commits, merged PRs, active contributors, releases" },
+  { label: "OpenRouter (Claude / Gemini)", note: "AI report narrative generation" },
+  { label: "Snapshot.org", note: "On-chain governance proposals (when configured)" },
+];
+
 export default function DemoPage() {
   return (
     <div style={{ paddingTop: 72 }}>
@@ -61,7 +84,7 @@ export default function DemoPage() {
             marginBottom: 12,
           }}
         >
-          Live Demo
+          Sample · No signup required
         </p>
         <h1
           style={{
@@ -74,24 +97,24 @@ export default function DemoPage() {
             margin: "0 0 12px",
           }}
         >
-          Sample Investor Report
+          Demo Investor Report
         </h1>
         <p
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 16,
             color: "var(--vb-muted)",
-            margin: "0 0 28px",
+            margin: "0 auto 28px",
+            maxWidth: 580,
+            lineHeight: 1.6,
           }}
         >
-          Generated from public on-chain data. This is exactly what your
-          investors receive.
+          This is a sample report generated from public-style data. The
+          structure, sections, and tone match what you&apos;d send your real
+          investors once your own wallets are connected.
         </p>
-        <Link
-          href="/login"
-          className="btn-sm-primary"
-        >
-          Start Free Trial
+        <Link href="/login" className="btn-sm-primary">
+          Generate your demo draft report
         </Link>
       </section>
 
@@ -115,6 +138,8 @@ export default function DemoPage() {
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
+              flexWrap: "wrap",
+              gap: 12,
             }}
           >
             <div>
@@ -128,7 +153,7 @@ export default function DemoPage() {
                   margin: "0 0 6px",
                 }}
               >
-                Monthly Investor Report
+                Monthly Investor Report — Demo Draft
               </p>
               <h2
                 style={{
@@ -165,12 +190,15 @@ export default function DemoPage() {
                 fontWeight: 600,
               }}
             >
-              Auto-generated
+              Sample data
             </span>
           </div>
 
           <div style={{ padding: "40px" }}>
-            {/* KPI row */}
+            {/* Treasury overview KPI strip */}
+            <SectionHeading subtitle="Treasury overview · Runway and burn">
+              At a glance
+            </SectionHeading>
             <div
               className="vb-grid-4"
               style={{ gap: 16, marginBottom: 40 }}
@@ -224,160 +252,94 @@ export default function DemoPage() {
               ))}
             </div>
 
-            {/* Two-col layout */}
+            {/* Two-col layout — treasury breakdown + expenses */}
             <div
               className="vb-grid-2"
               style={{ gap: 24, marginBottom: 40 }}
             >
-              {/* Treasury breakdown */}
-              <div
-                style={{
-                  background: "var(--vb-bg)",
-                  borderRadius: 12,
-                  border: "1px solid var(--vb-border)",
-                  padding: 24,
-                }}
-              >
-                <h3
-                  style={{
-                    fontFamily:
-                      "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-                    fontSize: 15,
-                    fontWeight: 600,
-                    color: "var(--vb-text)",
-                    margin: "0 0 20px",
-                  }}
-                >
-                  Treasury Breakdown
-                </h3>
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {BREAKDOWN.map((b) => (
-                    <div key={b.label}>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          marginBottom: 6,
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontFamily: "var(--font-inter), Inter, sans-serif",
-                            fontSize: 13,
-                            color: "var(--vb-muted)",
-                          }}
-                        >
-                          {b.label}
-                        </span>
-                        <span
-                          style={{
-                            fontFamily: "var(--font-inter), Inter, sans-serif",
-                            fontSize: 13,
-                            color: "var(--vb-text)",
-                            fontWeight: 500,
-                          }}
-                        >
-                          {b.usd}
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          height: 4,
-                          background: "rgba(255,255,255,0.06)",
-                          borderRadius: 2,
-                          overflow: "hidden",
-                        }}
-                      >
-                        <div
-                          style={{
-                            height: "100%",
-                            width: `${b.pct}%`,
-                            background: b.color,
-                            borderRadius: 2,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <ReportPanel title="Treasury Breakdown">
+                {BREAKDOWN.map((b) => (
+                  <BarRow key={b.label} label={b.label} value={b.usd} pct={b.pct} color={b.color} />
+                ))}
+              </ReportPanel>
 
-              {/* Expenses */}
-              <div
-                style={{
-                  background: "var(--vb-bg)",
-                  borderRadius: 12,
-                  border: "1px solid var(--vb-border)",
-                  padding: 24,
-                }}
-              >
-                <h3
-                  style={{
-                    fontFamily:
-                      "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-                    fontSize: 15,
-                    fontWeight: 600,
-                    color: "var(--vb-text)",
-                    margin: "0 0 20px",
-                  }}
-                >
-                  Expense Breakdown
-                </h3>
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {EXPENSES.map((e) => (
-                    <div key={e.label}>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          marginBottom: 6,
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontFamily: "var(--font-inter), Inter, sans-serif",
-                            fontSize: 13,
-                            color: "var(--vb-muted)",
-                          }}
-                        >
-                          {e.label}
-                        </span>
-                        <span
-                          style={{
-                            fontFamily: "var(--font-inter), Inter, sans-serif",
-                            fontSize: 13,
-                            color: "var(--vb-text)",
-                            fontWeight: 500,
-                          }}
-                        >
-                          {e.usd}
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          height: 4,
-                          background: "rgba(255,255,255,0.06)",
-                          borderRadius: 2,
-                          overflow: "hidden",
-                        }}
-                      >
-                        <div
-                          style={{
-                            height: "100%",
-                            width: `${e.pct}%`,
-                            background: "#00e87b",
-                            opacity: 0.4 + e.pct / 100,
-                            borderRadius: 2,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <ReportPanel title="Expense Breakdown">
+                {EXPENSES.map((e) => (
+                  <BarRow
+                    key={e.label}
+                    label={e.label}
+                    value={e.usd}
+                    pct={e.pct}
+                    color="#00e87b"
+                    barOpacity={0.4 + e.pct / 100}
+                  />
+                ))}
+              </ReportPanel>
             </div>
 
-            {/* GitHub stats */}
+            {/* Token metrics */}
+            <SectionHeading subtitle="From Dune Sim and on-chain queries">
+              Token Metrics
+            </SectionHeading>
+            <div
+              className="vb-grid-4"
+              style={{
+                gap: 16,
+                marginBottom: 40,
+              }}
+            >
+              {TOKEN_METRICS.map((m) => (
+                <div
+                  key={m.label}
+                  style={{
+                    background: "var(--vb-bg)",
+                    borderRadius: 10,
+                    padding: "20px 16px",
+                    border: "1px solid var(--vb-border)",
+                  }}
+                >
+                  <p
+                    style={{
+                      fontFamily: "var(--font-inter), Inter, sans-serif",
+                      fontSize: 11,
+                      color: "var(--vb-dim)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.07em",
+                      margin: "0 0 8px",
+                    }}
+                  >
+                    {m.label}
+                  </p>
+                  <p
+                    style={{
+                      fontFamily:
+                        "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                      fontSize: 20,
+                      fontWeight: 700,
+                      color: "var(--vb-text)",
+                      margin: "0 0 4px",
+                    }}
+                  >
+                    {m.val}
+                  </p>
+                  <p
+                    style={{
+                      fontFamily: "var(--font-inter), Inter, sans-serif",
+                      fontSize: 12,
+                      color: "var(--vb-muted)",
+                      margin: 0,
+                    }}
+                  >
+                    {m.note}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* GitHub activity */}
+            <SectionHeading subtitle="From GitHub API">
+              GitHub activity
+            </SectionHeading>
             <div
               style={{
                 background: "var(--vb-bg)",
@@ -387,22 +349,7 @@ export default function DemoPage() {
                 marginBottom: 40,
               }}
             >
-              <h3
-                style={{
-                  fontFamily:
-                    "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-                  fontSize: 15,
-                  fontWeight: 600,
-                  color: "var(--vb-text)",
-                  margin: "0 0 20px",
-                }}
-              >
-                Development Activity
-              </h3>
-              <div
-                className="vb-grid-3"
-                style={{ gap: 16 }}
-              >
+              <div className="vb-grid-3" style={{ gap: 16 }}>
                 {GITHUB.map((g) => (
                   <div key={g.label} style={{ textAlign: "center" }}>
                     <p
@@ -432,51 +379,19 @@ export default function DemoPage() {
               </div>
             </div>
 
-            {/* AI narrative sample */}
+            {/* AI executive summary */}
+            <SectionHeading subtitle="AI-written, validated against the source data">
+              Executive Summary
+            </SectionHeading>
             <div
               style={{
                 background: "var(--vb-bg)",
                 borderRadius: 12,
                 border: "1px solid var(--vb-border)",
                 padding: 24,
+                marginBottom: 40,
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  marginBottom: 16,
-                }}
-              >
-                <h3
-                  style={{
-                    fontFamily:
-                      "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-                    fontSize: 15,
-                    fontWeight: 600,
-                    color: "var(--vb-text)",
-                    margin: 0,
-                  }}
-                >
-                  Executive Summary
-                </h3>
-                <span
-                  style={{
-                    padding: "2px 8px",
-                    background: "rgba(0,232,123,0.12)",
-                    color: "var(--accent)",
-                    borderRadius: 4,
-                    fontFamily: "var(--font-inter), Inter, sans-serif",
-                    fontSize: 10,
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                  }}
-                >
-                  AI Generated
-                </span>
-              </div>
               <p
                 style={{
                   fontFamily: "var(--font-inter), Inter, sans-serif",
@@ -486,22 +401,84 @@ export default function DemoPage() {
                   margin: 0,
                 }}
               >
-                April was a strong month for Meridian Protocol. Treasury balance
-                grew 3.2% to $2.4M, driven primarily by a $120K USDC inflow
-                from our partnership agreement with Lattice Finance. Monthly
-                burn rate decreased 11.8% to $184K, reflecting the completion
-                of a major contractor engagement. At current burn, runway extends
-                to 13.1 months — up from 11 months last quarter. Development
-                velocity remained high with 247 commits and 38 merged PRs across
-                12 active contributors. The protocol's native token appreciated
-                18.5% over the month, though liquidity-adjusted treasury
-                calculations use a 30% haircut on this position.
+                April was a strong month for Meridian Protocol. Treasury
+                balance grew 3.2% to $2.4M, driven primarily by a $120K USDC
+                inflow from our partnership agreement with Lattice Finance.
+                Monthly burn rate decreased 11.8% to $184K, reflecting the
+                completion of a major contractor engagement. At current burn,
+                runway extends to 13.1 months — up from 11 months last
+                quarter. Development velocity remained high with 247 commits
+                and 38 merged PRs across 12 active contributors. The
+                protocol&apos;s native token appreciated 18.5% over the month,
+                though liquidity-adjusted treasury calculations use a 30%
+                haircut on this position.
               </p>
+            </div>
+
+            {/* Data sources used — anchors the polished output to a real
+                engineering manifest, not magic. */}
+            <SectionHeading subtitle="Where each section pulls from">
+              Data sources used
+            </SectionHeading>
+            <div
+              style={{
+                background: "var(--vb-bg)",
+                borderRadius: 12,
+                border: "1px solid var(--vb-border)",
+                padding: 24,
+              }}
+            >
+              <ul
+                style={{
+                  listStyle: "none",
+                  padding: 0,
+                  margin: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                }}
+              >
+                {DATA_SOURCES.map((s) => (
+                  <li
+                    key={s.label}
+                    style={{
+                      display: "flex",
+                      gap: 14,
+                      alignItems: "baseline",
+                      borderLeft: "2px solid rgba(0,232,123,0.4)",
+                      paddingLeft: 14,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily:
+                          "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: "var(--vb-text)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {s.label}
+                    </span>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-inter), Inter, sans-serif",
+                        fontSize: 13,
+                        color: "var(--vb-muted)",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {s.note}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         </div>
 
-        {/* CTA */}
+        {/* Bottom CTA */}
         <div style={{ textAlign: "center", marginTop: 56 }}>
           <p
             style={{
@@ -514,7 +491,7 @@ export default function DemoPage() {
               letterSpacing: "-0.02em",
             }}
           >
-            Ready to send reports like this?
+            Want one for your project?
           </p>
           <p
             style={{
@@ -522,18 +499,171 @@ export default function DemoPage() {
               fontSize: 15,
               color: "var(--vb-muted)",
               margin: "0 0 24px",
+              maxWidth: 520,
+              marginLeft: "auto",
+              marginRight: "auto",
+              lineHeight: 1.6,
             }}
           >
-            Connect your wallets and get your first report in minutes.
+            Sign up, paste a wallet address, and we&apos;ll pull the data and
+            assemble your first investor report.
           </p>
-          <Link
-            href="/login"
-            className="btn-primary"
-          >
-            Start Free Trial
+          <Link href="/login" className="btn-primary">
+            Generate your demo draft report
           </Link>
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 12,
+              color: "var(--vb-dim)",
+              marginTop: 14,
+            }}
+          >
+            No credit card required.
+          </p>
         </div>
       </section>
+    </div>
+  );
+}
+
+// ─── helpers ──────────────────────────────────────────────────────────────
+
+function SectionHeading({
+  children,
+  subtitle,
+}: {
+  children: React.ReactNode;
+  subtitle?: string;
+}) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <h3
+        style={{
+          fontFamily:
+            "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+          fontSize: 16,
+          fontWeight: 600,
+          color: "var(--vb-text)",
+          margin: 0,
+          letterSpacing: "-0.01em",
+        }}
+      >
+        {children}
+      </h3>
+      {subtitle && (
+        <p
+          style={{
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            fontSize: 12,
+            color: "var(--vb-dim)",
+            margin: "4px 0 0",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+          }}
+        >
+          {subtitle}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ReportPanel({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--vb-bg)",
+        borderRadius: 12,
+        border: "1px solid var(--vb-border)",
+        padding: 24,
+      }}
+    >
+      <h3
+        style={{
+          fontFamily:
+            "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+          fontSize: 15,
+          fontWeight: 600,
+          color: "var(--vb-text)",
+          margin: "0 0 20px",
+        }}
+      >
+        {title}
+      </h3>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function BarRow({
+  label,
+  value,
+  pct,
+  color,
+  barOpacity,
+}: {
+  label: string;
+  value: string;
+  pct: number;
+  color: string;
+  barOpacity?: number;
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          marginBottom: 6,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            fontSize: 13,
+            color: "var(--vb-muted)",
+          }}
+        >
+          {label}
+        </span>
+        <span
+          style={{
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            fontSize: 13,
+            color: "var(--vb-text)",
+            fontWeight: 500,
+          }}
+        >
+          {value}
+        </span>
+      </div>
+      <div
+        style={{
+          height: 4,
+          background: "rgba(255,255,255,0.06)",
+          borderRadius: 2,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            height: "100%",
+            width: `${pct}%`,
+            background: color,
+            opacity: barOpacity,
+            borderRadius: 2,
+          }}
+        />
+      </div>
     </div>
   );
 }
