@@ -19,54 +19,63 @@ const STEP_ICONS = {
 } as const;
 
 export const metadata: Metadata = {
-  title: "Vault Brief — Automated Investor Reporting for Web3",
+  title: "Vault Brief — Investor Reports for Web3 Teams",
   description:
-    "Connect wallets and GitHub once. Every month, Vault Brief pulls your data, writes the narrative, and sends polished PDF reports to investors.",
+    "Generate monthly treasury reports from wallets, GitHub activity, and token metrics. Vault Brief turns raw on-chain data into investor-ready reports you can review, export, and send.",
 };
 
 // Re-render the homepage at most every 5 minutes so the stat strip's
 // counts grow without hammering the DB on every visit. Static otherwise.
 export const revalidate = 300;
 
-const FEATURES = [
+// Two columns: features that ship today vs. the explicit roadmap. We
+// chose to surface the roadmap rather than hide it — early-access users
+// trust the product more when the gap between marketing and reality is
+// not a discovery moment three weeks in.
+const FEATURES_AVAILABLE = [
   {
-    icon: "⛓",
-    title: "Multi-Chain Treasury Tracking",
-    desc: "Connect wallets across Ethereum, Solana, Arbitrum, Base, and 15+ chains. Balances, token positions, and transaction history sync automatically.",
-  },
-  {
-    icon: "🤖",
-    title: "AI-Written Narratives",
-    desc: "Claude turns raw numbers into investor-ready prose. Expense classification, burn analysis, and development summaries — all generated.",
-  },
-  {
-    icon: "📄",
-    title: "One-Click PDF Export",
-    desc: "Branded reports with your logo, colors, and formatting. Download or send directly to your investor list.",
+    icon: "💼",
+    title: "Treasury tracking",
+    desc: "Track balances, inflows, outflows, and runway across project wallets.",
   },
   {
     icon: "💻",
-    title: "GitHub Activity Reports",
-    desc: "Commits, PRs merged, active contributors, and release notes pulled from your connected repos automatically.",
+    title: "GitHub activity",
+    desc: "Summarize commits, merged PRs, contributors, and releases for investor updates.",
+  },
+  {
+    icon: "🤖",
+    title: "AI report narrative",
+    desc: "Turn treasury and development data into a structured investor report.",
+  },
+  {
+    icon: "📄",
+    title: "PDF export",
+    desc: "Export a polished report that can be shared with investors or internal stakeholders.",
   },
   {
     icon: "📊",
-    title: "Token Metrics Dashboard",
-    desc: "Price, market cap, holder count, and vesting schedule tracked and included in every report.",
+    title: "Token metrics",
+    desc: "Include token price, market cap, holder count, and liquidity context where available.",
   },
   {
-    icon: "📬",
-    title: "Automated Distribution",
-    desc: "Reports go out on the 1st of every month. Investors get email with PDF attached. Track opens and engagement.",
+    icon: "✅",
+    title: "Review before send",
+    desc: "Nothing goes out automatically without user approval.",
   },
+];
+
+const FEATURES_COMING = [
+  { icon: "🌐", title: "Investor portal", desc: "Read-only dashboard per investor instead of email-only delivery." },
+  { icon: "📬", title: "Open and click tracking", desc: "Per-recipient engagement on every report you send." },
+  { icon: "🔌", title: "API access", desc: "Programmatic report generation and export for fund operators." },
+  { icon: "🎨", title: "White label reports", desc: "Branded PDFs without the Vault Brief footer." },
+  { icon: "⏰", title: "Advanced monthly automation", desc: "Schedules, multi-recipient routing, conditional sends." },
 ];
 
 // Each step keys to a lucide icon imported below. "iconKey" is a string
 // rather than the component itself so the constant stays plain-data and
-// the actual icon resolution happens in the render block. Copy aims to
-// name the real machinery (Alchemy / Dune / Helius / OpenRouter) so the
-// section reads as "here's the engineering" rather than "the magic
-// happens behind the curtain."
+// the actual icon resolution happens in the render block.
 const STEPS = [
   {
     num: "01",
@@ -80,7 +89,7 @@ const STEPS = [
     iconKey: "sync" as const,
     title: "We pull the data",
     desc:
-      "On the 1st of each month we pull balances from Alchemy + Dune + Helius, classify on-chain transactions into expense categories, and snapshot GitHub commit / PR / contributor activity. Cached aggressively so re-runs are free.",
+      "Balances pulled from Alchemy + Dune + Helius, on-chain transactions classified into expense categories, and GitHub commit / PR / contributor activity snapshotted. Cached aggressively so re-runs are free.",
   },
   {
     num: "03",
@@ -94,16 +103,10 @@ const STEPS = [
     iconKey: "send" as const,
     title: "Review and send",
     desc:
-      "Edit anything in the in-app Markdown editor. Mark Ready → Send. Investors get a branded PDF + an email with key KPIs already inline. Open / click tracking via Resend webhooks.",
+      "Edit anything in the in-app Markdown editor. Mark Ready → Send. Investors get a branded PDF + an email with key KPIs already inline.",
   },
 ];
 
-// Replaces the original three placeholder testimonials. The numbers come
-// straight from the production DB (reports, wallets, treasury_snapshots);
-// "20+ chains" is hard-coded because the support list is in `chains.ts`
-// and the count rarely changes mid-month. Pattern matches the rest of the
-// site: hide-when-zero / no-fake-padding (see /status past incidents and
-// the dashboard sync warnings).
 const STATS_FALLBACK = { reports: 0, wallets: 0, snapshots: 0 };
 
 // Cheap signal that the env is using the .env.example placeholder URL —
@@ -114,8 +117,6 @@ function dbConfigured(): boolean {
   return Boolean(url) && !url.includes("placeholder");
 }
 
-// Single-line warning, deduped per process so CI logs aren't flooded
-// when the homepage renders 30 times during a Playwright run.
 let warnedFallback = false;
 
 async function loadPublicStats() {
@@ -130,9 +131,6 @@ async function loadPublicStats() {
       snapshots: s?.n ?? 0,
     };
   } catch (err) {
-    // DB unreachable (CI sandbox without network egress to Neon, brief
-    // outage, etc.) — render fallback zeros rather than 500ing the
-    // homepage. One-line log, no stack, deduped.
     if (!warnedFallback) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[landing] loadPublicStats fallback: ${msg.split("\n")[0]}`);
@@ -142,10 +140,6 @@ async function loadPublicStats() {
   }
 }
 
-// The actual stack the product runs on. Renders as colored brand chips in
-// the "Built on the stack you already trust" strip — replaces the original
-// fake-DAO logo placeholders. Each chip uses the tool's brand color so the
-// row reads as a real engineering manifest, not generic "powered by" filler.
 const TOOL_STACK: Array<{ name: string; color: string }> = [
   { name: "Alchemy", color: "#0C0C0E" },
   { name: "Dune", color: "#FE6F37" },
@@ -157,15 +151,25 @@ const TOOL_STACK: Array<{ name: string; color: string }> = [
   { name: "Stripe", color: "#635BFF" },
 ];
 
+// "Input → report" pillar columns. Drives the new visual section that
+// lets a visitor parse the product in 5 seconds without reading copy.
+const INPUT_TO_REPORT = {
+  inputs: [
+    { label: "Wallets", note: "Treasury addresses across 20+ chains" },
+    { label: "GitHub org", note: "Commits, PRs, contributors, releases" },
+    { label: "Token contract", note: "Price, market cap, holder count" },
+    { label: "Project context", note: "Milestones, funding, asks, governance" },
+  ],
+  outputs: [
+    { label: "Treasury overview", note: "Balances + month-over-month change" },
+    { label: "Burn and runway", note: "Net outflow + months at current pace" },
+    { label: "GitHub progress", note: "Active dev signal for the period" },
+    { label: "Executive summary", note: "AI-written, validated against source data" },
+    { label: "PDF export", note: "Branded, investor-ready, click to download" },
+  ],
+};
+
 export default async function LandingPage() {
-  // "/" always renders the marketing landing — even for logged-in users.
-  // The marketing Nav surfaces a "Dashboard" link when a session is present
-  // so authenticated users can jump back to /projects without reloading.
-  // Decision history: an earlier version auto-redirected logged-in users
-  // to /projects, but that broke our own ability to view marketing while
-  // signed in (and made share-links to / from inside the app land back on
-  // the dashboard, never showing the actual landing). Net: keep "/" as a
-  // public surface; navigation does the rest.
   const stats = await loadPublicStats();
   return (
     <div style={{ background: "var(--vb-bg)", minHeight: "100dvh" }}>
@@ -186,7 +190,6 @@ export default async function LandingPage() {
             "linear-gradient(180deg, rgba(0,232,123,0.06) 0%, transparent 60%)",
         }}
       >
-        {/* Grid pattern */}
         <div
           style={{
             position: "absolute",
@@ -199,10 +202,8 @@ export default async function LandingPage() {
           }}
         />
 
-        <div
-          className="animate-fade-up"
-          style={{ position: "relative", zIndex: 1 }}
-        >
+        <div className="animate-fade-up" style={{ position: "relative", zIndex: 1 }}>
+          {/* Beta badge: honest framing per the early-access strategy. */}
           <div
             style={{
               display: "inline-flex",
@@ -227,7 +228,7 @@ export default async function LandingPage() {
                 background: "#00e87b",
               }}
             />
-            Automated crypto investor reporting
+            Private beta · Automated wallet and GitHub reporting
           </div>
 
           <h1
@@ -243,9 +244,9 @@ export default async function LandingPage() {
               letterSpacing: "-0.035em",
             }}
           >
-            Your treasury reports,
+            Investor reports
             <br />
-            <span className="gradient-text">on autopilot</span>
+            <span className="gradient-text">for Web3 teams</span>
           </h1>
 
           <p
@@ -254,13 +255,13 @@ export default async function LandingPage() {
               fontFamily: "var(--font-inter), Inter, sans-serif",
               lineHeight: 1.6,
               color: "var(--vb-muted)",
-              maxWidth: 540,
+              maxWidth: 600,
               margin: "0 auto 44px",
             }}
           >
-            Connect wallets and GitHub once. Every month, Vault Brief pulls your
-            data, writes the narrative, and sends polished PDF reports to
-            investors.
+            Generate monthly treasury reports from wallets, GitHub activity, and
+            token metrics. Vault Brief turns raw on-chain data into
+            investor-ready reports you can review, export, and send.
           </p>
 
           <div
@@ -271,17 +272,13 @@ export default async function LandingPage() {
               flexWrap: "wrap",
             }}
           >
-            <Link
-              href="/login"
-              className="btn-primary"
-            >
-              Start Free Trial
+            {/* Demo first — early users need to see output before committing.
+                Trial is the secondary CTA per the conversion strategy. */}
+            <Link href="/demo" className="btn-primary">
+              Generate Demo Report
             </Link>
-            <Link
-              href="/demo"
-              className="btn-secondary"
-            >
-              View Demo Report
+            <Link href="/login" className="btn-secondary">
+              Start Free Trial
             </Link>
           </div>
         </div>
@@ -354,10 +351,7 @@ export default async function LandingPage() {
               </span>
             </div>
 
-            <div
-              className="vb-grid-4"
-              style={{ gap: 16 }}
-            >
+            <div className="vb-grid-4" style={{ gap: 16 }}>
               {[
                 { label: "Total Balance", val: "$2.4M", change: "+3.2%" },
                 { label: "Monthly Burn", val: "$185K", change: "-12%" },
@@ -410,6 +404,77 @@ export default async function LandingPage() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Input → report — the 5-second-comprehension section. Two columns
+          read like a state diagram: stuff you connect on the left becomes
+          the structured report on the right. */}
+      <section className="vb-section" style={{ background: "var(--vb-alt)" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: 56 }}>
+            <p
+              style={{
+                fontSize: 13,
+                color: "var(--accent)",
+                fontFamily: "var(--font-inter), Inter, sans-serif",
+                marginBottom: 12,
+                textTransform: "uppercase",
+                letterSpacing: "0.1em",
+                fontWeight: 600,
+              }}
+            >
+              Input to report
+            </p>
+            <h2
+              style={{
+                fontFamily:
+                  "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                fontSize: "clamp(28px, 3.6vw, 40px)",
+                fontWeight: 700,
+                color: "var(--vb-text)",
+                letterSpacing: "-0.03em",
+                margin: 0,
+              }}
+            >
+              What goes in. What comes out.
+            </h2>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr auto 1fr",
+              gap: 24,
+              alignItems: "stretch",
+            }}
+          >
+            <PillarColumn
+              kind="input"
+              title="You connect"
+              items={INPUT_TO_REPORT.inputs}
+            />
+
+            <div
+              aria-hidden="true"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 28,
+                color: "var(--accent)",
+                opacity: 0.6,
+              }}
+            >
+              →
+            </div>
+
+            <PillarColumn
+              kind="output"
+              title="Investor report"
+              items={INPUT_TO_REPORT.outputs}
+            />
           </div>
         </div>
       </section>
@@ -467,13 +532,15 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* Features */}
+      {/* Features — split into Available now / Coming soon for honesty.
+          Coming-soon block is dimmer + carries explicit badges so visitors
+          aren't surprised when they don't find a feature on first login. */}
       <section
         id="features"
         className="vb-section"
         style={{ maxWidth: 1200, margin: "0 auto" }}
       >
-        <div style={{ textAlign: "center", marginBottom: 64 }}>
+        <div style={{ textAlign: "center", marginBottom: 56 }}>
           <p
             style={{
               fontSize: 13,
@@ -485,7 +552,7 @@ export default async function LandingPage() {
               fontWeight: 600,
             }}
           >
-            Features
+            Available now
           </p>
           <h2
             style={{
@@ -498,65 +565,54 @@ export default async function LandingPage() {
               margin: 0,
             }}
           >
-            Everything you need to report
+            What ships today
           </h2>
         </div>
 
+        <div className="vb-grid-3" style={{ gap: 16 }}>
+          {FEATURES_AVAILABLE.map((f) => (
+            <FeatureCard key={f.title} {...f} status="available" />
+          ))}
+        </div>
+
         <div
-          className="vb-grid-3"
-          style={{ gap: 16 }}
+          style={{
+            textAlign: "center",
+            marginTop: 96,
+            marginBottom: 56,
+          }}
         >
-          {FEATURES.map((f) => (
-            <div
-              key={f.title}
-              className="card-hover"
-              style={{
-                background: "var(--vb-card)",
-                borderRadius: 14,
-                border: "1px solid var(--vb-border)",
-                padding: 32,
-              }}
-            >
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 10,
-                  background: "rgba(0,232,123,0.12)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 20,
-                  marginBottom: 18,
-                }}
-              >
-                {f.icon}
-              </div>
-              <h3
-                style={{
-                  fontFamily:
-                    "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-                  fontSize: 19,
-                  fontWeight: 600,
-                  color: "var(--vb-text)",
-                  margin: "0 0 8px",
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                {f.title}
-              </h3>
-              <p
-                style={{
-                  fontFamily: "var(--font-inter), Inter, sans-serif",
-                  fontSize: 15,
-                  color: "var(--vb-muted)",
-                  lineHeight: 1.6,
-                  margin: 0,
-                }}
-              >
-                {f.desc}
-              </p>
-            </div>
+          <p
+            style={{
+              fontSize: 13,
+              color: "var(--vb-dim)",
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              marginBottom: 12,
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+              fontWeight: 600,
+            }}
+          >
+            Coming soon
+          </p>
+          <h2
+            style={{
+              fontFamily:
+                "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+              fontSize: "clamp(28px, 3.4vw, 36px)",
+              fontWeight: 700,
+              color: "var(--vb-text)",
+              letterSpacing: "-0.03em",
+              margin: 0,
+            }}
+          >
+            On the roadmap
+          </h2>
+        </div>
+
+        <div className="vb-grid-3" style={{ gap: 16 }}>
+          {FEATURES_COMING.map((f) => (
+            <FeatureCard key={f.title} {...f} status="coming" />
           ))}
         </div>
       </section>
@@ -593,10 +649,7 @@ export default async function LandingPage() {
             </h2>
           </div>
 
-          <div
-            className="vb-grid-4"
-            style={{ gap: 24 }}
-          >
+          <div className="vb-grid-4" style={{ gap: 24 }}>
             {STEPS.map((s) => {
               const Icon = STEP_ICONS[s.iconKey];
               return (
@@ -673,9 +726,9 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* Built in public — replaces the testimonials section.
-          Numbers come from the live DB (revalidate every 5 min); chains
-          count is static because it's pinned to chains.ts. */}
+      {/* Early access metrics — was "Built in public / Live numbers". The
+          rename keeps the same data but reframes it as honest beta usage
+          rather than positioning low counts as social proof. */}
       <section className="vb-section" style={{ background: "var(--vb-alt)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 48 }}>
@@ -690,7 +743,7 @@ export default async function LandingPage() {
                 fontWeight: 600,
               }}
             >
-              Built in public
+              Early access metrics
             </p>
             <h2
               style={{
@@ -703,7 +756,7 @@ export default async function LandingPage() {
                 margin: 0,
               }}
             >
-              Live numbers, not paid quotes
+              Real usage, updated from production
             </h2>
             <p
               style={{
@@ -711,14 +764,14 @@ export default async function LandingPage() {
                 fontSize: 15,
                 color: "var(--vb-muted)",
                 marginTop: 16,
-                maxWidth: 540,
+                maxWidth: 600,
                 margin: "16px auto 0",
                 lineHeight: 1.6,
               }}
             >
-              We&apos;re early. Instead of fake testimonials, here&apos;s
-              what the system has actually done so far. Updated every five
-              minutes from the production database.
+              Vault Brief is in private beta. Core reporting flows are live;
+              advanced automation features are rolling out gradually. These
+              numbers update from production usage every five minutes.
             </p>
           </div>
 
@@ -732,7 +785,7 @@ export default async function LandingPage() {
               },
               {
                 value: stats.snapshots.toLocaleString(),
-                label: "Monthly snapshots",
+                label: "Snapshots generated",
                 note: "balances · flows · GitHub",
               },
               {
@@ -794,7 +847,7 @@ export default async function LandingPage() {
       {/* FAQ */}
       <FAQ />
 
-      {/* CTA Banner */}
+      {/* CTA Banner — final conversion. Demo-first to mirror the hero. */}
       <section
         className="vb-section-cta"
         style={{
@@ -838,26 +891,258 @@ export default async function LandingPage() {
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 17,
               color: "var(--vb-muted)",
-              maxWidth: 480,
+              maxWidth: 540,
               margin: "0 auto 36px",
               lineHeight: 1.6,
             }}
           >
-            Set up in 5 minutes. Your first report generates automatically next
-            month.
+            Connect a wallet and generate your first investor report in minutes.
+            Schedule recurring monthly reports after review.
           </p>
-          <Link
-            href="/login"
-            className="btn-primary"
-            style={{ padding: "16px 40px" }}
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              justifyContent: "center",
+              flexWrap: "wrap",
+            }}
           >
-            Start Free Trial
-          </Link>
+            <Link
+              href="/demo"
+              className="btn-primary"
+              style={{ padding: "16px 40px" }}
+            >
+              Generate Demo Report
+            </Link>
+            <Link
+              href="/login"
+              className="btn-secondary"
+              style={{ padding: "16px 32px" }}
+            >
+              Start Free Trial
+            </Link>
+          </div>
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 12,
+              color: "var(--vb-dim)",
+              marginTop: 18,
+            }}
+          >
+            No credit card required.
+          </p>
         </div>
       </section>
 
       <Footer />
       <ChatWidget />
+    </div>
+  );
+}
+
+// ─── helpers ──────────────────────────────────────────────────────────────
+
+function FeatureCard({
+  icon,
+  title,
+  desc,
+  status,
+}: {
+  icon: string;
+  title: string;
+  desc: string;
+  status: "available" | "coming";
+}) {
+  const isAvailable = status === "available";
+  return (
+    <div
+      className="card-hover"
+      style={{
+        background: "var(--vb-card)",
+        borderRadius: 14,
+        border: `1px solid ${isAvailable ? "var(--vb-border)" : "rgba(255,255,255,0.06)"}`,
+        padding: 32,
+        opacity: isAvailable ? 1 : 0.85,
+        position: "relative",
+      }}
+    >
+      <span
+        style={{
+          position: "absolute",
+          top: 14,
+          right: 14,
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          fontSize: 10,
+          fontWeight: 600,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          padding: "3px 8px",
+          borderRadius: 100,
+          background: isAvailable
+            ? "rgba(0,232,123,0.12)"
+            : "rgba(255,255,255,0.05)",
+          color: isAvailable ? "var(--accent)" : "var(--vb-dim)",
+          border: `1px solid ${isAvailable ? "rgba(0,232,123,0.3)" : "rgba(255,255,255,0.08)"}`,
+        }}
+      >
+        {isAvailable ? "Available" : "Coming soon"}
+      </span>
+      <div
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: 10,
+          background: isAvailable
+            ? "rgba(0,232,123,0.12)"
+            : "rgba(255,255,255,0.04)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 20,
+          marginBottom: 18,
+        }}
+      >
+        {icon}
+      </div>
+      <h3
+        style={{
+          fontFamily:
+            "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+          fontSize: 19,
+          fontWeight: 600,
+          color: "var(--vb-text)",
+          margin: "0 0 8px",
+          letterSpacing: "-0.01em",
+        }}
+      >
+        {title}
+      </h3>
+      <p
+        style={{
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          fontSize: 15,
+          color: "var(--vb-muted)",
+          lineHeight: 1.6,
+          margin: 0,
+        }}
+      >
+        {desc}
+      </p>
+    </div>
+  );
+}
+
+function PillarColumn({
+  kind,
+  title,
+  items,
+}: {
+  kind: "input" | "output";
+  title: string;
+  items: { label: string; note: string }[];
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--vb-card)",
+        border: "1px solid var(--vb-border)",
+        borderRadius: 14,
+        padding: 24,
+      }}
+    >
+      <p
+        style={{
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          fontSize: 11,
+          color: kind === "output" ? "var(--accent)" : "var(--vb-dim)",
+          textTransform: "uppercase",
+          letterSpacing: "0.1em",
+          fontWeight: 600,
+          margin: "0 0 6px",
+        }}
+      >
+        {kind === "output" ? "Output" : "Input"}
+      </p>
+      <h3
+        style={{
+          fontFamily:
+            "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+          fontSize: 22,
+          fontWeight: 700,
+          color: "var(--vb-text)",
+          margin: "0 0 18px",
+          letterSpacing: "-0.02em",
+        }}
+      >
+        {title}
+      </h3>
+      <ul
+        style={{
+          listStyle: "none",
+          padding: 0,
+          margin: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+        }}
+      >
+        {items.map((it) => (
+          <li
+            key={it.label}
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "flex-start",
+              padding: "10px 12px",
+              background:
+                kind === "output"
+                  ? "rgba(0,232,123,0.05)"
+                  : "rgba(255,255,255,0.02)",
+              border: `1px solid ${kind === "output" ? "rgba(0,232,123,0.18)" : "var(--vb-border)"}`,
+              borderRadius: 8,
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                color: kind === "output" ? "var(--accent)" : "var(--vb-muted)",
+                marginTop: 1,
+                fontFamily: "var(--font-geist-mono), monospace",
+                fontSize: 12,
+                opacity: 0.8,
+              }}
+            >
+              {kind === "output" ? "↳" : "•"}
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontFamily:
+                    "var(--font-inter), Inter, sans-serif",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: "var(--vb-text)",
+                }}
+              >
+                {it.label}
+              </div>
+              <div
+                style={{
+                  fontFamily:
+                    "var(--font-inter), Inter, sans-serif",
+                  fontSize: 12,
+                  color: "var(--vb-dim)",
+                  marginTop: 2,
+                  lineHeight: 1.5,
+                }}
+              >
+                {it.note}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
