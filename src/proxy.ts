@@ -27,6 +27,11 @@ const PUBLIC_PATHS = [
   "/api/chat",
   // Public API waitlist — single-shot email capture from /docs.
   "/api/waitlist",
+  // Public investor report view (`/r/<reportId>`). Investors arrive from
+  // a Resend email and don't have accounts; status='sent' gate inside
+  // the page protects drafts. Without this allowlist they'd be bounced
+  // to /login and stuck.
+  "/r",
 ];
 
 export default auth((req: NextRequest & { auth: unknown }) => {
