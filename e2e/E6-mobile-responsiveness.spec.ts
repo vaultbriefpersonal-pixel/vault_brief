@@ -14,7 +14,8 @@ test.describe("E6 - Mobile responsiveness", () => {
     await page.goto("/");
     // Logo renders "VAULT" + " BRIEF" across two spans — match the wrapper text.
     await expect(page.getByRole("navigation").getByText(/VAULT/)).toBeVisible();
-    await expect(page.getByText("on autopilot")).toBeVisible();
+    // Hero headline split across two lines: "Investor reports" / "for Web3 teams"
+    await expect(page.getByText("for Web3 teams")).toBeVisible();
   });
 
   test("login page renders at 375px", async ({ page }) => {
@@ -27,7 +28,11 @@ test.describe("E6 - Mobile responsiveness", () => {
 
   test("pricing page renders at 375px", async ({ page }) => {
     await page.goto("/pricing");
-    await expect(page.getByText("Simple, transparent pricing")).toBeVisible();
+    // Hero headline rewrite: was "Simple, transparent pricing", now leads
+    // with the demo-first message.
+    await expect(
+      page.getByRole("heading", { name: /Start with a demo/ })
+    ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Seed" })).toBeVisible();
   });
 

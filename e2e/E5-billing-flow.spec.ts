@@ -4,15 +4,17 @@ import { test, expect } from "@playwright/test";
  * E5: Billing flow
  */
 test.describe("E5 - Billing flow (public pages)", () => {
-  test("pricing page shows all 3 plans", async ({ page }) => {
+  test("pricing page shows all 4 plans", async ({ page }) => {
     await page.goto("/pricing");
 
+    // Free Demo / Seed / Growth / Custom — VC Suite was renamed to Custom
+    // when we softened enterprise claims for the early-beta positioning.
+    await expect(page.getByRole("heading", { name: "Free Demo" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Seed" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Growth" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "VC Suite" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Custom" })).toBeVisible();
     await expect(page.getByText("$99", { exact: true })).toBeVisible();
     await expect(page.getByText("$299", { exact: true })).toBeVisible();
-    await expect(page.getByText("$799", { exact: true })).toBeVisible();
   });
 
   test("pricing page has CTA links to sign up", async ({ page }) => {
