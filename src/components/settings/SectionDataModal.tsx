@@ -1031,6 +1031,10 @@ function MilestonesRenderer({ projectId }: { projectId: string }) {
   const [targetDate, setTargetDate] = useState("");
   const [completedDate, setCompletedDate] = useState("");
 
+  // Inline edit-mode for an existing row. We don't open a separate modal —
+  // the row's render swaps to a form when its id matches editingId.
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   function submit() {
     if (!title.trim()) return;
     add.mutate(
@@ -1083,8 +1087,9 @@ function MilestonesRenderer({ projectId }: { projectId: string }) {
         </div>
         <div>
           <label style={labelStyle}>Description (optional)</label>
-          <input
-            style={inputStyle}
+          <textarea
+            rows={2}
+            style={{ ...inputStyle, resize: "vertical", minHeight: 56 }}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Short context — what this means for the product or treasury."
@@ -1146,72 +1151,248 @@ function MilestonesRenderer({ projectId }: { projectId: string }) {
       <ItemList
         rows={list}
         empty="No milestones yet. Add one to fill Looking Ahead."
-        render={(m) => (
-          <>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: 13,
-                  color: "var(--vb-text)",
-                  fontWeight: 600,
-                  textDecoration:
-                    m.status === "completed" ? "line-through" : "none",
-                }}
-              >
-                {m.title}
-              </div>
-              {m.description && (
+        render={(m) =>
+          editingId === m.id ? (
+            <MilestoneEditRow
+              milestone={m}
+              onCancel={() => setEditingId(null)}
+              onSave={(patch) =>
+                update.mutate(
+                  { id: m.id, ...patch },
+                  { onSuccess: () => setEditingId(null) }
+                )
+              }
+              isSaving={update.isPending}
+            />
+          ) : (
+            <>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div
                   style={{
-                    fontSize: 12,
-                    color: "var(--vb-muted)",
-                    marginTop: 2,
+                    fontSize: 13,
+                    color: "var(--vb-text)",
+                    fontWeight: 600,
+                    textDecoration:
+                      m.status === "completed" ? "line-through" : "none",
                   }}
                 >
-                  {m.description}
+                  {m.title}
                 </div>
-              )}
-              <div style={{ fontSize: 11, color: "var(--vb-dim)", marginTop: 2 }}>
-                {STATUS_LABELS[m.status as MilestoneStatus] ?? m.status}
-                {m.targetDate ? ` · target ${m.targetDate}` : ""}
-                {m.completedDate ? ` · completed ${m.completedDate}` : ""}
+                {m.description && (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "var(--vb-muted)",
+                      marginTop: 2,
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
+                    {m.description}
+                  </div>
+                )}
+                <div
+                  style={{ fontSize: 11, color: "var(--vb-dim)", marginTop: 2 }}
+                >
+                  {STATUS_LABELS[m.status as MilestoneStatus] ?? m.status}
+                  {m.targetDate ? ` · target ${m.targetDate}` : ""}
+                  {m.completedDate ? ` · completed ${m.completedDate}` : ""}
+                </div>
               </div>
-            </div>
-            <select
-              value={m.status}
-              onChange={(e) => {
-                const next = e.target.value as MilestoneStatus;
-                update.mutate({
-                  id: m.id,
-                  status: next,
-                  // Auto-stamp completedDate the first time someone flips
-                  // a row to completed. They can still edit it via re-add.
-                  completedDate:
-                    next === "completed" && !m.completedDate
-                      ? new Date().toISOString().slice(0, 10)
-                      : undefined,
-                });
-              }}
-              style={{
-                ...inputStyle,
-                width: "auto",
-                fontSize: 11,
-                padding: "5px 8px",
-                marginRight: 4,
-              }}
-              aria-label="Change milestone status"
-            >
-              {MILESTONE_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABELS[s]}
-                </option>
-              ))}
-            </select>
-            <RemoveBtn onClick={() => remove.mutate({ id: m.id })} />
-          </>
-        )}
+              <select
+                value={m.status}
+                onChange={(e) => {
+                  const next = e.target.value as MilestoneStatus;
+                  update.mutate({
+                    id: m.id,
+                    status: next,
+                    // Auto-stamp completedDate the first time someone flips
+                    // a row to completed. Editable via "Edit" if needed.
+                    completedDate:
+                      next === "completed" && !m.completedDate
+                        ? new Date().toISOString().slice(0, 10)
+                        : undefined,
+                  });
+                }}
+                style={{
+                  ...inputStyle,
+                  width: "auto",
+                  fontSize: 11,
+                  padding: "5px 8px",
+                  marginRight: 4,
+                }}
+                aria-label="Change milestone status"
+              >
+                {MILESTONE_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {STATUS_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setEditingId(m.id)}
+                style={{
+                  background: "transparent",
+                  border: "1px solid var(--vb-border)",
+                  color: "var(--vb-muted)",
+                  borderRadius: 6,
+                  padding: "5px 10px",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  marginRight: 4,
+                }}
+              >
+                Edit
+              </button>
+              <RemoveBtn onClick={() => remove.mutate({ id: m.id })} />
+            </>
+          )
+        }
       />
     </>
+  );
+}
+
+interface MilestoneRowShape {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  targetDate: string | null;
+  completedDate: string | null;
+}
+
+interface MilestoneEditPatch {
+  title?: string;
+  description?: string | null;
+  status?: MilestoneStatus;
+  targetDate?: string | null;
+  completedDate?: string | null;
+}
+
+function MilestoneEditRow({
+  milestone,
+  onCancel,
+  onSave,
+  isSaving,
+}: {
+  milestone: MilestoneRowShape;
+  onCancel: () => void;
+  onSave: (patch: MilestoneEditPatch) => void;
+  isSaving: boolean;
+}) {
+  const [title, setTitle] = useState(milestone.title);
+  const [description, setDescription] = useState(milestone.description ?? "");
+  const [status, setStatus] = useState<MilestoneStatus>(
+    (milestone.status as MilestoneStatus) ?? "planned"
+  );
+  const [targetDate, setTargetDate] = useState(milestone.targetDate ?? "");
+  const [completedDate, setCompletedDate] = useState(
+    milestone.completedDate ?? ""
+  );
+
+  function save() {
+    if (!title.trim()) return;
+    onSave({
+      title: title.trim(),
+      description: description.trim() ? description.trim() : null,
+      status,
+      targetDate: targetDate || null,
+      completedDate: status === "completed" ? completedDate || null : null,
+    });
+  }
+
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "grid",
+        gap: 8,
+      }}
+    >
+      <input
+        style={inputStyle}
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Title"
+        aria-label="Milestone title"
+      />
+      <textarea
+        rows={2}
+        style={{ ...inputStyle, resize: "vertical", minHeight: 56 }}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Description (optional)"
+        aria-label="Milestone description"
+      />
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          gap: 8,
+        }}
+      >
+        <select
+          style={inputStyle}
+          value={status}
+          onChange={(e) => setStatus(e.target.value as MilestoneStatus)}
+          aria-label="Milestone status"
+        >
+          {MILESTONE_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {STATUS_LABELS[s]}
+            </option>
+          ))}
+        </select>
+        <input
+          type="date"
+          style={inputStyle}
+          value={targetDate}
+          onChange={(e) => setTargetDate(e.target.value)}
+          aria-label="Target date"
+        />
+        <input
+          type="date"
+          style={inputStyle}
+          value={completedDate}
+          disabled={status !== "completed"}
+          onChange={(e) => setCompletedDate(e.target.value)}
+          aria-label="Completed date"
+        />
+      </div>
+      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isSaving}
+          style={{
+            background: "transparent",
+            border: "1px solid var(--vb-border)",
+            color: "var(--vb-muted)",
+            borderRadius: 6,
+            padding: "6px 12px",
+            fontSize: 12,
+            cursor: isSaving ? "not-allowed" : "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={save}
+          disabled={!title.trim() || isSaving}
+          style={{
+            ...submitStyle,
+            padding: "6px 14px",
+            fontSize: 12,
+          }}
+        >
+          {isSaving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </div>
   );
 }
 

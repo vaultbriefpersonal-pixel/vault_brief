@@ -16,12 +16,20 @@ export const milestonesRouter = router({
     .input(z.object({ projectId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       await requireProject(ctx, input.projectId);
-      return ctx.db.query.milestones.findMany({
+      const rows = await ctx.db.query.milestones.findMany({
         where: eq(milestones.projectId, input.projectId),
-        // Targeted/upcoming first, then planned, then completed (most
-        // recent at top within each bucket). Lets the editor surface
-        // "what's actively shipping" without users sorting manually.
-        orderBy: (m, { asc, desc }) => [asc(m.completedDate), desc(m.createdAt)],
+        orderBy: (m, { desc }) => [desc(m.createdAt)],
+      });
+      // Active work (planned/in_progress/delayed) sorts above completed.
+      // The DB-level ORDER BY can't easily express this without
+      // introducing CASE expressions; doing it in JS keeps the SQL clean
+      // and the list is small (per-project, not paginated).
+      const isActive = (s: string) => s !== "completed";
+      return rows.sort((a, b) => {
+        const aa = isActive(a.status) ? 0 : 1;
+        const bb = isActive(b.status) ? 0 : 1;
+        if (aa !== bb) return aa - bb;
+        return 0; // preserve createdAt-desc within each bucket
       });
     }),
 

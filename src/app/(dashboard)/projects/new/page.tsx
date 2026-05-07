@@ -223,6 +223,30 @@ export default function NewProjectPage() {
         </div>
       )}
 
+      {/* Discovery hint — autofill UI lives behind the collapsed
+          "Add project context" toggle below; without this banner most users
+          finish the form by hand and never find the prefill. */}
+      <div
+        style={{
+          marginBottom: 20,
+          background: "rgba(0,232,123,0.08)",
+          border: "1px solid rgba(0,232,123,0.25)",
+          borderRadius: 8,
+          padding: "12px 16px",
+          fontSize: 13,
+          color: "var(--vb-muted)",
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          lineHeight: 1.5,
+        }}
+      >
+        <strong style={{ color: "var(--vb-text)", fontWeight: 600 }}>
+          Have a token contract?
+        </strong>{" "}
+        Open <em>Add project context</em> below, paste the contract + chain,
+        and click <em>Autofill from CoinGecko</em> — we&apos;ll prefill
+        description, website, GitHub org, and token symbol.
+      </div>
+
       <form
         onSubmit={handleSubmit}
         className="vb-form-2col"
