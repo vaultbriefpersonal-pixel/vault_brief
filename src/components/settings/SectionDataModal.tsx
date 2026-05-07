@@ -5,9 +5,10 @@ import { trpc } from "@/lib/api";
 import { X, Plus, Trash2, Download } from "lucide-react";
 
 /**
- * Single modal that handles CRUD for the 5 manual-entry sections:
+ * Single modal that handles CRUD for the manual-entry sections:
  *   grants_distributed, governance_updates, partners_integrations,
- *   asks, qa_highlights.
+ *   asks, qa_highlights, milestones_completed / looking_ahead
+ *   (both backed by the milestones table).
  *
  * One file per renderer would be cleaner long-term but the forms are
  * tiny enough that putting them all here keeps the diff reviewable
@@ -25,6 +26,8 @@ const SECTION_TITLES: Record<string, string> = {
   partners_integrations: "Partners & Integrations",
   asks: "Asks",
   qa_highlights: "Q&A Highlights",
+  milestones_completed: "Milestones",
+  looking_ahead: "Milestones",
 };
 
 const PERIOD_RE = /^\d{4}-\d{2}$/;
@@ -184,6 +187,10 @@ export function SectionDataModal({
           )}
           {sectionId === "asks" && <AsksRenderer projectId={projectId} />}
           {sectionId === "qa_highlights" && <QaRenderer projectId={projectId} />}
+          {(sectionId === "milestones_completed" ||
+            sectionId === "looking_ahead") && (
+            <MilestonesRenderer projectId={projectId} />
+          )}
         </div>
       </div>
     </div>
@@ -979,6 +986,228 @@ function QaRenderer({ projectId }: { projectId: string }) {
               </div>
             </div>
             <RemoveBtn onClick={() => remove.mutate({ id: q.id })} />
+          </>
+        )}
+      />
+    </>
+  );
+}
+
+// ─── Milestones ────────────────────────────────────────────────────────
+// Backs both `milestones_completed` (status=completed within period) and
+// `looking_ahead` (status in {planned,in_progress,delayed}). One editor,
+// one table — status drives which report section the row lights up.
+
+const MILESTONE_STATUSES = [
+  "planned",
+  "in_progress",
+  "delayed",
+  "completed",
+] as const;
+type MilestoneStatus = (typeof MILESTONE_STATUSES)[number];
+
+const STATUS_LABELS: Record<MilestoneStatus, string> = {
+  planned: "Planned",
+  in_progress: "In progress",
+  delayed: "Delayed",
+  completed: "Completed",
+};
+
+function MilestonesRenderer({ projectId }: { projectId: string }) {
+  const { data: list = [], refetch } = trpc.milestones.list.useQuery({
+    projectId,
+  });
+  const add = trpc.milestones.add.useMutation({ onSuccess: () => refetch() });
+  const update = trpc.milestones.update.useMutation({
+    onSuccess: () => refetch(),
+  });
+  const remove = trpc.milestones.remove.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [status, setStatus] = useState<MilestoneStatus>("in_progress");
+  const [targetDate, setTargetDate] = useState("");
+  const [completedDate, setCompletedDate] = useState("");
+
+  function submit() {
+    if (!title.trim()) return;
+    add.mutate(
+      {
+        projectId,
+        title: title.trim(),
+        description: description.trim() || undefined,
+        status,
+        targetDate: targetDate || undefined,
+        completedDate:
+          status === "completed" ? completedDate || undefined : undefined,
+      },
+      {
+        onSuccess: () => {
+          setTitle("");
+          setDescription("");
+          setTargetDate("");
+          setCompletedDate("");
+          setStatus("in_progress");
+        },
+      }
+    );
+  }
+
+  return (
+    <>
+      <p
+        style={{
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          fontSize: 12,
+          color: "var(--vb-dim)",
+          margin: "0 0 14px",
+          lineHeight: 1.5,
+        }}
+      >
+        Active and planned milestones drive the &ldquo;Looking Ahead&rdquo;
+        section. Completed ones surface in &ldquo;Milestones Completed&rdquo;
+        for the period in which they were finished.
+      </p>
+
+      <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
+        <div>
+          <label style={labelStyle}>Title</label>
+          <input
+            style={inputStyle}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Mainnet launch on Base"
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Description (optional)</label>
+          <input
+            style={inputStyle}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Short context — what this means for the product or treasury."
+          />
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr auto",
+            gap: 10,
+          }}
+        >
+          <div>
+            <label style={labelStyle}>Status</label>
+            <select
+              style={inputStyle}
+              value={status}
+              onChange={(e) => setStatus(e.target.value as MilestoneStatus)}
+            >
+              {MILESTONE_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Target date</label>
+            <input
+              type="date"
+              style={inputStyle}
+              value={targetDate}
+              onChange={(e) => setTargetDate(e.target.value)}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Completed</label>
+            <input
+              type="date"
+              style={inputStyle}
+              value={completedDate}
+              disabled={status !== "completed"}
+              onChange={(e) => setCompletedDate(e.target.value)}
+            />
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-end" }}>
+            <button
+              type="button"
+              style={submitStyle}
+              disabled={!title.trim() || add.isPending}
+              onClick={submit}
+            >
+              <Plus size={12} /> {add.isPending ? "Adding…" : "Add"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <ItemList
+        rows={list}
+        empty="No milestones yet. Add one to fill Looking Ahead."
+        render={(m) => (
+          <>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "var(--vb-text)",
+                  fontWeight: 600,
+                  textDecoration:
+                    m.status === "completed" ? "line-through" : "none",
+                }}
+              >
+                {m.title}
+              </div>
+              {m.description && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--vb-muted)",
+                    marginTop: 2,
+                  }}
+                >
+                  {m.description}
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: "var(--vb-dim)", marginTop: 2 }}>
+                {STATUS_LABELS[m.status as MilestoneStatus] ?? m.status}
+                {m.targetDate ? ` · target ${m.targetDate}` : ""}
+                {m.completedDate ? ` · completed ${m.completedDate}` : ""}
+              </div>
+            </div>
+            <select
+              value={m.status}
+              onChange={(e) => {
+                const next = e.target.value as MilestoneStatus;
+                update.mutate({
+                  id: m.id,
+                  status: next,
+                  // Auto-stamp completedDate the first time someone flips
+                  // a row to completed. They can still edit it via re-add.
+                  completedDate:
+                    next === "completed" && !m.completedDate
+                      ? new Date().toISOString().slice(0, 10)
+                      : undefined,
+                });
+              }}
+              style={{
+                ...inputStyle,
+                width: "auto",
+                fontSize: 11,
+                padding: "5px 8px",
+                marginRight: 4,
+              }}
+              aria-label="Change milestone status"
+            >
+              {MILESTONE_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_LABELS[s]}
+                </option>
+              ))}
+            </select>
+            <RemoveBtn onClick={() => remove.mutate({ id: m.id })} />
           </>
         )}
       />
