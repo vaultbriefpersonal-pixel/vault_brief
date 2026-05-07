@@ -169,7 +169,7 @@ export default function GlobalSettingsPage() {
                 fontFamily: "var(--font-inter), Inter, sans-serif",
               }}
             >
-              Auto-generated drafts trigger a notification email. Uncheck to
+              Generated reports trigger a notification email. Uncheck to
               rely on the in-app inbox only.
             </p>
           </div>

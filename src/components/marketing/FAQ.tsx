@@ -2,30 +2,37 @@
 
 import { useState } from "react";
 
+// Production-SaaS framing — no "private beta" / "early access" copy.
+// Reflects the v2 brief positioning: Vault Brief is a live reporting
+// platform, not an upcoming one.
 const ITEMS = [
   {
     q: "How does Vault Brief connect to my wallets?",
-    a: "We use read-only connections. You provide wallet addresses and we pull balances and transaction data from on-chain sources. We never have access to your private keys or the ability to move funds.",
+    a: "Vault Brief uses public wallet addresses only. You add treasury wallets, and the system pulls balances and transaction data from supported data providers. Vault Brief never asks for private keys and cannot move funds.",
   },
   {
-    q: "Which blockchains do you support?",
-    a: "Ethereum, Solana, Arbitrum, Optimism, Polygon, Avalanche, BNB Chain, Base, and more. We add new chains monthly based on customer requests.",
+    q: "What kind of reports does Vault Brief generate?",
+    a: "Vault Brief generates investor reports with treasury overview, burn and runway, GitHub activity, token metrics, executive summary, and monthly changes. Reports can be reviewed and exported as PDF.",
   },
   {
-    q: "Can I edit the AI-generated reports?",
-    a: "Yes. Every report goes through a review step before sending. You can edit the narrative, add sections, attach files, and include a personal note to investors.",
+    q: "Can I edit a report before sending it?",
+    a: "Yes. Reports are generated for review first. You can edit the narrative, adjust context, and export the final version when ready.",
   },
   {
-    q: "Is my financial data secure?",
-    a: "All data is encrypted at rest and in transit. We use read-only connections and can never move funds. SOC 2 Type II audit is on our roadmap for Q3 2026.",
+    q: "Do investors need an account?",
+    a: "No. You can export a PDF and send it directly. A secure investor portal is on the roadmap for teams that want to share reports without sending PDFs manually.",
   },
   {
-    q: "What if I need a report outside the monthly schedule?",
-    a: "Growth and VC Suite plans can generate reports on demand at any time. Seed plan users can purchase additional reports for $25 each.",
+    q: "Which chains are supported?",
+    a: "Vault Brief supports major EVM chains and Solana reporting flows. New chains are added based on customer requests.",
   },
   {
-    q: "Do investors need to create an account?",
-    a: "No. Investors receive a secure link to a read-only portal. No sign-up required on their end.",
+    q: "Is Vault Brief only for token projects?",
+    a: "No. It works for Web3 startups, DAOs, protocols, funds, and teams that need to report treasury and development progress. Token metrics are optional.",
+  },
+  {
+    q: "Is this fully automated?",
+    a: "Vault Brief automates data collection and report generation. Sending stays under user control — reports are reviewed before they are shared.",
   },
 ];
 

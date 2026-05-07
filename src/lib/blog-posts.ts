@@ -223,4 +223,206 @@ export const POSTS: BlogPost[] = [
       },
     ],
   },
+  {
+    slug: "why-web3-investor-reporting-is-still-broken",
+    title: "Why Web3 Investor Reporting Is Still Broken",
+    excerpt:
+      "Web3 teams have public financial data, public development activity, and public token metrics. Reporting should be easier than in Web2. In practice, it is often messier.",
+    category: "Investor Relations",
+    date: "May 2026",
+    readTime: "5 min read",
+    content: [
+      {
+        type: "lead",
+        text: "Web3 teams have public financial data, public development activity, and public token metrics. Reporting should be easier than in Web2. In practice, it is often messier.",
+      },
+      {
+        type: "p",
+        text: "Web3 should have better investor reporting than traditional startups. Most treasury activity is on chain. Development activity often lives on GitHub. Token metrics are public. DAO activity, governance, and ecosystem growth can usually be tracked without asking the team for a spreadsheet.",
+      },
+      {
+        type: "p",
+        text: "And yet, monthly investor updates are still painful. Founders copy balances from block explorers. They manually check stablecoin exposure. They estimate burn from outgoing transactions. They pull GitHub activity by hand. They paste token charts into decks. Then they turn all of that into a report investors can understand.",
+      },
+      {
+        type: "p",
+        text: "The data exists. The workflow is broken.",
+      },
+      { type: "h2", text: "The main problem is fragmentation" },
+      {
+        type: "p",
+        text: "A Web3 project can have treasury wallets across Ethereum, Base, Arbitrum, Solana, Polygon, and other chains. Each wallet may hold stablecoins, native assets, governance tokens, vested tokens, or LP positions. Some spending happens on chain. Some happens off chain. GitHub activity sits in another system. Token metrics sit somewhere else. Narrative context sits in the founder's head.",
+      },
+      { type: "h2", text: "This creates three problems" },
+      {
+        type: "p",
+        text: "First, reporting takes too much time. A founder or ops lead can easily spend half a day every month collecting numbers before writing a single sentence. That is wasted attention.",
+      },
+      {
+        type: "p",
+        text: "Second, reports become inconsistent. One month the team reports runway. Next month they forget. One month they include GitHub progress. Next month they only mention product milestones. Investors receive updates, but not a reliable reporting format.",
+      },
+      {
+        type: "p",
+        text: "Third, investors get less signal. Raw data is not enough. Investors need to know what changed, why it changed, and what the team is doing next. A wallet balance alone does not explain burn quality, runway risk, hiring pace, product progress, or token exposure.",
+      },
+      { type: "h2", text: "Good Web3 reporting should combine five layers" },
+      {
+        type: "p",
+        text: "1. Treasury overview — how much capital does the project control, where is it held, and how did it change?",
+      },
+      {
+        type: "p",
+        text: "2. Burn and runway — how much was spent, what categories drove spending, and how long can the team operate at current burn?",
+      },
+      {
+        type: "p",
+        text: "3. Token metrics — how did token price, liquidity, holders, and market cap change during the period?",
+      },
+      {
+        type: "p",
+        text: "4. Development progress — what shipped, who contributed, and how active was the engineering pipeline?",
+      },
+      {
+        type: "p",
+        text: "5. Executive narrative — what changed this month, why it matters, and what comes next?",
+      },
+      { type: "h2", text: "This is exactly where automation helps" },
+      {
+        type: "p",
+        text: "The goal is not to remove the founder from reporting. The goal is to remove copy-paste work. The founder should review, correct, and approve the final report. But the first structured report should be generated from the source data automatically.",
+      },
+      {
+        type: "p",
+        text: "That is the direction Web3 investor reporting needs to move toward. Less manual spreadsheet work. More source-based reporting. More consistency. More context. Better investor trust.",
+      },
+    ],
+  },
+  {
+    slug: "what-investors-want-in-a-web3-monthly-update",
+    title: "What Investors Want in a Web3 Monthly Update",
+    excerpt:
+      "A good Web3 investor update is not a marketing post. It is a clear operating report that explains treasury, runway, product progress, and risks.",
+    category: "Investor Relations",
+    date: "May 2026",
+    readTime: "6 min read",
+    content: [
+      {
+        type: "lead",
+        text: "A good Web3 investor update is not a marketing post. It is a clear operating report that explains treasury, runway, product progress, and risks.",
+      },
+      {
+        type: "p",
+        text: "Most investor updates are too vague. They say the team is building. They mention partnerships. They include a few product screenshots. They say the market is volatile. Then they end with a positive closing note.",
+      },
+      {
+        type: "p",
+        text: "That is not enough. Investors want signal. They want to understand whether the project is financially healthy, whether the team is shipping, whether the roadmap is realistic, and whether new risks appeared during the month.",
+      },
+      {
+        type: "p",
+        text: "For Web3 teams, a strong monthly investor report should include six sections.",
+      },
+      { type: "h2", text: "1. Executive summary" },
+      {
+        type: "p",
+        text: "Start with the most important changes. What happened this month? What improved? What got worse? What should investors pay attention to? This section should be short and explain the month in plain English.",
+      },
+      { type: "h2", text: "2. Treasury overview" },
+      {
+        type: "p",
+        text: "Investors need to understand the project's financial position: total treasury balance, stablecoin balance, native asset exposure, token exposure, monthly inflows, monthly outflows, change from previous month.",
+      },
+      {
+        type: "p",
+        text: "Asset composition matters. A treasury with 80 percent stablecoins is very different from a treasury mostly exposed to volatile native tokens.",
+      },
+      { type: "h2", text: "3. Burn and runway" },
+      {
+        type: "p",
+        text: "Treasury balance is incomplete without burn. A good report should explain monthly burn, largest spending categories, change versus previous period, estimated runway, and any unusual expenses. Runway is one of the clearest investor signals — if it changes materially, explain why.",
+      },
+      { type: "h2", text: "4. Product and engineering progress" },
+      {
+        type: "p",
+        text: "Investors do not need every commit. They need proof that the team is moving. Useful GitHub metrics: commits, merged pull requests, active contributors, releases, major technical milestones. This section should translate development activity into business context.",
+      },
+      { type: "h2", text: "5. Token and market context" },
+      {
+        type: "p",
+        text: "For tokenized projects, token data belongs in the report: price, market cap, holder count, liquidity context, circulating supply changes, major unlocks. Don't turn this into price commentary — explain material changes that affect project perception, treasury value, or stakeholder confidence.",
+      },
+      { type: "h2", text: "6. Risks and next steps" },
+      {
+        type: "p",
+        text: "Good reporting is not only positive. Investors respect clarity. If burn increased, explain why. If a launch slipped, explain what changed. If liquidity weakened, say so. A clear risk section builds more trust than vague optimism.",
+      },
+      { type: "h2", text: "Consistency is what most teams are missing" },
+      {
+        type: "p",
+        text: "The best reports use the same structure every month. They show comparable metrics. They explain changes. They separate facts from narrative. The data is already there. The hard part is turning it into a report investors can read quickly and trust.",
+      },
+    ],
+  },
+  {
+    slug: "from-wallets-to-investor-reports",
+    title: "From Wallets to Investor Reports",
+    excerpt:
+      "A treasury wallet is not a report. Investors need context, categories, runway, development progress, and a clear monthly narrative.",
+    category: "Treasury Management",
+    date: "May 2026",
+    readTime: "6 min read",
+    content: [
+      {
+        type: "lead",
+        text: "A treasury wallet is not a report. Investors need context, categories, runway, development progress, and a clear monthly narrative.",
+      },
+      {
+        type: "p",
+        text: "A wallet balance tells you how much money exists at one moment. It does not explain what happened during the month. It does not explain why funds moved. It does not explain whether spending was healthy. It does not explain what the team shipped.",
+      },
+      {
+        type: "p",
+        text: "For a Web3 team, the reporting workflow usually starts with wallets. A founder, finance lead, or operations person opens block explorers, checks multisigs, copies balances, looks at token holdings, and tries to understand inflows and outflows. Then they repeat that across multiple chains. That is only the first layer.",
+      },
+      {
+        type: "p",
+        text: "The real value comes from turning wallet data into investor context.",
+      },
+      { type: "h2", text: "Step 1: Identify treasury wallets" },
+      {
+        type: "p",
+        text: "The first input is a list of project-controlled wallets — multisigs, EOAs, exchange deposit addresses, or operational wallets. The important thing is clarity. A token contract is not the same as a treasury wallet. A treasury wallet holds project assets; a token contract represents the asset itself.",
+      },
+      { type: "h2", text: "Step 2: Capture balances" },
+      {
+        type: "p",
+        text: "The report should show what the project holds now: stablecoins, native assets, project token, other tokens, LP positions where relevant. Stablecoin percentage is especially important because it gives a quick view of treasury stability.",
+      },
+      { type: "h2", text: "Step 3: Analyze flows" },
+      {
+        type: "p",
+        text: "Balances alone are not enough. The report should show inflows, outflows, net change, large transactions, recurring spending, and unusual movements. This helps investors understand whether treasury movement came from revenue, grants, fundraising, market movement, operational spending, or one-time events.",
+      },
+      { type: "h2", text: "Step 4: Estimate burn and runway" },
+      {
+        type: "p",
+        text: "Burn turns wallet activity into an operating metric. If a project spent $180,000 this month and holds $2.4 million in usable assets, the runway conversation becomes concrete. Investors can understand whether the team is moving efficiently or running too hot.",
+      },
+      { type: "h2", text: "Step 5: Add development activity" },
+      {
+        type: "p",
+        text: "Treasury reports are stronger when paired with building progress. If burn increased because the team hired engineers and shipped major releases, that is different from burn increasing without visible output. GitHub activity adds useful signal: commits, pull requests, contributors, releases, major shipped features.",
+      },
+      { type: "h2", text: "Step 6: Add narrative" },
+      {
+        type: "p",
+        text: "The final report should explain the month. What changed? Why did it change? What progress did the team make? What risks appeared? What happens next? This is where raw data becomes useful. A good investor report does not hide the numbers — it explains them.",
+      },
+      {
+        type: "p",
+        text: "That is the reporting standard Web3 teams should aim for: source-based data, consistent structure, clear narrative, and review before sharing. The best investor updates are not the longest ones. They are the clearest.",
+      },
+    ],
+  },
 ];

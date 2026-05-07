@@ -154,10 +154,11 @@ export default function NotificationsPage() {
               fontSize: 13,
               color: "var(--vb-dim)",
               margin: 0,
+              lineHeight: 1.5,
             }}
           >
-            New events will show up here when your snapshots sync or reports are
-            generated.
+            New events will appear here when snapshots sync, reports are
+            generated, or reports are sent.
           </p>
         </div>
       )}

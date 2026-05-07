@@ -14,8 +14,10 @@ test.describe("E6 - Mobile responsiveness", () => {
     await page.goto("/");
     // Logo renders "VAULT" + " BRIEF" across two spans — match the wrapper text.
     await expect(page.getByRole("navigation").getByText(/VAULT/)).toBeVisible();
-    // Hero headline split across two lines: "Investor reports" / "for Web3 teams"
-    await expect(page.getByText("for Web3 teams")).toBeVisible();
+    // Hero headline (split via gradient span): "Investor reports / for Web3 teams"
+    await expect(
+      page.getByRole("heading", { name: /Investor reports/ })
+    ).toBeVisible();
   });
 
   test("login page renders at 375px", async ({ page }) => {
@@ -28,10 +30,9 @@ test.describe("E6 - Mobile responsiveness", () => {
 
   test("pricing page renders at 375px", async ({ page }) => {
     await page.goto("/pricing");
-    // Hero headline rewrite: was "Simple, transparent pricing", now leads
-    // with the demo-first message.
+    // Hero headline rewrite (v3): "Simple pricing for Web3 reporting".
     await expect(
-      page.getByRole("heading", { name: /Start with a demo/ })
+      page.getByRole("heading", { name: /Simple pricing for Web3 reporting/ })
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Seed" })).toBeVisible();
   });

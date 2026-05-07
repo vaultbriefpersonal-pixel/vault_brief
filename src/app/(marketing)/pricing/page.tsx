@@ -12,12 +12,13 @@ export const metadata: Metadata = {
 // so the table doesn't quietly imply parity with what's actually live.
 const COMPARISON = [
   { feature: "Sample report preview", demo: "✓", seed: "—", growth: "—", custom: "—" },
-  { feature: "Wallets", demo: "—", seed: "1", growth: "10", custom: "Unlimited" },
+  { feature: "Projects", demo: "—", seed: "1", growth: "3", custom: "Unlimited" },
+  { feature: "Wallets", demo: "—", seed: "5", growth: "10", custom: "Unlimited" },
   { feature: "GitHub repos", demo: "—", seed: "1", growth: "5", custom: "Unlimited" },
-  { feature: "Monthly reports", demo: "—", seed: "✓", growth: "✓", custom: "✓" },
+  { feature: "AI investor reports", demo: "—", seed: "✓", growth: "✓", custom: "✓" },
   { feature: "PDF export", demo: "—", seed: "✓", growth: "✓", custom: "✓" },
-  { feature: "AI narratives", demo: "—", seed: "—", growth: "✓", custom: "✓" },
-  { feature: "Custom branding", demo: "—", seed: "—", growth: "✓", custom: "✓" },
+  { feature: "Token metrics", demo: "—", seed: "—", growth: "✓", custom: "✓" },
+  { feature: "Custom report branding", demo: "—", seed: "—", growth: "✓", custom: "✓" },
   { feature: "Investor portal (soon)", demo: "—", seed: "—", growth: "Roadmap", custom: "Roadmap" },
   { feature: "Multi-project", demo: "—", seed: "—", growth: "—", custom: "✓" },
   { feature: "White-label reports (soon)", demo: "—", seed: "—", growth: "—", custom: "Roadmap" },
@@ -26,24 +27,24 @@ const COMPARISON = [
 
 const FAQ_ITEMS = [
   {
-    q: "Is there a free trial?",
-    a: "Yes — start with the Free Demo to see a sample report, then 14 days of full features starting from your first sign-in. Connect wallets, sync data, generate and send your first investor report. No credit card required. After 14 days, paid plans unlock continued sync and report generation; your existing data stays visible regardless.",
-  },
-  {
-    q: "What's in the demo?",
-    a: "A demo draft report rendered from sample treasury, GitHub, and token data. Lets you preview the structure, sections, and tone before connecting your own wallets.",
-  },
-  {
-    q: "Can I change plans later?",
-    a: "Yes. Upgrade or downgrade at any time. Prorated credits are applied automatically.",
+    q: "Can I start without paying?",
+    a: "Yes. You can generate a demo draft report first. Paid plans are for generating reports from your own connected data.",
   },
   {
     q: "What counts as a wallet?",
-    a: "Each unique blockchain address counts as one wallet. Gnosis Safe, EOA, and exchange accounts all count.",
+    a: "Each unique treasury address counts as one wallet. Multisig wallets, EOAs, and exchange deposit addresses can be added as treasury wallets.",
   },
   {
-    q: "Do you offer annual discounts?",
-    a: "Yes. Annual billing saves 20% across paid plans.",
+    q: "Can I cancel?",
+    a: "Yes. You can cancel at any time. Your existing reports remain available inside your account.",
+  },
+  {
+    q: "Do you support crypto payments?",
+    a: "Crypto payment support is available where enabled. Card billing can also be used for standard plans.",
+  },
+  {
+    q: "Do you support funds and DAOs?",
+    a: "Yes. Custom plans are designed for funds, DAOs, and teams that need reporting across multiple projects or entities.",
   },
 ];
 
@@ -70,7 +71,7 @@ export default function PricingPage() {
             fontWeight: 600,
           }}
         >
-          Pricing · Private beta
+          Pricing
         </p>
         <h1
           style={{
@@ -83,20 +84,31 @@ export default function PricingPage() {
             margin: "0 0 16px",
           }}
         >
-          Start with a demo. Upgrade when you&apos;re ready.
+          Simple pricing for Web3 reporting
         </h1>
         <p
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 18,
             color: "var(--vb-muted)",
-            maxWidth: 560,
-            margin: "0 auto",
+            maxWidth: 600,
+            margin: "0 auto 12px",
             lineHeight: 1.6,
           }}
         >
-          Generate one free demo report from sample data. Move to a paid plan
-          when you want to automate monthly reporting from your own wallets.
+          Start with a demo report. Upgrade when you are ready to generate
+          recurring investor reports from your own treasury, GitHub, and
+          token data.
+        </p>
+        <p
+          style={{
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            fontSize: 13,
+            color: "var(--vb-dim)",
+            margin: 0,
+          }}
+        >
+          No credit card required for the first demo.
         </p>
       </section>
 
@@ -116,13 +128,14 @@ export default function PricingPage() {
             fontSize: 14,
             color: "var(--vb-muted)",
             marginTop: 32,
-            maxWidth: 560,
+            maxWidth: 600,
             textAlign: "center",
             lineHeight: 1.6,
           }}
         >
           Start with a demo report. Upgrade when you are ready to automate
-          monthly reporting.
+          monthly investor reporting from your own treasury, GitHub, and
+          token data.
         </p>
         <p
           style={{
@@ -135,9 +148,9 @@ export default function PricingPage() {
             lineHeight: 1.6,
           }}
         >
-          14-day free trial on paid plans — no credit card required. Vault
-          Brief is in private beta; some advanced features are still rolling
-          out (marked &ldquo;Roadmap&rdquo; below). Questions? Email{" "}
+          14-day free trial on paid plans — no credit card required. Items
+          marked &ldquo;Roadmap&rdquo; below are scheduled but not yet
+          shipped. Questions? Email{" "}
           <a
             href="mailto:hello@vaultbrief.com"
             style={{ color: "var(--accent)", textDecoration: "none" }}

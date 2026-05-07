@@ -4,7 +4,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Demo Investor Report — Vault Brief",
   description:
-    "Sample investor report generated from public-style data. See the structure, sections, and tone before you connect your own wallets.",
+    "See how Vault Brief turns Web3 project data into an investor-ready report. This sample shows the structure your own report can follow.",
 };
 
 const BALANCES = [
@@ -104,18 +104,49 @@ export default function DemoPage() {
             fontFamily: "var(--font-inter), Inter, sans-serif",
             fontSize: 16,
             color: "var(--vb-muted)",
-            margin: "0 auto 28px",
-            maxWidth: 580,
+            margin: "0 auto 22px",
+            maxWidth: 620,
             lineHeight: 1.6,
           }}
         >
-          This is a sample report generated from public-style data. The
-          structure, sections, and tone match what you&apos;d send your real
-          investors once your own wallets are connected.
+          See how Vault Brief turns Web3 project data into an investor-ready
+          report. This sample uses demo-style data and shows the structure
+          your own report can follow.
         </p>
-        <Link href="/login" className="btn-sm-primary">
-          Generate your demo draft report
-        </Link>
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            justifyContent: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <Link href="/login" className="btn-sm-primary">
+            Generate Demo Draft Report
+          </Link>
+          <Link
+            href="/login"
+            className="btn-secondary"
+            style={{ padding: "10px 22px", fontSize: 14 }}
+          >
+            Start Free Trial
+          </Link>
+        </div>
+        <p
+          style={{
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            fontSize: 12,
+            color: "var(--vb-dim)",
+            margin: "18px auto 0",
+            maxWidth: 600,
+            lineHeight: 1.5,
+          }}
+        >
+          The demo creates a sample draft report so you can preview the
+          format before connecting your own data. Real project reports are
+          generated from your connected wallets, GitHub activity, token
+          metrics, and project context.
+        </p>
       </section>
 
       {/* Report */}
@@ -491,25 +522,23 @@ export default function DemoPage() {
               letterSpacing: "-0.02em",
             }}
           >
-            Want one for your project?
+            Want this for your own project?
           </p>
           <p
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
               fontSize: 15,
               color: "var(--vb-muted)",
-              margin: "0 0 24px",
-              maxWidth: 520,
-              marginLeft: "auto",
-              marginRight: "auto",
+              margin: "0 auto 24px",
+              maxWidth: 540,
               lineHeight: 1.6,
             }}
           >
-            Sign up, paste a wallet address, and we&apos;ll pull the data and
-            assemble your first investor report.
+            Connect your treasury wallet and GitHub org to generate an
+            investor report from your own data.
           </p>
           <Link href="/login" className="btn-primary">
-            Generate your demo draft report
+            Start Free Trial
           </Link>
           <p
             style={{

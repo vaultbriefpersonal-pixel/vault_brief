@@ -28,82 +28,96 @@ export const metadata: Metadata = {
 // counts grow without hammering the DB on every visit. Static otherwise.
 export const revalidate = 300;
 
-// Two columns: features that ship today vs. the explicit roadmap. We
-// chose to surface the roadmap rather than hide it — early-access users
-// trust the product more when the gap between marketing and reality is
-// not a discovery moment three weeks in.
+// Six feature cards: the production capabilities of the platform. Copy
+// straight from the v2 copy pack — explicitly note the read-only-only
+// posture on treasury tracking so visitors don't worry about wallet
+// signing, and keep "review before send" prominent so the product
+// reads as a real reporting tool, not a fire-and-forget automation.
 const FEATURES_AVAILABLE = [
   {
     icon: "💼",
     title: "Treasury tracking",
-    desc: "Track balances, inflows, outflows, and runway across project wallets.",
+    desc: "Track balances, inflows, outflows, and runway across project wallets. Use public wallet addresses only. No private keys. No signing access.",
   },
   {
     icon: "💻",
     title: "GitHub activity",
-    desc: "Summarize commits, merged PRs, contributors, and releases for investor updates.",
+    desc: "Summarize commits, merged PRs, contributors, releases, and development progress for investor updates.",
   },
   {
     icon: "🤖",
-    title: "AI report narrative",
-    desc: "Turn treasury and development data into a structured investor report.",
+    title: "AI generated report narrative",
+    desc: "Turn treasury and development data into a clear investor report with executive summary, monthly changes, risks, and next steps.",
   },
   {
     icon: "📄",
     title: "PDF export",
-    desc: "Export a polished report that can be shared with investors or internal stakeholders.",
+    desc: "Export a polished report that can be shared with investors, internal stakeholders, DAO contributors, or fund partners.",
   },
   {
     icon: "📊",
     title: "Token metrics",
-    desc: "Include token price, market cap, holder count, and liquidity context where available.",
+    desc: "Include token price, market cap, holder count, liquidity context, and supply-related metrics where available.",
   },
   {
     icon: "✅",
     title: "Review before send",
-    desc: "Nothing goes out automatically without user approval.",
+    desc: "You stay in control. Reports are reviewed before sending or exporting.",
   },
 ];
 
-const FEATURES_COMING = [
-  { icon: "🌐", title: "Investor portal", desc: "Read-only dashboard per investor instead of email-only delivery." },
-  { icon: "📬", title: "Open and click tracking", desc: "Per-recipient engagement on every report you send." },
-  { icon: "🔌", title: "API access", desc: "Programmatic report generation and export for fund operators." },
-  { icon: "🎨", title: "White label reports", desc: "Branded PDFs without the Vault Brief footer." },
-  { icon: "⏰", title: "Advanced monthly automation", desc: "Schedules, multi-recipient routing, conditional sends." },
+// Compact "Available now" list — same shipped capabilities as the cards
+// above, condensed for the at-a-glance reference block. Demo report
+// preview is included here because it's a customer-facing capability
+// even though it's not a card-worthy feature.
+const AVAILABLE_NOW = [
+  "Treasury wallet tracking",
+  "GitHub activity summaries",
+  "AI generated report narrative",
+  "PDF export",
+  "Demo report preview",
+  "Manual review before send",
 ];
 
-// Each step keys to a lucide icon imported below. "iconKey" is a string
-// rather than the component itself so the constant stays plain-data and
-// the actual icon resolution happens in the render block.
+const FEATURES_COMING = [
+  { icon: "🌐", title: "Investor portal", desc: "Secure portal access for investors and stakeholders without sending PDFs manually." },
+  { icon: "📬", title: "Open and click tracking", desc: "Per-recipient engagement signal on every report you send." },
+  { icon: "🔌", title: "API access", desc: "Read-only programmatic access to your reports for fund or platform integrations." },
+  { icon: "🎨", title: "White label reports", desc: "Custom-branded PDFs without the Vault Brief footer for funds and agencies." },
+  { icon: "⏰", title: "Advanced monthly automation", desc: "Schedules, multi-recipient routing, and conditional report sends." },
+];
+
+// "Four steps to a report" — copy aligned with the v2 brief. Stays
+// product-focused (not engineering-stack-focused like the previous
+// version) so the funnel reads as workflow rather than architecture.
 const STEPS = [
   {
     num: "01",
     iconKey: "connect" as const,
-    title: "Connect",
+    title: "Connect data sources",
     desc:
-      "Add your treasury wallets — multisig, EOA, or exchange — across 20+ chains. Connect a GitHub org for dev metrics. Two minutes, no read-write keys ever.",
+      "Add treasury wallets, a GitHub org, token contract details, and basic project context.",
   },
   {
     num: "02",
     iconKey: "sync" as const,
-    title: "We pull the data",
+    title: "Vault Brief pulls the data",
     desc:
-      "Balances pulled from Alchemy + Dune + Helius, on-chain transactions classified into expense categories, and GitHub commit / PR / contributor activity snapshotted. Cached aggressively so re-runs are free.",
+      "The system collects balances, inflows, outflows, token metrics, and development activity from your connected sources.",
   },
   {
     num: "03",
     iconKey: "ai" as const,
-    title: "AI writes the report",
+    title: "Generate the report",
     desc:
-      "An LLM (Claude or Gemini, via OpenRouter) reads the snapshot — current treasury, prior month, anomalies, milestones — and produces a structured Markdown narrative. Numbers are validated against the source data; the model can't fabricate a balance.",
+      "Vault Brief turns the data into a structured investor report with treasury overview, runway, GitHub progress, and executive summary.",
   },
   {
     num: "04",
     iconKey: "send" as const,
-    title: "Review and send",
+    title: "Review, export, send",
     desc:
-      "Edit anything in the in-app Markdown editor. Mark Ready → Send. Investors get a branded PDF + an email with key KPIs already inline.",
+      "Review the report, edit if needed, export PDF, and share it with investors or stakeholders.",
   },
 ];
 
@@ -228,7 +242,7 @@ export default async function LandingPage() {
                 background: "#00e87b",
               }}
             />
-            Private beta · Automated wallet and GitHub reporting
+            Automated wallet and GitHub reporting for Web3 teams
           </div>
 
           <h1
@@ -255,13 +269,13 @@ export default async function LandingPage() {
               fontFamily: "var(--font-inter), Inter, sans-serif",
               lineHeight: 1.6,
               color: "var(--vb-muted)",
-              maxWidth: 600,
-              margin: "0 auto 44px",
+              maxWidth: 640,
+              margin: "0 auto 36px",
             }}
           >
-            Generate monthly treasury reports from wallets, GitHub activity, and
-            token metrics. Vault Brief turns raw on-chain data into
-            investor-ready reports you can review, export, and send.
+            Generate monthly treasury reports from wallets, GitHub activity,
+            token metrics, and project context. Vault Brief turns raw Web3
+            data into investor-ready reports you can review, export, and send.
           </p>
 
           <div
@@ -272,7 +286,7 @@ export default async function LandingPage() {
               flexWrap: "wrap",
             }}
           >
-            {/* Demo first — early users need to see output before committing.
+            {/* Demo first — visitors should see output before committing.
                 Trial is the secondary CTA per the conversion strategy. */}
             <Link href="/demo" className="btn-primary">
               Generate Demo Report
@@ -281,6 +295,20 @@ export default async function LandingPage() {
               Start Free Trial
             </Link>
           </div>
+
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 13,
+              color: "var(--vb-dim)",
+              margin: "18px auto 0",
+              maxWidth: 480,
+              lineHeight: 1.5,
+            }}
+          >
+            No credit card required. Preview a demo report before connecting
+            your own data.
+          </p>
         </div>
 
         {/* Mock dashboard card */}
@@ -425,7 +453,7 @@ export default async function LandingPage() {
                 fontWeight: 600,
               }}
             >
-              Input to report
+              From inputs to reports
             </p>
             <h2
               style={{
@@ -435,11 +463,26 @@ export default async function LandingPage() {
                 fontWeight: 700,
                 color: "var(--vb-text)",
                 letterSpacing: "-0.03em",
-                margin: 0,
+                margin: "0 0 14px",
               }}
             >
-              What goes in. What comes out.
+              From raw Web3 data to investor reports
             </h2>
+            <p
+              style={{
+                fontFamily: "var(--font-inter), Inter, sans-serif",
+                fontSize: 15,
+                color: "var(--vb-muted)",
+                lineHeight: 1.65,
+                maxWidth: 720,
+                margin: "0 auto",
+              }}
+            >
+              Founders should not spend hours copying balances from explorers,
+              GitHub stats from repos, and token data from dashboards. Vault
+              Brief brings those inputs together and turns them into a
+              structured monthly report.
+            </p>
           </div>
 
           <div
@@ -532,9 +575,8 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* Features — split into Available now / Coming soon for honesty.
-          Coming-soon block is dimmer + carries explicit badges so visitors
-          aren't surprised when they don't find a feature on first login. */}
+      {/* Features — six product capability cards. Coming-soon block lives
+          underneath so visitors see the roadmap explicitly. */}
       <section
         id="features"
         className="vb-section"
@@ -552,7 +594,7 @@ export default async function LandingPage() {
               fontWeight: 600,
             }}
           >
-            Available now
+            Built for active Web3 teams
           </p>
           <h2
             style={{
@@ -565,7 +607,7 @@ export default async function LandingPage() {
               margin: 0,
             }}
           >
-            What ships today
+            Production-ready investor reporting
           </h2>
         </div>
 
@@ -573,6 +615,29 @@ export default async function LandingPage() {
           {FEATURES_AVAILABLE.map((f) => (
             <FeatureCard key={f.title} {...f} status="available" />
           ))}
+        </div>
+
+        {/* Compact two-column reference: Available now vs. Coming soon.
+            Sits between the rich cards and the detailed roadmap so a
+            visitor who skim-reads still gets the shipped/planned signal. */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: 16,
+            marginTop: 56,
+          }}
+        >
+          <CapabilityList
+            kind="available"
+            title="Available now"
+            items={AVAILABLE_NOW}
+          />
+          <CapabilityList
+            kind="coming"
+            title="Coming soon"
+            items={FEATURES_COMING.map((f) => f.title)}
+          />
         </div>
 
         <div
@@ -645,7 +710,7 @@ export default async function LandingPage() {
                 margin: 0,
               }}
             >
-              Four steps. Zero spreadsheets.
+              Four steps to a report
             </h2>
           </div>
 
@@ -726,9 +791,9 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* Early access metrics — was "Built in public / Live numbers". The
-          rename keeps the same data but reframes it as honest beta usage
-          rather than positioning low counts as social proof. */}
+      {/* Production metrics — live counts of work the platform is doing.
+          Reframes the section away from "early-access numbers" toward a
+          straightforward "here's the live system" production story. */}
       <section className="vb-section" style={{ background: "var(--vb-alt)" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 48 }}>
@@ -743,7 +808,7 @@ export default async function LandingPage() {
                 fontWeight: 600,
               }}
             >
-              Early access metrics
+              Production usage
             </p>
             <h2
               style={{
@@ -764,14 +829,14 @@ export default async function LandingPage() {
                 fontSize: 15,
                 color: "var(--vb-muted)",
                 marginTop: 16,
-                maxWidth: 600,
+                maxWidth: 620,
                 margin: "16px auto 0",
                 lineHeight: 1.6,
               }}
             >
-              Vault Brief is in private beta. Core reporting flows are live;
-              advanced automation features are rolling out gradually. These
-              numbers update from production usage every five minutes.
+              Vault Brief tracks connected wallets, snapshots, and generated
+              reports from production usage. These numbers refresh every five
+              minutes from the live database.
             </p>
           </div>
 
@@ -899,29 +964,13 @@ export default async function LandingPage() {
             Connect a wallet and generate your first investor report in minutes.
             Schedule recurring monthly reports after review.
           </p>
-          <div
-            style={{
-              display: "flex",
-              gap: 12,
-              justifyContent: "center",
-              flexWrap: "wrap",
-            }}
+          <Link
+            href="/demo"
+            className="btn-primary"
+            style={{ padding: "16px 40px" }}
           >
-            <Link
-              href="/demo"
-              className="btn-primary"
-              style={{ padding: "16px 40px" }}
-            >
-              Generate Demo Report
-            </Link>
-            <Link
-              href="/login"
-              className="btn-secondary"
-              style={{ padding: "16px 32px" }}
-            >
-              Start Free Trial
-            </Link>
-          </div>
+            Generate Demo Report
+          </Link>
           <p
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
@@ -1029,6 +1078,88 @@ function FeatureCard({
       >
         {desc}
       </p>
+    </div>
+  );
+}
+
+function CapabilityList({
+  kind,
+  title,
+  items,
+}: {
+  kind: "available" | "coming";
+  title: string;
+  items: string[];
+}) {
+  const isAvail = kind === "available";
+  return (
+    <div
+      style={{
+        background: "var(--vb-card)",
+        border: `1px solid ${isAvail ? "rgba(0,232,123,0.18)" : "var(--vb-border)"}`,
+        borderRadius: 12,
+        padding: 22,
+      }}
+    >
+      <p
+        style={{
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          fontSize: 11,
+          color: isAvail ? "var(--accent)" : "var(--vb-dim)",
+          textTransform: "uppercase",
+          letterSpacing: "0.1em",
+          fontWeight: 600,
+          margin: "0 0 14px",
+        }}
+      >
+        {title}
+      </p>
+      <ul
+        style={{
+          listStyle: "none",
+          margin: 0,
+          padding: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+        }}
+      >
+        {items.map((it) => (
+          <li
+            key={it}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 14,
+              color: isAvail ? "var(--vb-text)" : "var(--vb-muted)",
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                background: isAvail
+                  ? "rgba(0,232,123,0.18)"
+                  : "rgba(255,255,255,0.05)",
+                color: isAvail ? "var(--accent)" : "var(--vb-dim)",
+                fontSize: 10,
+                fontWeight: 700,
+              }}
+            >
+              {isAvail ? "✓" : "•"}
+            </span>
+            {it}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

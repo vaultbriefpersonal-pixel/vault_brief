@@ -25,11 +25,14 @@ test.describe("E5 - Billing flow (public pages)", () => {
 
   test("pricing page shows feature list items", async ({ page }) => {
     await page.goto("/pricing");
-    await expect(page.getByText("1 wallet", { exact: true })).toBeVisible();
-    await expect(page.getByText("5 GitHub repos")).toBeVisible();
-    // "API access" appears in both the pricing card and the comparison table
-    // — at least one needs to be visible.
-    await expect(page.getByText("API access").first()).toBeVisible();
+    // Seed-tier feature: "Up to 5 treasury wallets". Growth: "Up to 5 GitHub repos".
+    await expect(
+      page.getByText("Up to 5 treasury wallets").first()
+    ).toBeVisible();
+    await expect(page.getByText("Up to 5 GitHub repos")).toBeVisible();
+    // "API access" appears in both the comparison table (as Roadmap) and
+    // the Custom card. At least one needs to be visible.
+    await expect(page.getByText(/API access/).first()).toBeVisible();
   });
 });
 

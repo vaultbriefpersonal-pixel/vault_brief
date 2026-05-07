@@ -14,7 +14,10 @@ import { filterEligibleProjects } from "@/server/lib/plan-limits";
 import { renderAndStorePDF } from "@/server/services/pdf-storage";
 
 /**
- * Auto-generate the monthly draft report ~2 days after the snapshot cron runs.
+ * Auto-generate the monthly report ~2 days after the snapshot cron runs.
+ * Status defaults to "draft" in the DB schema (it's a stage label, not a
+ * customer-facing product type) — UI presents this as a report pending
+ * review.
  *
  * Flow per project:
  *   1. Find the latest snapshot.
@@ -114,12 +117,14 @@ export const autoGenerateReportsJob = schedules.task({
           reviewUrl,
         });
 
-        // In-app notification mirrors the email so founders see the draft
-        // even if they ignore email.
+        // In-app notification mirrors the email so founders see the new
+        // report even if they ignore email. Per copy rules: never call
+        // the product output a "draft" — it's a generated report
+        // pending review.
         await notify(project.userId, {
           type: "report_generated",
-          title: `${project.name} draft report is ready`,
-          body: "Auto-generated from this month's snapshot. Review and edit before sending to investors.",
+          title: `${project.name} report is ready to review`,
+          body: "Generated from this month's snapshot. Review and edit before sending to investors.",
           href: reviewPath,
         });
 
