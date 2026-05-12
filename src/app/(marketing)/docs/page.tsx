@@ -52,7 +52,7 @@ export default function DocsPage() {
             lineHeight: 1.1,
           }}
         >
-          Public API — Q4 2026
+          Public API — on the roadmap
         </h1>
         <p
           style={{

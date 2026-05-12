@@ -49,7 +49,7 @@ export default function CookiesPage() {
         <p style={s.p}>You can also clear cookies at any time in your browser settings. Note that clearing essential cookies will log you out of your account.</p>
 
         <h2 style={s.h2}>Contact</h2>
-        <p style={s.p}>Questions about our cookie use? Email <a href="mailto:hello@vaultbrief.com" style={{ color: "var(--accent)", textDecoration: "none" }}>hello@vaultbrief.com</a>.</p>
+        <p style={s.p}>Questions about our cookie use? Email <a href="mailto:hello@vaultbrief.io" style={{ color: "var(--accent)", textDecoration: "none" }}>hello@vaultbrief.io</a>.</p>
       </section>
     </div>
   );

@@ -152,10 +152,10 @@ export default function PricingPage() {
           marked &ldquo;Roadmap&rdquo; below are scheduled but not yet
           shipped. Questions? Email{" "}
           <a
-            href="mailto:hello@vaultbrief.com"
+            href="mailto:hello@vaultbrief.io"
             style={{ color: "var(--accent)", textDecoration: "none" }}
           >
-            hello@vaultbrief.com
+            hello@vaultbrief.io
           </a>
         </p>
       </section>

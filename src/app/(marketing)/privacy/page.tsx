@@ -30,16 +30,16 @@ export default function PrivacyPage() {
         <p style={s.p}>Data is stored in US-East AWS infrastructure. All data is encrypted at rest using AES-256. EU data residency is on our roadmap for Q4 2026.</p>
 
         <h2 style={s.h2}>Investor data</h2>
-        <p style={s.p}>Investor names and email addresses you add to Vault Brief are used solely to deliver reports on your behalf. Investors may request removal from your list at any time by contacting us at hello@vaultbrief.com.</p>
+        <p style={s.p}>Investor names and email addresses you add to Vault Brief are used solely to deliver reports on your behalf. Investors may request removal from your list at any time by contacting us at hello@vaultbrief.io.</p>
 
         <h2 style={s.h2}>Cookies</h2>
         <p style={s.p}>We use essential cookies for authentication and session management. We use analytics cookies (Plausible Analytics, privacy-first) to understand usage. You can opt out of analytics cookies via our cookie banner.</p>
 
         <h2 style={s.h2}>Your rights</h2>
-        <p style={s.p}>You have the right to access, export, correct, or delete your data at any time. Email us at hello@vaultbrief.com to exercise any of these rights. We respond within 30 days.</p>
+        <p style={s.p}>You have the right to access, export, correct, or delete your data at any time. Email us at hello@vaultbrief.io to exercise any of these rights. We respond within 30 days.</p>
 
         <h2 style={s.h2}>Contact</h2>
-        <p style={s.p}>Questions about this policy? Email <a href="mailto:hello@vaultbrief.com" style={{ color: "var(--accent)", textDecoration: "none" }}>hello@vaultbrief.com</a>.</p>
+        <p style={s.p}>Questions about this policy? Email <a href="mailto:hello@vaultbrief.io" style={{ color: "var(--accent)", textDecoration: "none" }}>hello@vaultbrief.io</a>.</p>
       </section>
     </div>
   );

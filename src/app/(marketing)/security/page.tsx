@@ -165,10 +165,10 @@ export default function SecurityPage() {
           >
             If you discover a security issue, contact{" "}
             <a
-              href="mailto:security@vaultbrief.com"
+              href="mailto:security@vaultbrief.io"
               style={{ color: "var(--accent)", textDecoration: "none" }}
             >
-              security@vaultbrief.com
+              security@vaultbrief.io
             </a>{" "}
             with a clear description and reproduction steps.
           </p>

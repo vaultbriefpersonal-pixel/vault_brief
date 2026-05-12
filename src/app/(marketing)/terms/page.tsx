@@ -40,7 +40,7 @@ export default function TermsPage() {
         <p style={s.p}>We may update these terms. We will notify you by email 14 days before material changes take effect. Continued use of the service after that date constitutes acceptance.</p>
 
         <h2 style={s.h2}>Contact</h2>
-        <p style={s.p}>Questions? Email <a href="mailto:hello@vaultbrief.com" style={{ color: "var(--accent)", textDecoration: "none" }}>hello@vaultbrief.com</a>.</p>
+        <p style={s.p}>Questions? Email <a href="mailto:hello@vaultbrief.io" style={{ color: "var(--accent)", textDecoration: "none" }}>hello@vaultbrief.io</a>.</p>
       </section>
     </div>
   );

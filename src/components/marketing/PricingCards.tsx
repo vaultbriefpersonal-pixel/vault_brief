@@ -83,7 +83,7 @@ const TIERS: Tier[] = [
     ],
     featured: false,
     cta: "Contact us",
-    href: "mailto:hello@vaultbrief.com",
+    href: "mailto:hello@vaultbrief.io",
   },
 ];
 
