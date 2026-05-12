@@ -221,23 +221,23 @@ export async function sendReportReadyForReviewEmail(
 
   const body = `
     <p style="${paragraphStyle(palette)}">Hi ${to.name},</p>
-    ${badgeHtml("Draft", "amber")}
-    <p style="${paragraphStyle(palette)} margin-top: 12px;">Vault Brief auto-generated this month's investor report from your latest treasury snapshot. Review the numbers, edit the narrative, then send it to your investors when you're happy with it.</p>
+    ${badgeHtml("Pending review", "amber")}
+    <p style="${paragraphStyle(palette)} margin-top: 12px;">Vault Brief generated this month's investor report from your latest treasury snapshot. Review the numbers, edit the narrative, then send it to your investors when you're ready.</p>
     ${report.executiveSummary ? execSummaryHtml(report.executiveSummary, palette) : ""}
     ${ctaButtonHtml(reviewUrl, "Review and edit →", palette)}
     ${
       report.pdfUrl
-        ? `<p style="text-align: center; font-size: 13px; margin: 16px 0 0;"><a href="${report.pdfUrl}" style="color: ${palette.accent}; text-decoration: underline;">Download draft PDF</a></p>`
+        ? `<p style="text-align: center; font-size: 13px; margin: 16px 0 0;"><a href="${report.pdfUrl}" style="color: ${palette.accent}; text-decoration: underline;">Download report PDF</a></p>`
         : ""
     }
     <p style="font-size: 12px; color: ${palette.textMuted}; margin-top: 24px; line-height: 1.5;">
-      Nothing has been sent to investors yet. The draft will sit in your dashboard until you approve it.
+      Nothing has been sent to investors yet. The report stays in your dashboard until you approve it.
     </p>
   `;
 
   const html = renderEmailLayout({
     title: projectName,
-    subtitle: `Investor report draft · ${period}`,
+    subtitle: `Investor report · ${period} (pending review)`,
     logoUrl,
     palette,
     bodyHtml: body,

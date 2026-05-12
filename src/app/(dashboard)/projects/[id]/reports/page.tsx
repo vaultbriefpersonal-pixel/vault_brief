@@ -12,6 +12,15 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
+// User-facing labels — never show the raw "draft" / "review" status as
+// the product type. Per copy rules: the output is always a "report"; the
+// `draft` schema value is a stage label, surfaced as "Pending review".
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Pending review",
+  review: "Ready to send",
+  sent: "Sent",
+};
+
 const STATUS_STYLE: Record<string, React.CSSProperties> = {
   draft: { background: "rgba(255,255,255,0.06)", color: "var(--vb-muted)" },
   review: {
@@ -143,11 +152,10 @@ export default async function ReportsPage({ params }: Props) {
                     fontSize: 12,
                     fontWeight: 600,
                     fontFamily: "var(--font-inter), Inter, sans-serif",
-                    textTransform: "capitalize",
                     ...(STATUS_STYLE[report.status] ?? STATUS_STYLE.draft),
                   }}
                 >
-                  {report.status}
+                  {STATUS_LABELS[report.status] ?? report.status}
                 </span>
               </div>
             </Link>

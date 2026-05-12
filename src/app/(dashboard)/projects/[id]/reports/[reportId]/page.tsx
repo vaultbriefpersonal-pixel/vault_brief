@@ -11,9 +11,13 @@ interface Props {
   params: Promise<{ id: string; reportId: string }>;
 }
 
+// Stage labels. Per copy rules, never expose the raw "Draft" word to a
+// user — it would imply the product output is a draft. The DB column
+// stays `draft` (it's the internal workflow stage), but the UI shows
+// "Pending review".
 const STATUS_LABELS: Record<string, string> = {
-  draft: "Draft",
-  review: "Ready to Review",
+  draft: "Pending review",
+  review: "Ready to send",
   sent: "Sent",
 };
 

@@ -113,20 +113,18 @@ export default function AboutPage() {
             How we got here
           </h2>
           <p style={{ margin: "0 0 20px" }}>
-            The first version was a Saturday-afternoon script: pull balances
-            from Alchemy + Dune + Helius, dump into a Markdown template,
-            done. The second version added the LLM narrative. The third
-            taught the model to never fabricate a balance — the validator
-            now checks every dollar figure in the prose against the source
-            snapshot. Every release after that has been about making the
-            output something a fund manager would actually forward to their
-            LPs.
+            The first version pulled balances from Alchemy, Dune, and Helius
+            and dumped them into a Markdown template. The second version
+            added the LLM narrative. The third taught the model to never
+            fabricate a balance — the validator now checks every dollar
+            figure in the prose against the source snapshot. Every release
+            after that has been about making the output something a fund
+            manager would actually forward to their LPs.
           </p>
           <p style={{ margin: 0 }}>
-            We&apos;re early. The tool is real, the data is real, the
-            reports are real. There aren&apos;t hundreds of paying
-            customers yet — those will show up in the &ldquo;Built in
-            public&rdquo; numbers on the homepage as they do.
+            Vault Brief is a production SaaS product. The tool is live, the
+            data is real, and reports are generated every cycle. Production
+            usage numbers update on the homepage in real time.
           </p>
         </div>
       </section>

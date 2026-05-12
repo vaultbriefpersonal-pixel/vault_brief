@@ -24,7 +24,9 @@ export const POSTS: BlogPost[] = [
     category: "Treasury Management",
     date: "April 28, 2026",
     readTime: "6 min read",
-    featured: true,
+    // Demoted from featured — the v3 lead is the top-of-funnel piece
+    // "Why Web3 Investor Reporting Is Still Broken" so it gets the
+    // featured slot.
     content: [
       {
         type: "lead",
@@ -231,6 +233,7 @@ export const POSTS: BlogPost[] = [
     category: "Investor Relations",
     date: "May 2026",
     readTime: "5 min read",
+    featured: true,
     content: [
       {
         type: "lead",

@@ -44,7 +44,7 @@ export function paletteFor(brand?: { primaryColor?: string }): BrandPalette {
 export interface EmailLayoutArgs {
   /** Top-of-email title — typically the project name. */
   title: string;
-  /** Subtitle under the title — period / "Investor report draft" / etc. */
+  /** Subtitle under the title — period / "Investor report (pending review)" / etc. */
   subtitle?: string;
   /** Optional logo URL. When present, rendered at top-left of header. */
   logoUrl?: string | null;

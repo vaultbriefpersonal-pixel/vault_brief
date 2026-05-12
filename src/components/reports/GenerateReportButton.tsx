@@ -99,12 +99,12 @@ export function GenerateReportButton({
         title={
           blocked
             ? "Latest snapshot already has a report. Click Sync now on the dashboard to pull fresh data."
-            : "Generate a draft report from the latest snapshot"
+            : "Generate an investor report from the latest snapshot"
         }
       >
         <Sparkles size={14} />
         {generate.isPending
-          ? "Generating draft..."
+          ? "Generating report..."
           : blocked
             ? "Latest snapshot already used"
             : "Generate report"}

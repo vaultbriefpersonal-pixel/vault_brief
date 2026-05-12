@@ -147,8 +147,8 @@ export function ReportsEmptyState({
       </div>
       <p style={titleStyle}>Ready to generate</p>
       <p style={bodyStyle}>
-        Your {monthLabel} snapshot is ready. Generate a draft now or wait for
-        the automatic run on the 3rd of next month.
+        Your {monthLabel} snapshot is ready. Generate an investor report now
+        or wait for the automatic run on the 3rd of next month.
       </p>
       <button
         type="button"
@@ -164,7 +164,7 @@ export function ReportsEmptyState({
       >
         <Sparkles size={14} />
         {generate.isPending
-          ? "Generating draft..."
+          ? "Generating report..."
           : `Generate report from ${monthLabel} snapshot`}
       </button>
       {error && (
