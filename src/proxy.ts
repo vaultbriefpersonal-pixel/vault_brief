@@ -32,6 +32,15 @@ const PUBLIC_PATHS = [
   // the page protects drafts. Without this allowlist they'd be bounced
   // to /login and stuck.
   "/r",
+  // Next.js conventional metadata routes — sitemap, robots, default
+  // opengraph and twitter images at the app root. These get crawled by
+  // search engines and social-media unfurlers before auth, so they
+  // must be public. Per-route opengraph-image files under /blog/[slug]
+  // etc. already pass via their parent prefix.
+  "/sitemap.xml",
+  "/robots.txt",
+  "/opengraph-image",
+  "/twitter-image",
 ];
 
 export default auth((req: NextRequest & { auth: unknown }) => {
