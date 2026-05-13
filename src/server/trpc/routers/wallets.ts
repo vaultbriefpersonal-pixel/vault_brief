@@ -7,10 +7,14 @@ import { requireProject } from "../guards";
 import { checkLimit, mutationLimiter } from "@/server/lib/ratelimit";
 import { assertTrialActive } from "@/server/lib/plan-limits";
 
+// Wallet quota per plan. Aligned with marketing pricing-table:
+//   Seed (starter) = 5, Growth = 10, Custom (vc_suite) = unlimited.
+// Used to read 20 on Growth — generous, but inconsistent with what
+// the upgrade page advertises.
 const PLAN_WALLET_LIMITS: Record<string, number> = {
   free: 5,
   starter: 5,
-  growth: 20,
+  growth: 10,
   vc_suite: Infinity,
 };
 
