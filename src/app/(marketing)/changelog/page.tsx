@@ -9,6 +9,11 @@ export const metadata: Metadata = {
 // Three-label model per the v2 brief. Only mark Planned for items that
 // are not live. Email distribution / Stripe / USDC / report automation
 // are running in production and are tagged Shipped accordingly.
+//
+// Planned items used to live inline inside the monthly entries. That
+// blurred the line between "we did this" and "we will". They now live
+// in WHATS_NEXT below, rendered as a separate section after the
+// monthly log — same data, clearer message.
 type TagType = "shipped" | "improved" | "planned";
 
 const ENTRIES: {
@@ -43,16 +48,6 @@ const ENTRIES: {
         tag: "shipped",
         title: "Milestones manual entry",
         desc: "Founders can now add and edit milestones from the report template editor, powering the Looking Ahead and Milestones Completed sections.",
-      },
-      {
-        tag: "planned",
-        title: "Investor portal",
-        desc: "Investor portal access is planned for teams that want secure report sharing without sending PDFs manually.",
-      },
-      {
-        tag: "planned",
-        title: "API access",
-        desc: "Read-only API access is planned for funds and teams that want to integrate project reports into internal dashboards.",
       },
     ],
   },
@@ -128,6 +123,24 @@ const ENTRIES: {
         desc: "Send reviewed reports to investors via Resend. Open and click events are tracked back into the report dashboard.",
       },
     ],
+  },
+];
+
+// What's next — items that aren't shipped yet. Same shape as monthly
+// items minus the date so they render under their own "What's next"
+// header instead of bleeding into the historical log.
+const WHATS_NEXT: { title: string; desc: string }[] = [
+  {
+    title: "Investor portal",
+    desc: "Secure shared-link portal for investors so founders don't have to email PDFs manually. One link, gated by token, with read receipts.",
+  },
+  {
+    title: "API access",
+    desc: "Read-only API for funds and platforms that want to pull projects, snapshots, and reports into internal dashboards. Per-plan rate limits.",
+  },
+  {
+    title: "White-label reports",
+    desc: "Custom-branded PDFs without the Vault Brief footer for funds and reporting agencies that resell the output.",
   },
 ];
 
@@ -306,6 +319,95 @@ export default function ChangelogPage() {
               </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* What's next — separated from the historical log so visitors can
+          tell at a glance what's shipped vs. what's coming. */}
+      <section
+        className="vb-pad-x"
+        style={{
+          paddingTop: 32,
+          paddingBottom: 120,
+          background: "var(--vb-alt)",
+          borderTop: "1px solid var(--vb-border)",
+        }}
+      >
+        <div style={{ maxWidth: 760, margin: "0 auto", paddingTop: 60 }}>
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 13,
+              color: "var(--vb-dim)",
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+              fontWeight: 600,
+              marginBottom: 12,
+            }}
+          >
+            What&apos;s next
+          </p>
+          <h2
+            style={{
+              fontFamily:
+                "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+              fontSize: "clamp(24px, 3vw, 32px)",
+              fontWeight: 700,
+              color: "var(--vb-text)",
+              letterSpacing: "-0.025em",
+              margin: "0 0 8px",
+            }}
+          >
+            On the roadmap
+          </h2>
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 15,
+              color: "var(--vb-muted)",
+              lineHeight: 1.65,
+              margin: "0 0 40px",
+            }}
+          >
+            Items below are planned but not shipped yet. Want one of these
+            sooner? Email{" "}
+            <a
+              href="mailto:hello@vaultbrief.io"
+              style={{ color: "var(--accent)", textDecoration: "none" }}
+            >
+              hello@vaultbrief.io
+            </a>{" "}
+            and we&apos;ll bump the priority.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+            {WHATS_NEXT.map((item) => (
+              <div key={item.title}>
+                <h3
+                  style={{
+                    fontFamily:
+                      "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                    fontSize: 16,
+                    fontWeight: 600,
+                    color: "var(--vb-text)",
+                    margin: "0 0 6px",
+                  }}
+                >
+                  {item.title}
+                </h3>
+                <p
+                  style={{
+                    fontFamily: "var(--font-inter), Inter, sans-serif",
+                    fontSize: 15,
+                    color: "var(--vb-muted)",
+                    lineHeight: 1.65,
+                    margin: 0,
+                  }}
+                >
+                  {item.desc}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
     </div>

@@ -44,7 +44,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "Do you support crypto payments?",
-    a: "Crypto payment support is available where enabled. Card billing can also be used for standard plans.",
+    a: "Yes — pay with USDC at checkout via ATLOS, on Ethereum or any major L2. Same plan, same features, same 14-day trial. Card billing is also available for teams that prefer it.",
   },
   {
     q: "Do you support funds and DAOs?",

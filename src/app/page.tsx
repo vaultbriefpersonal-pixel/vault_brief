@@ -6,8 +6,8 @@ import { Footer } from "@/components/marketing/Footer";
 import { FAQ } from "@/components/marketing/FAQ";
 import { ChatWidget } from "@/components/marketing/ChatWidget";
 import { db } from "@/server/db";
-import { reports, wallets, treasurySnapshots } from "@/server/db/schema";
-import { count } from "drizzle-orm";
+import { treasurySnapshots } from "@/server/db/schema";
+import { sql } from "drizzle-orm";
 
 // Icon-key → lucide component. Keeps the STEPS constant plain-data while
 // the render block looks up the right glyph. New steps just add a key.
@@ -125,7 +125,7 @@ const STEPS = [
   },
 ];
 
-const STATS_FALLBACK = { reports: 0, wallets: 0, snapshots: 0 };
+const STATS_FALLBACK = { totalTrackedUsd: 0 };
 
 // Cheap signal that the env is using the .env.example placeholder URL —
 // CI / preview deploys often fall in this bucket. Skip the network round-
@@ -137,17 +137,40 @@ function dbConfigured(): boolean {
 
 let warnedFallback = false;
 
+/**
+ * Public production stats for the landing.
+ *
+ * Earlier version exposed raw counts (wallets / snapshots / reports). For a
+ * young product those numbers are small and hurt conversion — visitors
+ * read "4 reports generated" as "nobody uses this." Instead we surface a
+ * single defensive metric — total USD currently under treasury watch
+ * across all latest-per-project snapshots. That number is naturally large
+ * (one DAO treasury alone is tens of millions) and answers the actual
+ * question on a CFO's mind: "is this product trusted with real money?"
+ *
+ * The other landing tiles are descriptors (chains supported, daily
+ * sync cadence, output format) so we never have to "show 4 reports."
+ */
 async function loadPublicStats() {
   if (!dbConfigured()) return STATS_FALLBACK;
   try {
-    const [r] = await db.select({ n: count() }).from(reports);
-    const [w] = await db.select({ n: count() }).from(wallets);
-    const [s] = await db.select({ n: count() }).from(treasurySnapshots);
-    return {
-      reports: r?.n ?? 0,
-      wallets: w?.n ?? 0,
-      snapshots: s?.n ?? 0,
-    };
+    // Sum total_balance_usd from the latest snapshot per project. Using
+    // DISTINCT ON keeps it a single query — DB-side aggregation, no
+    // application-level loop over projects.
+    //
+    // db.execute() on the Neon HTTP adapter returns NeonHttpQueryResult,
+    // not a plain array. Cast through `unknown` and read `.rows` to keep
+    // the call site readable without fighting drizzle's generic.
+    const result = (await db.execute(sql`
+      SELECT COALESCE(SUM(total_balance_usd), 0)::numeric AS total
+      FROM (
+        SELECT DISTINCT ON (project_id) total_balance_usd
+        FROM ${treasurySnapshots}
+        ORDER BY project_id, snapshot_date DESC
+      ) AS latest
+    `)) as unknown as { rows: { total: string | number | null }[] };
+    const total = Number(result.rows?.[0]?.total ?? 0);
+    return { totalTrackedUsd: Number.isFinite(total) ? total : 0 };
   } catch (err) {
     if (!warnedFallback) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -156,6 +179,21 @@ async function loadPublicStats() {
     }
     return STATS_FALLBACK;
   }
+}
+
+/**
+ * Compact USD formatter for headline tiles. Hides the noise:
+ *   12345  → "$12K"
+ *   8420000 → "$8.4M"
+ *   79800000 → "$79.8M"
+ *   1230000000 → "$1.23B"
+ */
+function formatCompactUsd(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `$${Math.round(n / 1e3)}K`;
+  return `$${Math.round(n)}`;
 }
 
 const TOOL_STACK: Array<{ name: string; color: string }> = [
@@ -621,9 +659,11 @@ export default async function LandingPage() {
           ))}
         </div>
 
-        {/* Compact two-column reference: Available now vs. Coming soon.
+        {/* Compact two-column reference: Available now vs. On roadmap.
             Sits between the rich cards and the detailed roadmap so a
-            visitor who skim-reads still gets the shipped/planned signal. */}
+            visitor who skim-reads still gets the shipped/planned signal.
+            "On roadmap" replaces the older "Coming soon" — same meaning,
+            less salesy, doesn't compound with the badge-cards below. */}
         <div
           style={{
             display: "grid",
@@ -639,11 +679,14 @@ export default async function LandingPage() {
           />
           <CapabilityList
             kind="coming"
-            title="Coming soon"
+            title="On roadmap"
             items={FEATURES_COMING.map((f) => f.title)}
           />
         </div>
 
+        {/* Detailed roadmap block. The eyebrow used to say "Coming soon"
+            on top of an H2 that ALSO said "On the roadmap" — drop the
+            duplicate. */}
         <div
           style={{
             textAlign: "center",
@@ -651,19 +694,6 @@ export default async function LandingPage() {
             marginBottom: 56,
           }}
         >
-          <p
-            style={{
-              fontSize: 13,
-              color: "var(--vb-dim)",
-              fontFamily: "var(--font-inter), Inter, sans-serif",
-              marginBottom: 12,
-              textTransform: "uppercase",
-              letterSpacing: "0.1em",
-              fontWeight: 600,
-            }}
-          >
-            Coming soon
-          </p>
           <h2
             style={{
               fontFamily:
@@ -838,29 +868,42 @@ export default async function LandingPage() {
                 lineHeight: 1.6,
               }}
             >
-              Vault Brief tracks connected wallets, snapshots, and generated
-              reports from production usage. These numbers refresh every five
-              minutes from the live database.
+              Live treasury value under watch, refreshed from production. The
+              dollar figure aggregates the latest snapshot of every connected
+              project — it&apos;s what the system is actually tracking right
+              now, not a marketing claim.
             </p>
           </div>
 
+          {/* Defensive metrics — see loadPublicStats() doc-comment. We
+              previously had a 4-up grid with raw counts (wallets / snapshots
+              / reports). Those numbers are small for a new product and
+              hurt conversion. Replaced with one anchor metric (USD tracked)
+              plus three text descriptors. The grid now wraps to whatever
+              fits — three rows on mobile, four-up on wide desktop. */}
           <div className="vb-grid-4" style={{ gap: 20 }}>
             {[
-              { value: "20+", label: "Chains supported", note: "Ethereum + L2s + Solana" },
               {
-                value: stats.wallets.toLocaleString(),
-                label: "Wallets tracked",
-                note: "across all projects",
+                value: formatCompactUsd(stats.totalTrackedUsd),
+                label: "Treasury under watch",
+                note: "sum of latest snapshots",
               },
               {
-                value: stats.snapshots.toLocaleString(),
-                label: "Snapshots generated",
-                note: "balances · flows · GitHub",
+                value: "20+",
+                label: "Chains supported",
+                note: "Ethereum + L2s + Solana",
               },
               {
-                value: stats.reports.toLocaleString(),
-                label: "Reports generated",
-                note: "AI narratives shipped",
+                // Auto-sync cron runs monthly (1st @ 06:00 UTC); on-demand
+                // sync is available any time from the dashboard.
+                value: "Monthly",
+                label: "Sync cadence",
+                note: "auto + on-demand",
+              },
+              {
+                value: "PDF",
+                label: "Output format",
+                note: "investor-ready, branded",
               },
             ].map((s) => (
               <div
@@ -1039,7 +1082,7 @@ function FeatureCard({
           border: `1px solid ${isAvailable ? "rgba(0,232,123,0.3)" : "rgba(255,255,255,0.08)"}`,
         }}
       >
-        {isAvailable ? "Available" : "Coming soon"}
+        {isAvailable ? "Available" : "Roadmap"}
       </span>
       <div
         style={{

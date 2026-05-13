@@ -37,20 +37,11 @@ const COLS = [
   },
 ];
 
-// Discord and GitHub icons removed — both linked to placeholder URLs
-// that don't resolve yet (Discord server not created, GitHub org not
-// public). Better no link than a 404. Add back once the channels exist.
-const SOCIALS = [
-  {
-    label: "X",
-    href: "https://x.com/vaultbrief",
-    svg: (
-      <svg width={16} height={16} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-      </svg>
-    ),
-  },
-];
+// Discord, GitHub, and X icons removed — none of those channels exist
+// yet (no public Discord server, no GitHub org, no X account with
+// content). Better no link than a placeholder/404 that erodes trust.
+// Re-add as soon as each channel ships actual content.
+const SOCIALS: Array<{ label: string; href: string; svg: React.ReactNode }> = [];
 
 export function Footer() {
   return (

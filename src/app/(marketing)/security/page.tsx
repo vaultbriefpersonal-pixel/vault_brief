@@ -6,36 +6,56 @@ export const metadata: Metadata = {
     "Vault Brief uses public wallet data and read-only integrations to generate investor reports. Read about our security posture and roadmap.",
 };
 
+// Concrete, shipped security controls — no vague "roadmap" promises.
+// Every item below corresponds to an actual mechanism in the codebase:
+//   - read-only data path:      src/server/services/wallet-sync.ts (RPC reads only, no signers)
+//   - private key never asked:  no signer config anywhere in /lib/*
+//   - HTTPS everywhere:         Vercel-enforced HSTS (next.config.ts / Vercel platform)
+//   - Webhook signature checks: /api/webhooks/{stripe,resend,atlos} verify HMAC / Svix
+//   - Per-route rate limits:    src/server/lib/ratelimit.ts (Upstash Redis)
+//   - Encrypted PII at rest:    GitHub PAT stored encrypted (projects.githubTokenEncrypted)
+//   - Authenticated dashboard:  NextAuth v5 + Drizzle adapter, single-host magic links
+//   - Manual review on send:    reports default status='draft'; investor email needs user click
 const ITEMS = [
   {
     icon: "🔒",
     title: "Read-only wallet access",
-    desc: "Vault Brief works with public wallet addresses. It cannot sign transactions, move funds, or modify on-chain state.",
+    desc: "Vault Brief reads from public RPC endpoints (Alchemy, Dune Sim, Helius) using project-owned wallet addresses. The product holds no signing keys and cannot move funds, approve allowances, or modify on-chain state.",
   },
   {
     icon: "🔐",
     title: "No private key storage",
-    desc: "Vault Brief never asks for private keys, seed phrases, or wallet signing permissions.",
+    desc: "There is no signer in our code path. We never ask for seed phrases or wallet signing permissions, and no API or UI surface accepts them.",
   },
   {
-    icon: "🧾",
-    title: "Controlled report access",
-    desc: "Reports are generated inside your account. You decide what gets exported or shared.",
+    icon: "📨",
+    title: "Signed webhooks only",
+    desc: "Every inbound webhook is signature-verified before any side-effect runs. Stripe events check the official HMAC header; Resend uses Svix-signed events for email tracking; Atlos USDC postbacks are HMAC-SHA256 over the raw body with timing-safe comparison.",
   },
   {
-    icon: "✅",
-    title: "Review before send",
-    desc: "Nothing is sent automatically without user approval. Reports are reviewed before sharing.",
+    icon: "🔑",
+    title: "Encrypted credentials at rest",
+    desc: "GitHub personal access tokens are encrypted before they hit the database. Stripe customer references are opaque IDs only; no card details ever touch our servers.",
   },
   {
     icon: "🛡️",
-    title: "Operational security",
-    desc: "Vault Brief is built with standard application security practices, including access control, encrypted transport, and monitored production systems.",
+    title: "Auth and transport",
+    desc: "TLS 1.2+ enforced end-to-end via Vercel with HSTS preload. Authentication runs on NextAuth v5 with single-host magic links (no cross-origin redirects, no callback hijacking surface). DKIM, SPF, and DMARC verified for the sending domain.",
   },
   {
-    icon: "📋",
-    title: "Security roadmap",
-    desc: "Additional audit logs, stronger admin controls, and compliance documentation are part of the product roadmap.",
+    icon: "⏱️",
+    title: "Rate-limited surfaces",
+    desc: "Sign-in attempts, project creation, on-demand sync, autofill lookups, and chat are all rate-limited via Upstash Redis sliding windows. Burst protection lives at the edge before any DB or LLM call.",
+  },
+  {
+    icon: "✅",
+    title: "Manual review before send",
+    desc: "Generated reports land in draft status. Nothing is sent to investors until you click \"Send\". The sender drawer shows recipient list, edited markdown, and PDF preview side-by-side.",
+  },
+  {
+    icon: "🧾",
+    title: "Audit-friendly data layer",
+    desc: "Treasury snapshots are append-only. Every report references the exact snapshot it was generated from, and every webhook event is idempotently logged (Stripe events, Atlos events). Numbers in the AI narrative are validated against the source snapshot at generation time — no fabricated figures.",
   },
 ];
 
