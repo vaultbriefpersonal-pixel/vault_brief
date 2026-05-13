@@ -18,6 +18,16 @@ on:
       - ".github/workflows/trigger-deploy.yml"
   workflow_dispatch:
 
+# Serialize Trigger.dev deploys. A push that touches trigger code can race
+# with a manual `gh workflow run`, and Trigger.dev's indexer 500s on
+# concurrent deploys of the same project ("Error creating background
+# worker files"). cancel-in-progress=false queues the second run instead
+# of throwing away work — every code-changing run still gets applied,
+# just one at a time.
+concurrency:
+  group: trigger-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
