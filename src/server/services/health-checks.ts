@@ -124,7 +124,11 @@ async function checkAlchemy(): Promise<ServiceCheck> {
     return { name: "EVM RPC", status: "operational", latencyMs: null, detail: `not configured (${debug})` };
   }
   return timed("EVM RPC", async () => {
-    const res = await fetch(`https://eth-mainnet.alchemyapi.io/v2/${key}`, {
+    // Use the current Alchemy host. The legacy `eth-mainnet.alchemyapi.io`
+    // domain is deprecated and returns `fetch failed` against the live
+    // runtime path which uses `eth-mainnet.g.alchemy.com`. Aligning them
+    // makes /api/health reflect reality.
+    const res = await fetch(`https://eth-mainnet.g.alchemy.com/v2/${key}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),

@@ -77,11 +77,15 @@ const AVAILABLE_NOW = [
   "PDF export",
   "Demo report preview",
   "Manual review before send",
+  // Resend webhook (`email.opened`, `email.clicked`) increments
+  // `reports.openedCount` and `reports.clickedCount`; the reports
+  // list UI surfaces "Sent to X · Y opened · Z clicked". Per-recipient
+  // breakdown is roadmap; aggregate engagement is shipped.
+  "Open and click tracking",
 ];
 
 const FEATURES_COMING = [
   { icon: "🌐", title: "Investor portal", desc: "Secure portal access for investors and stakeholders without sending PDFs manually." },
-  { icon: "📬", title: "Open and click tracking", desc: "Per-recipient engagement signal on every report you send." },
   { icon: "🔌", title: "API access", desc: "Read-only programmatic access to your reports for fund or platform integrations." },
   { icon: "🎨", title: "White label reports", desc: "Custom-branded PDFs without the Vault Brief footer for funds and agencies." },
   { icon: "⏰", title: "Advanced monthly automation", desc: "Schedules, multi-recipient routing, and conditional report sends." },
