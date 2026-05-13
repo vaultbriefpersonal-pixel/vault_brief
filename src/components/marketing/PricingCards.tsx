@@ -19,23 +19,13 @@ interface Tier {
   href: string;
 }
 
+// Three real paid tiers. The "Free Demo" pseudo-tier was removed —
+// it isn't a usage plan, it's just a marketing CTA to /demo (which
+// renders a static Project Meridian sample). Signing up gives you a
+// 14-day full-access trial automatically (auth.ts events.createUser
+// stamps trialEndsAt), so the "free" path is the trial — not a fourth
+// permanent tier. Keeping it in the table confused upgrade paths.
 const TIERS: Tier[] = [
-  {
-    name: "Free Demo",
-    price: null,
-    customPriceLabel: "Free",
-    desc: "Preview the report format before connecting your own data.",
-    features: [
-      "Generate one demo draft report",
-      "View sample treasury overview",
-      "View sample GitHub activity section",
-      "View sample executive summary",
-      "No credit card required",
-    ],
-    featured: false,
-    cta: "Generate Demo Report",
-    href: "/demo",
-  },
   {
     name: "Seed",
     price: 99,
@@ -49,7 +39,7 @@ const TIERS: Tier[] = [
       "Manual review before send",
     ],
     featured: false,
-    cta: "Start Free Trial",
+    cta: "Start 14-day trial",
     href: "/login",
   },
   {
@@ -65,7 +55,7 @@ const TIERS: Tier[] = [
       "Priority support",
     ],
     featured: true,
-    cta: "Start Free Trial",
+    cta: "Start 14-day trial",
     href: "/login",
   },
   {
@@ -332,16 +322,17 @@ export function PricingCards() {
         )}
       </div>
 
-      {/* Four-up grid: Free Demo · Seed · Growth · Custom. We use a CSS
-          override (not vb-grid-3) so the four cards lay out evenly on
-          desktop and stack on mobile. */}
+      {/* Three-up grid: Seed · Growth · Custom. Wider min-col than the
+          old four-up so the cards don't feel cramped at the new tier
+          count. Free Demo is now a CTA banner above the cards (rendered
+          by /pricing page), not a pseudo-tier in this grid. */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
           gap: 20,
           alignItems: "start",
-          maxWidth: 1180,
+          maxWidth: 980,
           margin: "0 auto",
           width: "100%",
         }}

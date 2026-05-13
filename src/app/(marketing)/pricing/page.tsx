@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { PricingCards } from "@/components/marketing/PricingCards";
 
 export const metadata: Metadata = {
@@ -7,22 +8,25 @@ export const metadata: Metadata = {
     "Start with a free demo report. Upgrade when you are ready to automate monthly investor reporting.",
 };
 
-// Comparison table: Free Demo / Seed / Growth / Custom. We deliberately
-// mark coming-soon items with a "(soon)" suffix rather than a checkmark
-// so the table doesn't quietly imply parity with what's actually live.
+// Comparison table: Seed / Growth / Custom. Three-column. The old
+// "Free Demo" column was confusing — demo is a marketing CTA to
+// /demo, not a usage plan. New signups land on a 14-day full-access
+// trial automatically, which is presented as part of the Seed/Growth
+// CTAs (Start 14-day trial). We mark coming-soon items with a "(soon)"
+// suffix instead of a checkmark so the table doesn't quietly imply
+// parity with what's actually live.
 const COMPARISON = [
-  { feature: "Sample report preview", demo: "✓", seed: "—", growth: "—", custom: "—" },
-  { feature: "Projects", demo: "—", seed: "1", growth: "3", custom: "Unlimited" },
-  { feature: "Wallets", demo: "—", seed: "5", growth: "10", custom: "Unlimited" },
-  { feature: "GitHub repos", demo: "—", seed: "1", growth: "5", custom: "Unlimited" },
-  { feature: "AI investor reports", demo: "—", seed: "✓", growth: "✓", custom: "✓" },
-  { feature: "PDF export", demo: "—", seed: "✓", growth: "✓", custom: "✓" },
-  { feature: "Token metrics", demo: "—", seed: "—", growth: "✓", custom: "✓" },
-  { feature: "Custom report branding", demo: "—", seed: "—", growth: "✓", custom: "✓" },
-  { feature: "Investor portal (soon)", demo: "—", seed: "—", growth: "Roadmap", custom: "Roadmap" },
-  { feature: "Multi-project", demo: "—", seed: "—", growth: "—", custom: "✓" },
-  { feature: "White-label reports (soon)", demo: "—", seed: "—", growth: "—", custom: "Roadmap" },
-  { feature: "API access (soon)", demo: "—", seed: "—", growth: "—", custom: "Roadmap" },
+  { feature: "Projects", seed: "1", growth: "3", custom: "Unlimited" },
+  { feature: "Wallets", seed: "5", growth: "10", custom: "Unlimited" },
+  { feature: "GitHub repos", seed: "1", growth: "5", custom: "Unlimited" },
+  { feature: "AI investor reports", seed: "✓", growth: "✓", custom: "✓" },
+  { feature: "PDF export", seed: "✓", growth: "✓", custom: "✓" },
+  { feature: "Token metrics", seed: "—", growth: "✓", custom: "✓" },
+  { feature: "Custom report branding", seed: "—", growth: "✓", custom: "✓" },
+  { feature: "Investor portal (soon)", seed: "—", growth: "Roadmap", custom: "Roadmap" },
+  { feature: "Multi-project", seed: "—", growth: "—", custom: "✓" },
+  { feature: "White-label reports (soon)", seed: "—", growth: "—", custom: "Roadmap" },
+  { feature: "API access (soon)", seed: "—", growth: "—", custom: "Roadmap" },
 ];
 
 const FAQ_ITEMS = [
@@ -96,19 +100,9 @@ export default function PricingPage() {
             lineHeight: 1.6,
           }}
         >
-          Start with a demo report. Upgrade when you are ready to generate
-          recurring investor reports from your own treasury, GitHub, and
-          token data.
-        </p>
-        <p
-          style={{
-            fontFamily: "var(--font-inter), Inter, sans-serif",
-            fontSize: 13,
-            color: "var(--vb-dim)",
-            margin: 0,
-          }}
-        >
-          No credit card required for the first demo.
+          Every paid plan starts with a 14-day full-access trial — no credit
+          card required. Generate real reports from your own treasury data
+          for two weeks before deciding.
         </p>
       </section>
 
@@ -121,6 +115,32 @@ export default function PricingPage() {
           alignItems: "center",
         }}
       >
+        {/* Demo CTA — pre-card banner. The Free Demo is no longer a
+            pseudo-tier (it's a static /demo preview, not a plan), so
+            it lives here as a "kick the tires first" affordance. */}
+        <Link
+          href="/demo"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 18px",
+            borderRadius: 100,
+            border: "1px solid rgba(0,232,123,0.3)",
+            background: "rgba(0,232,123,0.06)",
+            color: "var(--accent)",
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+            fontSize: 13,
+            fontWeight: 600,
+            textDecoration: "none",
+            marginBottom: 36,
+            transition: "all 0.2s",
+          }}
+        >
+          <span style={{ fontSize: 14 }}>👀</span>
+          Want to see a sample report first? View the demo →
+        </Link>
+
         <PricingCards />
         <p
           style={{
@@ -203,13 +223,13 @@ export default function PricingPage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
+                gridTemplateColumns: "2fr 1fr 1fr 1fr",
                 background: "var(--vb-card)",
                 borderBottom: "1px solid var(--vb-border)",
               }}
             >
               <div style={{ padding: "16px 20px" }} />
-              {["Free Demo", "Seed", "Growth", "Custom"].map((plan) => (
+              {["Seed", "Growth", "Custom"].map((plan) => (
                 <div
                   key={plan}
                   style={{
@@ -232,7 +252,7 @@ export default function PricingPage() {
                 key={row.feature}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
+                  gridTemplateColumns: "2fr 1fr 1fr 1fr",
                   borderBottom:
                     i < COMPARISON.length - 1
                       ? "1px solid rgba(255,255,255,0.06)"
@@ -250,7 +270,7 @@ export default function PricingPage() {
                 >
                   {row.feature}
                 </div>
-                {[row.demo, row.seed, row.growth, row.custom].map((val, j) => (
+                {[row.seed, row.growth, row.custom].map((val, j) => (
                   <div
                     key={j}
                     style={{
