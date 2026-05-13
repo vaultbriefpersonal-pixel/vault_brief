@@ -1,5 +1,22 @@
 import { put } from "@vercel/blob";
-import { Resvg } from "@resvg/resvg-js";
+
+// `@resvg/resvg-js` is loaded lazily (dynamic import inside
+// rasterizeAndUpload) so callers that never produce a chart — most
+// notably the Trigger.dev jobs that import email-sender for the
+// "ready for review" path — don't drag the native binary into their
+// bundle. The Trigger.dev build image is glibc-based and chokes on
+// the package's musl optional dep variant during `npm i`. Combined
+// with `build.external` in trigger.config.ts this keeps resvg out of
+// the deploy pipeline entirely while still working in the Next.js
+// runtime where Vercel handles native deps correctly.
+type ResvgModule = typeof import("@resvg/resvg-js");
+let resvgPromise: Promise<ResvgModule> | null = null;
+function loadResvg(): Promise<ResvgModule> {
+  if (!resvgPromise) {
+    resvgPromise = import("@resvg/resvg-js");
+  }
+  return resvgPromise;
+}
 
 /**
  * Render the same chart shapes the PDF uses, but as raw SVG strings →
@@ -190,6 +207,7 @@ export async function rasterizeAndUpload(
     return null;
   }
   try {
+    const { Resvg } = await loadResvg();
     const resvg = new Resvg(svg, {
       fitTo: { mode: "zoom", value: scale },
       // Helvetica isn't bundled by default; @resvg ships a built-in font
