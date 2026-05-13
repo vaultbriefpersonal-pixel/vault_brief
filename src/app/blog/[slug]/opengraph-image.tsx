@@ -3,28 +3,23 @@ import { POSTS } from "@/lib/blog-posts";
 
 // Per-blog-post OG image. Each post gets its own preview card so a
 // share to Telegram / Twitter / LinkedIn shows the actual post title +
-// category. Falls back to the same brand frame when a slug isn't
-// recognized (edge case — the slug not in POSTS).
+// category.
+//
+// IMPORTANT (Next.js 16): we run on the default nodejs runtime, NOT
+// edge. `generateImageMetadata` (which we previously used for the
+// `alt` text) compiles to a synthetic `[__metadata_id__]` route that
+// needs `generateStaticParams` internally — and edge runtime is
+// incompatible with `generateStaticParams`. Build error:
+//   "Edge runtime is not supported with `generateStaticParams`"
+// We dropped `generateImageMetadata` (only needed for multi-image
+// per route) and prerender every known slug via `generateStaticParams`.
 
-export const runtime = "edge";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
+export const alt = "Vault Brief — Blog post";
 
-export async function generateImageMetadata({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
-  const { slug } = await params;
-  const post = POSTS.find((p) => p.slug === slug);
-  return [
-    {
-      id: "default",
-      alt: post ? `${post.title} — Vault Brief` : "Vault Brief — Blog",
-      contentType,
-      size,
-    },
-  ];
+export function generateStaticParams() {
+  return POSTS.map((p) => ({ slug: p.slug }));
 }
 
 const BG = "#0a0a0a";
