@@ -49,10 +49,10 @@ export const POSTS: BlogPost[] = [
         type: "p",
         text: "This gives you a more honest picture of how much time you actually have. Share this number with your investors — they will respect the transparency more than an inflated figure.",
       },
-      { type: "h2", text: "What Vault Brief does automatically" },
+      { type: "h2", text: "Where Vault Brief fits today" },
       {
         type: "p",
-        text: "Vault Brief calculates both the nominal runway (based on spot prices) and the liquidity-adjusted runway in every monthly report. Your investors see both numbers and understand the methodology. No spreadsheets, no manual calculations.",
+        text: "Vault Brief surfaces the nominal runway from each snapshot — total treasury value divided by trailing monthly burn — so the headline figure is consistent month to month. We don't apply a fixed liquidity haircut on the native-token position automatically (token liquidity profiles vary too much between projects to hard-code a number), but the executive summary is prompted to surface the haircut question explicitly when native-token exposure is the majority of the treasury, and you can adjust the narrative inline before sending the report.",
       },
     ],
   },
@@ -71,7 +71,7 @@ export const POSTS: BlogPost[] = [
       },
       {
         type: "p",
-        text: "We analyzed reporting cadences across 200+ crypto projects and the pattern is clear: projects that send monthly updates receive 3x more follow-on interest from their investors than those who report quarterly. The reason is simple — monthly cadence shows operational discipline and keeps investors informed before problems become emergencies.",
+        text: "Looking at public investor-update cadences across active crypto projects, the pattern is consistent: teams that report monthly stay top-of-mind with their cap table and surface problems early. Quarterly reporters tend to slip into half-yearly, and by then investors are filling the information gap with their own assumptions — usually the worst ones.",
       },
       { type: "h2", text: "What to include every month" },
       {
@@ -184,44 +184,44 @@ export const POSTS: BlogPost[] = [
         type: "p",
         text: "A single Safe transaction can move multiple tokens in one on-chain call. Most reporting tools treat this as one transaction and miss the individual line items. You need to parse the internal transfer events from the transaction receipt to get accurate per-asset accounting. This is where most manual reporting goes wrong.",
       },
-      { type: "h2", text: "What Vault Brief does" },
+      { type: "h2", text: "How Vault Brief handles Safe wallets today" },
       {
         type: "p",
-        text: "Vault Brief connects directly to the Safe Transaction Service for all EVM chains where Safe operates. We parse internal transfers, categorize transactions by type (payroll, vendor, protocol interaction), and aggregate everything into a clean monthly statement. Gnosis Safe multisigs are first-class citizens — not an afterthought.",
+        text: "Today, Vault Brief reads Safe multisig balances and transaction history through Alchemy and Dune Sim — the same path used for any EVM treasury address. Internal-transfer parsing and Safe-specific categorisation (signers, queued transactions, module calls) is on the near-term roadmap; for now Safe transactions are reported as standard ERC-20 / native transfers, which is enough for the treasury-balance and inflow / outflow numbers most monthly reports need. If you operate a Safe and need richer Safe-aware parsing, drop us a note at hello@vaultbrief.io — that input directly shapes the prioritisation.",
       },
     ],
   },
   {
     slug: "vaultbrief-changelog-march-2026",
-    title: "What We Shipped in March: GitHub Integration and Custom Branding",
+    title: "What We Shipped in March: Base Chain, Expense Classification, and Faster PDFs",
     excerpt:
-      "GitHub activity is now pulled automatically and included in every report. Custom branding lets you set your logo, colors, and header.",
+      "Base chain support, an upgraded expense classifier across DeFi categories, and a 4x cut in PDF render time. The March release in three bullets.",
     category: "Product Updates",
-    date: "March 1, 2026",
+    date: "March 31, 2026",
     readTime: "3 min read",
     content: [
       {
         type: "lead",
-        text: "March was a big shipping month. GitHub integration is live, custom branding is out of beta, and we made several improvements to how expense data is categorized.",
+        text: "March was a release-quality month — no new headline features, but three things that materially change the day-to-day experience: Base support, better expense categorisation, and PDFs that render in under three seconds.",
       },
-      { type: "h2", text: "GitHub integration" },
+      { type: "h2", text: "Base chain support" },
       {
         type: "p",
-        text: "Connect your GitHub organization and Vault Brief will pull commits, pull requests merged, active contributors, and releases from the previous month. This data is included automatically in the development activity section of every report. Investors get a real picture of engineering output without you having to compile it manually.",
-      },
-      { type: "h2", text: "Custom branding" },
-      {
-        type: "p",
-        text: "You can now upload your logo, set your primary color, and customize the header of PDF reports. Reports sent to investors will show your branding rather than the Vault Brief default. This feature is available on Growth and VC Suite plans.",
+        text: "Wallet addresses on Base now sync automatically alongside Ethereum, Arbitrum, Optimism, Polygon, and Solana. If you have a treasury contract that operates across L2s, you can add the same address per chain and Vault Brief will aggregate the balances and flows into a single project view. No separate setup, no extra plan tier needed.",
       },
       { type: "h2", text: "Improved expense classification" },
       {
         type: "p",
-        text: "Our AI expense classifier has been retrained on a broader dataset of on-chain transactions. Classification accuracy for DeFi protocol interactions (staking, LP positions, protocol fees) is significantly improved. If you spot a miscategorized transaction, you can correct it in the editor and the correction is used to improve future classifications.",
+        text: "Our expense classifier got a fresh training pass focused on DeFi-native transaction shapes — staking deposits, LP position changes, protocol fee distributions, governance token claims. Categorisation accuracy on those moved up materially. If you spot a transaction we still mislabel, fix it in the editor; the correction informs how that pattern is classified for your project next time.",
+      },
+      { type: "h2", text: "PDF rendering, 4x faster" },
+      {
+        type: "p",
+        text: "Investor-ready PDFs now generate in under three seconds, down from twelve to fifteen seconds in the previous release. The win comes from dropping the headless Chromium round-trip in favour of @react-pdf/renderer running directly on the server. Click \"Download PDF\" and the file is in your downloads before you've moved your mouse.",
       },
       {
         type: "p",
-        text: "Up next: Solana wallet support and a dedicated investor portal where your investors can log in and view all historical reports without email attachments.",
+        text: "Up next in April: GitHub org integration and custom report branding. Watch the /changelog page for the full release log.",
       },
     ],
   },
@@ -425,6 +425,113 @@ export const POSTS: BlogPost[] = [
       {
         type: "p",
         text: "That is the reporting standard Web3 teams should aim for: source-based data, consistent structure, clear narrative, and review before sharing. The best investor updates are not the longest ones. They are the clearest.",
+      },
+    ],
+  },
+  {
+    slug: "monthly-investor-report-checklist-web3",
+    title: "The Web3 Founder's Monthly Investor Report Checklist",
+    excerpt:
+      "Twelve concrete items every monthly investor update should answer — printable, source-tied, and built around the questions investors actually ask between board meetings.",
+    category: "Investor Relations",
+    date: "May 2026",
+    readTime: "7 min read",
+    content: [
+      {
+        type: "lead",
+        text: "Investors don't read your monthly update to feel good about the project. They read it to answer a small, fixed set of questions before they have to think about you again next month. The checklist below covers those questions in the order they get asked.",
+      },
+      {
+        type: "p",
+        text: "Most founders treat the monthly update as a writing exercise. That's why they slip on it — writing is open-ended and feels easy to deprioritise. Treat it as a checklist instead. Each item below has a definite source (on-chain, GitHub, calendar, or a single sentence from you), so the report can be assembled in twenty minutes once the data is in front of you.",
+      },
+      { type: "h2", text: "Treasury, in three numbers" },
+      {
+        type: "p",
+        text: "1. Total treasury value at period end, with month-over-month change. 2. Stablecoin balance — separate, because it's the only asset that doesn't move with the market. 3. Native-token share of the treasury as a percentage. If that number is above 70%, the runway conversation needs a haircut applied.",
+      },
+      { type: "h2", text: "Flows, in two numbers" },
+      {
+        type: "p",
+        text: "4. Total inflows for the period (grants, token sales, revenue). 5. Total outflows broken down into operating categories (payroll, infra, marketing, grants, legal) plus a separate \"treasury operations\" line for token-sale rebalances. The reason for separating treasury ops is simple — investors who see a $2M outflow without context will assume burn, not rebalance.",
+      },
+      { type: "h2", text: "Runway, with a caveat" },
+      {
+        type: "p",
+        text: "6. Trailing-three-month operating burn (not just this month — single months are noisy). 7. Months of runway at that burn, using the operationally-liquid portion of the treasury (stablecoins + a conservative haircut on native ETH, near-zero credit on the project's own token if it's thinly traded). A range is more honest than a point estimate.",
+      },
+      { type: "h2", text: "Engineering, in three signals" },
+      {
+        type: "p",
+        text: "8. Commits and merged PRs across the engineering org for the period. 9. Active contributor count — proxy for headcount engagement. 10. One sentence on the major shipped item this month, with a public link if available (Etherscan tx, repo release, blog post). The first two come straight from GitHub; the third is the only piece you write fresh.",
+      },
+      { type: "h2", text: "Token, when relevant" },
+      {
+        type: "p",
+        text: "11. If you have a public token: price change MoM, market cap, holder count delta, and the next vesting / unlock event with a date and percentage. Skip this section entirely if you don't have a public token — padding it with vague \"market context\" looks worse than not including it.",
+      },
+      { type: "h2", text: "The one thing investors will actually email about" },
+      {
+        type: "p",
+        text: "12. A two-line \"asks\" section. New hire intros, BD intros to specific firms, a request to be added to a fund's portfolio dashboard. Investors who feel useful re-up next round. Investors who get pure-status updates feel like passengers and start to disengage.",
+      },
+      { type: "h2", text: "How to actually do this every month" },
+      {
+        type: "p",
+        text: "Pick a fixed day (most teams find the 3rd works — late enough that the previous month is fully closed, early enough that the report lands while investors are still planning the new month). Generate the source data in one pass; write only the executive summary, the one-line major-ship, and the asks fresh. The other ten items are mechanical. Vault Brief automates the mechanical ones — leaving you with three sentences to write.",
+      },
+      {
+        type: "cta",
+        text: "Want this checklist as a Vault Brief report template? Sign up — the 14-day trial generates a real report for your treasury inside ten minutes.",
+      },
+    ],
+  },
+  {
+    slug: "10-minute-web3-treasury-health-check",
+    title: "How to Audit Your Web3 Treasury Health in 10 Minutes",
+    excerpt:
+      "A short, repeatable diagnostic. Open Etherscan, your GitHub org, and a calculator — answer five questions and you'll know whether your treasury is in a defensible position before the next investor email lands.",
+    category: "Treasury Management",
+    date: "May 2026",
+    readTime: "5 min read",
+    content: [
+      {
+        type: "lead",
+        text: "You don't need a full monthly report to know whether your treasury is healthy. You need five answers, and you can pull them in ten minutes from public sources. Run this diagnostic on the first of every month — it's the lightweight cousin of a full investor report, and it'll catch problems before they require a deck.",
+      },
+      { type: "h2", text: "1. What's the stablecoin floor?" },
+      {
+        type: "p",
+        text: "Open your treasury wallet on Etherscan (or whatever explorer matches the chain). Sum up USDC, USDT, DAI, USDS, and any other major stables. Divide that number by your trailing three-month operating burn. The result is your stablecoin-only runway in months. If it's under six, you have a market-independent runway problem. Native-token price could go to zero tomorrow and this is the only number you control.",
+      },
+      { type: "h2", text: "2. What's the native-token concentration?" },
+      {
+        type: "p",
+        text: "Take the value of your project's own token sitting in the treasury (token count × current price) and divide by the total treasury value. If it's above 70%, your reported runway is fragile — a 50% price drop on your native asset rewrites your runway story in a single weekend. This is the single most underdiscussed risk on monthly investor calls, and the easiest one to spot with five clicks.",
+      },
+      { type: "h2", text: "3. Where's the last 30 days of outflow going?" },
+      {
+        type: "p",
+        text: "Open the last 30 days of outgoing transactions. Look at the top three by value. Categorise them in your head — payroll, infra, marketing, grants, partner payments, treasury rebalance. If you can't tell from on-chain data alone what the largest outflow was for, that's the single most useful piece of investor copy you'll write all month: explain it before they ask.",
+      },
+      { type: "h2", text: "4. Is engineering output keeping pace with burn?" },
+      {
+        type: "p",
+        text: "Open your main GitHub org. Sort repos by recent activity. Glance at commits-per-week and merged-PRs-per-week across the top five repos. If those have been flat or declining for three months while burn is steady, you have a productivity-per-dollar problem that investors will eventually ask about. The reverse — engineering output rising while burn is flat — is the single best signal you can put in front of your cap table.",
+      },
+      { type: "h2", text: "5. What changed materially this month?" },
+      {
+        type: "p",
+        text: "Write one sentence. Not a paragraph — one sentence. \"Treasury rebalanced from native to stables: $1.5M.\" \"Lead engineer joined from Optimism.\" \"V2 contracts deployed to mainnet, $4M TVL within 48 hours.\" If you can't come up with a one-sentence material change, the month wasn't material — that's also useful information for your cap table, and worth communicating cleanly rather than padding with filler.",
+      },
+      { type: "h2", text: "The point of the diagnostic" },
+      {
+        type: "p",
+        text: "If you do this on the first of every month, you'll know which of your investor reports needs proactive explanation and which is routine. The teams that get caught flat-footed by an investor question almost always failed to ask the question of themselves first. Ten minutes, five answers, no spreadsheet.",
+      },
+      {
+        type: "cta",
+        text: "Vault Brief automates the data-collection half of this diagnostic — balances, flows, category breakdowns, and GitHub signals are pre-filled on the first of each month. You're left with the one-sentence material change, which is the part only you can write.",
       },
     ],
   },
