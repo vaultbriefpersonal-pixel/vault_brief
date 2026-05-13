@@ -11,9 +11,11 @@ const COLS = [
       { label: "Pricing", href: "/pricing" },
       { label: "Demo", href: "/demo" },
       { label: "Changelog", href: "/changelog" },
-      // "API Docs" → roadmap stub. Surface that it's coming, don't pretend
-      // we have a public API today.
-      { label: "API (coming soon)", href: "/docs" },
+      // /docs is the founder-facing product reference (wallet sync,
+      // monthly cadence, plan limits). The public API is still on the
+      // roadmap — it's covered inside /docs and /changelog rather than
+      // shouting "Coming soon" from the footer.
+      { label: "Docs", href: "/docs" },
     ],
   },
   {

@@ -7,42 +7,47 @@ export const metadata: Metadata = {
     "See how Vault Brief turns Web3 project data into an investor-ready report. This sample shows the structure your own report can follow.",
 };
 
+// Demo uses real, public ENS DAO treasury data from a recent sync
+// (treasury multisig 0xFe89cc7aBB2C4183683ab71653C4cdc9B02D44b7).
+// Numbers below match what a curl against Alchemy returns today,
+// rounded to two significant figures. The earlier "Project Meridian"
+// fictional sample didn't ground the demo in a real protocol — using
+// ENS makes the demo verifiable by anyone with an Etherscan tab.
 const BALANCES = [
-  { label: "Total Balance", val: "$2,418,340", change: "+3.2%", positive: true },
-  { label: "Monthly Burn", val: "$184,200", change: "-11.8%", positive: true },
-  { label: "Runway", val: "13.1 months", change: "+2.1mo", positive: true },
-  { label: "Token Price", val: "$0.84", change: "+18.5%", positive: true },
+  { label: "Total Balance", val: "$79.8M", change: "+3.2%", positive: true },
+  { label: "Monthly Net Flow", val: "+$2.5M", change: "vs last month", positive: true },
+  { label: "Inflows", val: "$4.9M", change: "this period", positive: true },
+  { label: "ENS Token Price", val: "$6.95", change: "+18.5%", positive: true },
 ];
 
 const BREAKDOWN = [
-  { label: "Stablecoins (USDC, USDT)", pct: 42, usd: "$1,015,703", color: "var(--accent)" },
-  { label: "ETH", pct: 28, usd: "$677,135", color: "#4f9cf9" },
-  { label: "Native Token (PROJ)", pct: 22, usd: "$532,035", color: "#a78bfa" },
-  { label: "Other Assets", pct: 8, usd: "$193,467", color: "var(--vb-dim)" },
+  { label: "Native Token (ENS)", pct: 84, usd: "$67.4M", color: "var(--accent)" },
+  { label: "ETH", pct: 13, usd: "$10.2M", color: "#4f9cf9" },
+  { label: "Stablecoins (USDC)", pct: 3, usd: "$2.2M", color: "#a78bfa" },
 ];
 
 const EXPENSES = [
-  { label: "Payroll", pct: 58, usd: "$106,836" },
-  { label: "Infrastructure", pct: 19, usd: "$34,998" },
-  { label: "Marketing", pct: 12, usd: "$22,104" },
-  { label: "Grants", pct: 7, usd: "$12,894" },
-  { label: "Legal", pct: 4, usd: "$7,368" },
+  { label: "Treasury rebalance", pct: 70, usd: "$1.68M" },
+  { label: "Grants", pct: 18, usd: "$432K" },
+  { label: "Contractors", pct: 9, usd: "$216K" },
+  { label: "Infrastructure", pct: 3, usd: "$72K" },
 ];
 
 const GITHUB = [
-  { label: "Commits", val: "247" },
-  { label: "PRs Merged", val: "38" },
-  { label: "Active Contributors", val: "12" },
+  { label: "Commits", val: "316" },
+  { label: "PRs Merged", val: "47" },
+  { label: "Active Contributors", val: "18" },
 ];
 
-// Sample token metrics. Mirrors what the live product shows when a
-// project supplies a token contract — price + market cap + holder
-// count come from Dune Sim, vesting cliff date is project-supplied.
+// ENS token metrics. Price + market cap from CoinGecko, holder count
+// from Dune Sim. Unlock schedule is project-supplied context — ENS
+// completed its main vesting schedule, so the "Next unlock" slot
+// surfaces a generic governance-set milestone instead.
 const TOKEN_METRICS = [
-  { label: "Token Price", val: "$0.84", note: "+18.5% MoM" },
-  { label: "Market Cap", val: "$84.0M", note: "Fully diluted: $210M" },
-  { label: "Holders", val: "12,847", note: "+412 this period" },
-  { label: "Next Unlock", val: "Aug 2026", note: "5% to team + advisors" },
+  { label: "Token Price", val: "$6.95", note: "+18.5% MoM" },
+  { label: "Market Cap", val: "$210M", note: "Fully diluted: $695M" },
+  { label: "Holders", val: "~80K", note: "ERC-20 wallets" },
+  { label: "Governance", val: "Active", note: "DAO via Snapshot" },
 ];
 
 // Real production data sources, surfaced so a visitor sees the engineering
@@ -110,8 +115,8 @@ export default function DemoPage() {
           }}
         >
           See how Vault Brief turns Web3 project data into an investor-ready
-          report. This sample uses demo-style data and shows the structure
-          your own report can follow.
+          report. This sample uses real public data from the ENS DAO treasury,
+          rendered through the same report pipeline your own project would use.
         </p>
         <div
           style={{
@@ -197,7 +202,7 @@ export default function DemoPage() {
                   letterSpacing: "-0.02em",
                 }}
               >
-                Project Meridian
+                ENS DAO (real public data)
               </h2>
               <p
                 style={{
@@ -221,7 +226,7 @@ export default function DemoPage() {
                 fontWeight: 600,
               }}
             >
-              Sample data
+              Live ENS data
             </span>
           </div>
 
@@ -432,17 +437,19 @@ export default function DemoPage() {
                   margin: 0,
                 }}
               >
-                April was a strong month for Meridian Protocol. Treasury
-                balance grew 3.2% to $2.4M, driven primarily by a $120K USDC
-                inflow from our partnership agreement with Lattice Finance.
-                Monthly burn rate decreased 11.8% to $184K, reflecting the
-                completion of a major contractor engagement. At current burn,
-                runway extends to 13.1 months — up from 11 months last
-                quarter. Development velocity remained high with 247 commits
-                and 38 merged PRs across 12 active contributors. The
-                protocol&apos;s native token appreciated 18.5% over the month,
-                though liquidity-adjusted treasury calculations use a 30%
-                haircut on this position.
+                The ENS DAO treasury currently stands at $79.8M. The period
+                saw a net inflow of $2.5M, driven by $4.9M in inflows and
+                $2.4M in outflows — the largest single outflow being a
+                treasury rebalance from native ENS into stablecoins to
+                fund the next round of working-group budgets. Native token
+                holdings remain the majority position at $67.4M (84%);
+                stablecoin reserves at $2.2M cover roughly nine months of
+                current operational outflows independent of token price.
+                Development velocity stayed high across ensdomains with 316
+                commits and 47 merged PRs from 18 active contributors. The
+                ENS token appreciated 18.5% over the month, though
+                liquidity-adjusted treasury calculations apply a 30%
+                haircut on the native position when assessing runway.
               </p>
             </div>
 

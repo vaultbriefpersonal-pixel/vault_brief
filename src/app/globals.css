@@ -432,3 +432,53 @@ textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* ─── Prose styles for /docs (article body) ─────────────────────────────
+   /docs renders short hand-written sections without a Markdown engine —
+   plain JSX with <p>/<ul>/<ol>/<code>/<a>. These rules normalize the
+   look across sections so the page reads like docs and not like a form. */
+.vb-docs-prose {
+  font-family: var(--font-inter), Inter, sans-serif;
+  font-size: 16px;
+  color: var(--vb-muted);
+  line-height: 1.7;
+}
+.vb-docs-prose p {
+  margin: 0 0 18px;
+}
+.vb-docs-prose p:last-child {
+  margin-bottom: 0;
+}
+.vb-docs-prose ul,
+.vb-docs-prose ol {
+  margin: 0 0 18px;
+  padding-left: 22px;
+}
+.vb-docs-prose li {
+  margin-bottom: 8px;
+}
+.vb-docs-prose li:last-child {
+  margin-bottom: 0;
+}
+.vb-docs-prose strong {
+  color: var(--vb-text);
+  font-weight: 600;
+}
+.vb-docs-prose code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--vb-alt);
+  border: 1px solid var(--vb-border);
+  color: var(--vb-text);
+}
+.vb-docs-prose a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(0, 232, 123, 0.4);
+  transition: border-color 0.15s;
+}
+.vb-docs-prose a:hover {
+  border-bottom-color: var(--accent);
+}
