@@ -1,0 +1,39 @@
+name: Deploy Trigger.dev jobs
+
+# Runs on a clean Linux runner — sidesteps the corporate TLS / antivirus
+# MITM that prevents `trigger.dev deploy` from succeeding on the maintainer's
+# Windows box (UNABLE_TO_VERIFY_LEAF_SIGNATURE on api.trigger.dev, and the
+# same x509 error against Depot's remote builder).
+#
+# Path filter keeps this off the critical path of unrelated PRs: we only
+# redeploy Trigger when the actual job code or its config changes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/server/jobs/**"
+      - "trigger.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/trigger-deploy.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy to Trigger.dev (production)
+        run: npx trigger.dev@latest deploy
+        env:
+          TRIGGER_ACCESS_TOKEN: ${{ secrets.TRIGGER_ACCESS_TOKEN }}
