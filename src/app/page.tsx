@@ -197,7 +197,10 @@ function formatCompactUsd(n: number): string {
 }
 
 const TOOL_STACK: Array<{ name: string; color: string }> = [
-  { name: "Alchemy", color: "#0C0C0E" },
+  // Alchemy's brand colour is near-black (#0C0C0E) which disappears
+  // against our dark background. Use their signature light-blue
+  // accent instead so the chip is legible in the trust-bar row.
+  { name: "Alchemy", color: "#85B5FF" },
   { name: "Dune", color: "#FE6F37" },
   { name: "Helius", color: "#B8FF36" },
   { name: "OpenRouter", color: "#10A37F" },
@@ -684,36 +687,12 @@ export default async function LandingPage() {
           />
         </div>
 
-        {/* Detailed roadmap block. The eyebrow used to say "Coming soon"
-            on top of an H2 that ALSO said "On the roadmap" — drop the
-            duplicate. */}
-        <div
-          style={{
-            textAlign: "center",
-            marginTop: 96,
-            marginBottom: 56,
-          }}
-        >
-          <h2
-            style={{
-              fontFamily:
-                "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-              fontSize: "clamp(28px, 3.4vw, 36px)",
-              fontWeight: 700,
-              color: "var(--vb-text)",
-              letterSpacing: "-0.03em",
-              margin: 0,
-            }}
-          >
-            On the roadmap
-          </h2>
-        </div>
-
-        <div className="vb-grid-3" style={{ gap: 16 }}>
-          {FEATURES_COMING.map((f) => (
-            <FeatureCard key={f.title} {...f} status="coming" />
-          ))}
-        </div>
+        {/* The detailed "On the roadmap" cards-grid lived here. Removed
+            because the compact `CapabilityList kind="coming"` block right
+            above already lists the same items, and stacking both made
+            the page read as "look at all the things we haven't built."
+            Full roadmap with descriptions lives on /changelog →
+            "What's next" for visitors who want detail. */}
       </section>
 
       {/* How It Works */}
