@@ -50,18 +50,10 @@ const TOKEN_METRICS = [
   { label: "Governance", val: "Active", note: "DAO via Snapshot" },
 ];
 
-// Real production data sources, surfaced so a visitor sees the engineering
-// behind the polished output rather than an opaque "AI does it" promise.
-const DATA_SOURCES = [
-  {
-    label: "Alchemy + Helius",
-    note: "EVM and Solana RPC for wallet balances and transaction history",
-  },
-  { label: "Dune Sim", note: "Token price, market cap, holder count, liquidity" },
-  { label: "GitHub API", note: "Commits, merged PRs, active contributors, releases" },
-  { label: "OpenRouter (Claude / Gemini)", note: "AI report narrative generation" },
-  { label: "Snapshot.org", note: "On-chain governance proposals (when configured)" },
-];
+// `DATA_SOURCES` array used to feed a "where each section pulls from"
+// block at the bottom of the demo report. That block was removed —
+// real investor reports don't ship an engineering manifest. The same
+// info lives in /docs under "Data sources" for visitors who care.
 
 export default function DemoPage() {
   return (
@@ -453,66 +445,11 @@ export default function DemoPage() {
               </p>
             </div>
 
-            {/* Data sources used — anchors the polished output to a real
-                engineering manifest, not magic. */}
-            <SectionHeading subtitle="Where each section pulls from">
-              Data sources used
-            </SectionHeading>
-            <div
-              style={{
-                background: "var(--vb-bg)",
-                borderRadius: 12,
-                border: "1px solid var(--vb-border)",
-                padding: 24,
-              }}
-            >
-              <ul
-                style={{
-                  listStyle: "none",
-                  padding: 0,
-                  margin: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
-                }}
-              >
-                {DATA_SOURCES.map((s) => (
-                  <li
-                    key={s.label}
-                    style={{
-                      display: "flex",
-                      gap: 14,
-                      alignItems: "baseline",
-                      borderLeft: "2px solid rgba(0,232,123,0.4)",
-                      paddingLeft: 14,
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontFamily:
-                          "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-                        fontSize: 14,
-                        fontWeight: 600,
-                        color: "var(--vb-text)",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {s.label}
-                    </span>
-                    <span
-                      style={{
-                        fontFamily: "var(--font-inter), Inter, sans-serif",
-                        fontSize: 13,
-                        color: "var(--vb-muted)",
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {s.note}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            {/* "Data sources used" block lived here. Removed — the demo
+                report should read like an actual investor PDF, and a real
+                investor report wouldn't ship a "where each number came
+                from" engineering manifest. The same info lives in /docs
+                under "Data sources" for visitors who care. */}
           </div>
         </div>
 
