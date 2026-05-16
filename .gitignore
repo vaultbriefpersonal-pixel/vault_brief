@@ -41,3 +41,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .trigger/
+
+# Local QA / Playwright artifacts — never want these in commits.
+# tmp-screenshots/ holds full-page PNGs + PDFs we capture during
+# ad-hoc QA passes; test-results/ is Playwright's per-run failure
+# attachments. Both regenerate on every run.
+/tmp-screenshots
+/test-results
+/playwright-report
