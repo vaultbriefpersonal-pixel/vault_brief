@@ -25,12 +25,16 @@ export const reportsRouter = router({
   getById: protectedProcedure
     .input(z.object({ reportId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      // requireReport already enforces project ownership; we only need the
-      // joined project for the UI.
+      // requireReport already enforces project ownership.
+      //
+      // We also pull in the linked treasury snapshot so the editor view
+      // can render the KPI / breakdown / token / GitHub widget strip
+      // above the markdown — same widgets the public investor view
+      // shows. Drizzle resolves this as one JOIN, not a second query.
       await requireReport(ctx, input.reportId);
       return ctx.db.query.reports.findFirst({
         where: eq(reports.id, input.reportId),
-        with: { project: true },
+        with: { project: true, snapshot: true },
       });
     }),
 

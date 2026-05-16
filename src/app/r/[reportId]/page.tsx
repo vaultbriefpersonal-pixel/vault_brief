@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/server/db";
 import { reports, projects } from "@/server/db/schema";
 import { ReportPreview } from "@/components/report/ReportPreview";
+import { ReportWidgets } from "@/components/report/ReportWidgets";
 import { formatDate } from "@/lib/utils";
 
 /**
@@ -41,6 +42,10 @@ export default async function PublicReportPage({ params }: Props) {
 
   const report = await db.query.reports.findFirst({
     where: eq(reports.id, reportId),
+    // Join the linked treasury snapshot so we can render the KPI /
+    // breakdown / token / GitHub widget strip above the markdown
+    // narrative. Drizzle resolves this as a single SQL JOIN.
+    with: { snapshot: true },
   });
 
   // Status gate: only delivered reports are visible publicly. A leaked
@@ -123,6 +128,13 @@ export default async function PublicReportPage({ params }: Props) {
           padding: "8px 0 64px",
         }}
       >
+        {/* Widget strip — KPIs, treasury composition, expenses, token
+            metrics, GitHub activity — rendered above the markdown
+            narrative so investors land on the same visual structure the
+            marketing demo promises. Null-renders for reports without a
+            linked snapshot, in which case the page falls back to the
+            existing markdown-only view. */}
+        <ReportWidgets snapshot={report.snapshot} accent={accent} />
         <ReportPreview content={report.contentMd ?? ""} />
       </article>
 

@@ -3,6 +3,7 @@
 import { use, useState } from "react";
 import { trpc } from "@/lib/api";
 import { ReportEditor } from "@/components/report/ReportEditor";
+import { ReportWidgets } from "@/components/report/ReportWidgets";
 import { Download, Send, RefreshCw, ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { formatDate } from "@/lib/utils";
@@ -258,8 +259,20 @@ export default function ReportEditorPage({ params }: Props) {
         </div>
       </div>
 
-      {/* Editor */}
-      <div style={{ flex: 1, overflow: "hidden" }}>
+      {/* Editor — widget strip rendered above so the founder previews
+          exactly what the investor will see when the report ships.
+          ReportWidgets self-hides if the report has no linked snapshot,
+          so legacy / orphan reports still mount cleanly with just the
+          editor below. The strip and the editor share the scroll
+          container — both scroll together as one column. */}
+      <div style={{ flex: 1, overflow: "auto" }}>
+        <ReportWidgets
+          snapshot={report.snapshot ?? null}
+          accent={
+            (report.project as { customBranding?: { primaryColor?: string } } | null)
+              ?.customBranding?.primaryColor ?? "#00e87b"
+          }
+        />
         <ReportEditor
           initialContent={report.contentMd ?? ""}
           founderNotes={report.founderNotes}

@@ -8,6 +8,7 @@ import { ChatWidget } from "@/components/marketing/ChatWidget";
 import { db } from "@/server/db";
 import { treasurySnapshots } from "@/server/db/schema";
 import { sql } from "drizzle-orm";
+import { formatUsd } from "@/lib/utils";
 
 // Icon-key → lucide component. Keeps the STEPS constant plain-data while
 // the render block looks up the right glyph. New steps just add a key.
@@ -181,20 +182,9 @@ async function loadPublicStats() {
   }
 }
 
-/**
- * Compact USD formatter for headline tiles. Hides the noise:
- *   12345  → "$12K"
- *   8420000 → "$8.4M"
- *   79800000 → "$79.8M"
- *   1230000000 → "$1.23B"
- */
-function formatCompactUsd(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return "—";
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `$${Math.round(n / 1e3)}K`;
-  return `$${Math.round(n)}`;
-}
+// Compact USD formatter lives in src/lib/utils.ts as `formatUsd()` —
+// same $K / $M / $B scale logic. Use that to avoid drift between the
+// landing stats tile and the report widget tiles.
 
 const TOOL_STACK: Array<{ name: string; color: string }> = [
   // Alchemy's brand colour is near-black (#0C0C0E) which disappears
@@ -863,7 +853,7 @@ export default async function LandingPage() {
           <div className="vb-grid-4" style={{ gap: 20 }}>
             {[
               {
-                value: formatCompactUsd(stats.totalTrackedUsd),
+                value: formatUsd(stats.totalTrackedUsd),
                 label: "Treasury under watch",
                 note: "sum of latest snapshots",
               },
