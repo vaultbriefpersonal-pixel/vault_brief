@@ -22,8 +22,44 @@ export default async function BlogPostPage({ params }: Props) {
   const post = POSTS.find((p) => p.slug === slug);
   if (!post) notFound();
 
+  // JSON-LD Article schema for Google rich snippets. `headline`,
+  // `datePublished`, and `author` are the three fields Search Console
+  // calls out as required for the Article rich result; everything
+  // else is enhancement. The image points at the per-post OG which is
+  // already SSG-prerendered for every slug.
+  const articleJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: post.title,
+    description: post.excerpt,
+    datePublished: parseDateToIso(post.date),
+    author: {
+      "@type": "Organization",
+      name: "Vault Brief",
+      url: "https://vaultbrief.io",
+    },
+    publisher: {
+      "@type": "Organization",
+      name: "Vault Brief",
+      url: "https://vaultbrief.io",
+    },
+    image: `https://vaultbrief.io/blog/${post.slug}/opengraph-image`,
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": `https://vaultbrief.io/blog/${post.slug}`,
+    },
+    articleSection: post.category,
+  };
+
   return (
     <div style={{ paddingTop: 72 }}>
+      <script
+        type="application/ld+json"
+        // JSON-LD payload — safe to inject as-is because we control
+        // every field above. No user input.
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+      />
       <section className="vb-pad-x" style={{ paddingTop: 80, paddingBottom: 120 }}>
         <div style={{ maxWidth: 720, margin: "0 auto" }}>
           <Link
@@ -210,4 +246,24 @@ export default async function BlogPostPage({ params }: Props) {
       </section>
     </div>
   );
+}
+
+/**
+ * Parse the human-readable post date ("May 2026", "April 28, 2026") to
+ * an ISO 8601 string the schema.org spec wants. Falls back to the
+ * year-month-1 form when the post only carries a month.
+ */
+function parseDateToIso(raw: string): string {
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  // "May 2026" → "2026-05-01"
+  const m = raw.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (m) {
+    const monthIdx = new Date(`${m[1]} 1, ${m[2]}`).getMonth();
+    if (!Number.isNaN(monthIdx)) {
+      const mm = String(monthIdx + 1).padStart(2, "0");
+      return `${m[2]}-${mm}-01`;
+    }
+  }
+  return raw;
 }

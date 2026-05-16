@@ -209,17 +209,47 @@ export default function WalletsPage({ params }: Props) {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {walletList?.length === 0 && (
-          <p
+          // Richer empty state — minimal hint + the two facts that come
+          // up most often when founders are stuck at this step: "what
+          // address type", "what wallet shape". The "Add wallet" button
+          // already sits above this panel, so we don't duplicate the
+          // CTA — we explain what's about to happen when they tap it.
+          <div
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
-              fontSize: 14,
-              color: "var(--vb-dim)",
               textAlign: "center",
-              padding: "40px 0",
+              padding: "48px 24px",
+              background: "var(--vb-card)",
+              border: "1px dashed var(--vb-border)",
+              borderRadius: 12,
             }}
           >
-            No wallets added yet.
-          </p>
+            <p
+              style={{
+                fontSize: 16,
+                color: "var(--vb-text)",
+                fontWeight: 600,
+                margin: "0 0 8px",
+              }}
+            >
+              No treasury wallets yet
+            </p>
+            <p
+              style={{
+                fontSize: 13,
+                color: "var(--vb-muted)",
+                lineHeight: 1.6,
+                margin: "0 auto",
+                maxWidth: 440,
+              }}
+            >
+              Use the <strong style={{ color: "var(--vb-text)" }}>Add wallet</strong>{" "}
+              button above. Treasury wallets are{" "}
+              <em>public addresses</em> you own — multisigs (Safe, Squads),
+              EOAs, or exchange deposit addresses. Vault Brief only reads
+              balances and transactions; it never asks for keys.
+            </p>
+          </div>
         )}
         {walletList?.map((w) => (
           <div

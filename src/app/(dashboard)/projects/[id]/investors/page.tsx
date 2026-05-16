@@ -278,17 +278,57 @@ export default function InvestorsPage({ params }: Props) {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {investorList?.length === 0 && (
-          <p
+          // Empty-state card mirrors the wallets page. The add form
+          // already sits above this panel; the copy here tells founders
+          // what an "investor row" actually buys them — investors get
+          // the personalised /r/[reportId] link, open/click tracking,
+          // and a permanent address book that survives across projects.
+          <div
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
-              fontSize: 14,
-              color: "var(--vb-dim)",
               textAlign: "center",
-              padding: "40px 0",
+              padding: "48px 24px",
+              background: "var(--vb-card)",
+              border: "1px dashed var(--vb-border)",
+              borderRadius: 12,
             }}
           >
-            No investors added yet.
-          </p>
+            <p
+              style={{
+                fontSize: 16,
+                color: "var(--vb-text)",
+                fontWeight: 600,
+                margin: "0 0 8px",
+              }}
+            >
+              No investors yet
+            </p>
+            <p
+              style={{
+                fontSize: 13,
+                color: "var(--vb-muted)",
+                lineHeight: 1.6,
+                margin: "0 auto",
+                maxWidth: 460,
+              }}
+            >
+              Add the people who should receive monthly reports — fund
+              partners, advisors, strategic backers. Each gets a
+              personalised{" "}
+              <code
+                style={{
+                  background: "var(--vb-alt)",
+                  padding: "1px 6px",
+                  borderRadius: 4,
+                  fontSize: 12,
+                }}
+              >
+                /r/&lt;id&gt;
+              </code>{" "}
+              link in their email; open and click events flow back into
+              the report row so you can see who actually read the update.
+            </p>
+          </div>
         )}
         {investorList && investorList.length > 0 && visible.length === 0 && (
           <p
