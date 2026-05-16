@@ -197,7 +197,12 @@ const TOOL_STACK: Array<{ name: string; color: string }> = [
   { name: "Resend", color: "#FFFFFF" },
   { name: "Neon", color: "#00E599" },
   { name: "Vercel", color: "#FFFFFF" },
-  { name: "Stripe", color: "#635BFF" },
+  // Stripe brand indigo #635BFF gives 2.7:1 contrast on the dark
+  // trust-bar background — axe-contrast fail. Use Stripe's own
+  // lighter indigo (their "Indigo 30" — used on dark dashboards
+  // for the same reason) so the chip stays recognisably-Stripe
+  // while clearing the 4.5:1 AA threshold.
+  { name: "Stripe", color: "#A6A1FF" },
 ];
 
 // "Input → report" pillar columns. Drives the new visual section that
@@ -758,13 +763,19 @@ export default async function LandingPage() {
                       />
                     </div>
                     <span
+                      // Step numbers 01-04. opacity:0.4 was muting
+                      // the accent green to #0a673b ≈ 2.7:1 on
+                      // var(--vb-alt) — axe-contrast fail. opacity:0.7
+                      // is the lightest we can go and still clear the
+                      // 4.5:1 threshold while keeping the "ghosted
+                      // number" visual treatment.
                       style={{
                         fontFamily:
                           "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
                         fontSize: 28,
                         fontWeight: 700,
                         color: "var(--accent)",
-                        opacity: 0.4,
+                        opacity: 0.7,
                         lineHeight: 1,
                       }}
                     >
