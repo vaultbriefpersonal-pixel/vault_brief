@@ -10,8 +10,8 @@
   --vb-card: #161616;
   --vb-card-hover: #1c1c1c;
   --vb-text: #f0f0f0;     /* contrast 17.4:1 on bg — AAA */
-  --vb-muted: #888888;    /* contrast  5.4:1 on bg — AA  */
-  --vb-dim: #787878;      /* contrast  4.6:1 on bg — AA. Was #555 (2.8:1, fail). */
+  --vb-muted: #9a9a9a;    /* contrast  6.4:1 on bg / 5.0:1 on card — AA */
+  --vb-dim: #888888;      /* contrast  5.4:1 on bg / 4.5:1 on card — AA (barely). */
   --vb-border: rgba(255, 255, 255, 0.08);
   --vb-border-strong: rgba(255, 255, 255, 0.12);
   --vb-border-faint: rgba(255, 255, 255, 0.06);
