@@ -171,7 +171,7 @@ export default async function ProjectsPage() {
                   {project.name}
                 </h3>
                 {project.website && (
-                  <ExternalLink size={13} color="#555555" />
+                  <ExternalLink size={13} color="var(--vb-dim)" />
                 )}
               </div>
               {project.description && (

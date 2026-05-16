@@ -39,7 +39,7 @@ export default function PrivacyPage() {
         <p style={s.p}>You have the right to access, export, correct, or delete your data at any time. Email us at hello@vaultbrief.io to exercise any of these rights. We respond within 30 days.</p>
 
         <h2 style={s.h2}>Contact</h2>
-        <p style={s.p}>Questions about this policy? Email <a href="mailto:hello@vaultbrief.io" style={{ color: "var(--accent)", textDecoration: "none" }}>hello@vaultbrief.io</a>.</p>
+        <p style={s.p}>Questions about this policy? Email <a href="mailto:hello@vaultbrief.io" style={{ color: "var(--accent)", textDecoration: "underline" }}>hello@vaultbrief.io</a>.</p>
       </section>
     </div>
   );

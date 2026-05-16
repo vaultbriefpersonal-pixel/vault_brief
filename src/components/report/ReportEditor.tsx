@@ -105,7 +105,7 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
                   borderBottom: active
                     ? "2px solid #00e87b"
                     : "2px solid transparent",
-                  color: active ? "#f0f0f0" : "#555555",
+                  color: active ? "#f0f0f0" : "var(--vb-dim)",
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                   fontSize: 12,
                   fontWeight: 600,

@@ -373,7 +373,7 @@ export default function ChangelogPage() {
             sooner? Email{" "}
             <a
               href="mailto:hello@vaultbrief.io"
-              style={{ color: "var(--accent)", textDecoration: "none" }}
+              style={{ color: "var(--accent)", textDecoration: "underline" }}
             >
               hello@vaultbrief.io
             </a>{" "}

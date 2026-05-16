@@ -203,7 +203,7 @@ export function Sidebar() {
             borderRadius: 10,
             fontSize: 16,
             fontFamily: "var(--font-inter), Inter, sans-serif",
-            color: signOutHovered ? "#f87171" : "#555555",
+            color: signOutHovered ? "#f87171" : "var(--vb-dim)",
             background: signOutHovered
               ? "rgba(248,113,113,0.06)"
               : "transparent",

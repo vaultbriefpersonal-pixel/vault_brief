@@ -173,7 +173,7 @@ export default function PricingPage() {
           shipped. Questions? Email{" "}
           <a
             href="mailto:hello@vaultbrief.io"
-            style={{ color: "var(--accent)", textDecoration: "none" }}
+            style={{ color: "var(--accent)", textDecoration: "underline" }}
           >
             hello@vaultbrief.io
           </a>

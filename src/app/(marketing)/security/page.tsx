@@ -126,7 +126,7 @@ export default function SecurityPage() {
               <span style={{ fontSize: 28, display: "block", marginBottom: 16 }}>
                 {item.icon}
               </span>
-              <h3
+              <h2
                 style={{
                   fontFamily:
                     "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
@@ -137,7 +137,7 @@ export default function SecurityPage() {
                 }}
               >
                 {item.title}
-              </h3>
+              </h2>
               <p
                 style={{
                   fontFamily: "var(--font-inter), Inter, sans-serif",
@@ -162,7 +162,7 @@ export default function SecurityPage() {
             borderRadius: 14,
           }}
         >
-          <h3
+          <h2
             style={{
               fontFamily:
                 "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
@@ -173,7 +173,7 @@ export default function SecurityPage() {
             }}
           >
             Report a vulnerability
-          </h3>
+          </h2>
           <p
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
@@ -186,7 +186,7 @@ export default function SecurityPage() {
             If you discover a security issue, contact{" "}
             <a
               href="mailto:hello@vaultbrief.io?subject=Security%20report"
-              style={{ color: "var(--accent)", textDecoration: "none" }}
+              style={{ color: "var(--accent)", textDecoration: "underline" }}
             >
               hello@vaultbrief.io
             </a>{" "}

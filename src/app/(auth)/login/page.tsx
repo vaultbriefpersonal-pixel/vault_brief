@@ -48,7 +48,12 @@ function LoginForm() {
   };
 
   return (
-    <div
+    // <main> landmark — axe-core's `landmark-one-main` rule flags any
+    // page that ships without one. Login is a full-page surface
+    // (no marketing nav / footer wrapper), so the form itself is the
+    // main content.
+    <main
+      aria-label="Sign in"
       style={{
         minHeight: "100dvh",
         display: "flex",
@@ -283,7 +288,7 @@ function LoginForm() {
           </span>
         </p>
       </div>
-    </div>
+    </main>
   );
 }
 

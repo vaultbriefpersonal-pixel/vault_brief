@@ -136,7 +136,11 @@ function PricingCard({
       )}
 
       <div style={{ marginBottom: 20 }}>
-        <h3
+        {/* h2 to satisfy axe heading-order: pricing page renders
+            this immediately after the hero h1, so dropping to h3
+            would skip a level. Each tier is a top-level section of
+            the page, so h2 is semantically correct anyway. */}
+        <h2
           style={{
             fontFamily:
               "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
@@ -147,7 +151,7 @@ function PricingCard({
           }}
         >
           {tier.name}
-        </h3>
+        </h2>
         <p
           style={{
             fontFamily: "var(--font-inter), Inter, sans-serif",

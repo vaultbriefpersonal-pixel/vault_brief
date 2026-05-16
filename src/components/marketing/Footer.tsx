@@ -108,7 +108,7 @@ export function Footer() {
                   e.currentTarget.style.background = "rgba(0,232,123,0.06)";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "#555555";
+                  e.currentTarget.style.color = "var(--vb-dim)";
                   e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
                   e.currentTarget.style.background = "transparent";
                 }}
@@ -121,7 +121,11 @@ export function Footer() {
 
         {COLS.map((col) => (
           <div key={col.title}>
-            <h4
+            {/* h3 to keep axe's heading-order rule happy — the
+                preceding heading across marketing pages is always at
+                most h2 (FAQ / Comparison / Roadmap blocks), so h3
+                here never skips a level. Visual size unchanged. */}
+            <h3
               style={{
                 fontFamily: "var(--font-inter), Inter, sans-serif",
                 fontSize: 11,
@@ -133,7 +137,7 @@ export function Footer() {
               }}
             >
               {col.title}
-            </h4>
+            </h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {col.links.map(({ label, href }) => (
                 <Link
@@ -191,7 +195,7 @@ export function Footer() {
             transition: "color 0.2s",
           }}
           onMouseEnter={(e) => (e.currentTarget.style.color = "#00e87b")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "#555555")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--vb-dim)")}
         >
           hello@vaultbrief.io
         </a>

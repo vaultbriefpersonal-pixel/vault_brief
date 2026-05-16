@@ -105,7 +105,7 @@ export default async function StatusPage() {
             For real-time issues, email{" "}
             <a
               href="mailto:hello@vaultbrief.io?subject=Status%20issue"
-              style={{ color: "var(--accent)", textDecoration: "none" }}
+              style={{ color: "var(--accent)", textDecoration: "underline" }}
             >
               hello@vaultbrief.io
             </a>

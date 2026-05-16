@@ -118,7 +118,7 @@ export function FAQ() {
                 >
                   <path
                     d="M10 4v12M4 10h12"
-                    stroke={open === i ? "#00e87b" : "#555555"}
+                    stroke={open === i ? "#00e87b" : "var(--vb-dim)"}
                     strokeWidth="1.5"
                     strokeLinecap="round"
                   />
