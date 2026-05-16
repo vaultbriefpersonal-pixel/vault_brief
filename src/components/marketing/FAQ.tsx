@@ -126,7 +126,12 @@ export function FAQ() {
               </button>
               <div
                 id={`faq-answer-${i}`}
-                role="region"
+                // `role="region"` was previously set here, which
+                // created 7 nameless region landmarks per page and
+                // tripped axe-core's `landmark-unique` rule. Standard
+                // accordion patterns don't need an explicit role —
+                // the button's `aria-expanded` + `aria-controls`
+                // pair already conveys disclosure semantics.
                 style={{
                   maxHeight: open === i ? 600 : 0,
                   overflow: "hidden",

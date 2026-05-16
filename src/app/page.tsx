@@ -224,6 +224,13 @@ export default async function LandingPage() {
     <div style={{ background: "var(--vb-bg)", minHeight: "100dvh" }}>
       <Nav />
 
+      {/* <main> wrapper — axe-core's `landmark-one-main` + `region`
+          rules expect every page's primary content to live inside
+          a single <main>. Without it the entire landing renders as
+          orphan content. Wrapping all sections in <main> drops 33
+          `region` violations and the `landmark-one-main` failure in
+          one go. */}
+      <main>
       {/* Hero */}
       <section
         className="vb-section-hero"
@@ -999,6 +1006,7 @@ export default async function LandingPage() {
           </p>
         </div>
       </section>
+      </main>
 
       <Footer />
       <ChatWidget />
