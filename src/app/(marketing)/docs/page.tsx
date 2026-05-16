@@ -225,10 +225,13 @@ const SECTIONS: Section[] = [
       <p>
         Email{" "}
         <a href="mailto:hello@vaultbrief.io">hello@vaultbrief.io</a>{" "}
-        — typical response within one business day. For security issues,
-        use{" "}
-        <a href="mailto:security@vaultbrief.io">security@vaultbrief.io</a>.
-        For API access (read-only endpoints for projects, snapshots,
+        — typical response within one business day. For security
+        reports, use the same address with subject &ldquo;Security
+        report&rdquo;:{" "}
+        <a href="mailto:hello@vaultbrief.io?subject=Security%20report">
+          hello@vaultbrief.io
+        </a>
+        . For API access (read-only endpoints for projects, snapshots,
         reports), we&apos;re building it now —{" "}
         <a href="mailto:hello@vaultbrief.io?subject=API%20access%20interest">
           drop us a line

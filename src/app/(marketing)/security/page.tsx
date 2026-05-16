@@ -185,12 +185,14 @@ export default function SecurityPage() {
           >
             If you discover a security issue, contact{" "}
             <a
-              href="mailto:security@vaultbrief.io"
+              href="mailto:hello@vaultbrief.io?subject=Security%20report"
               style={{ color: "var(--accent)", textDecoration: "none" }}
             >
-              security@vaultbrief.io
+              hello@vaultbrief.io
             </a>{" "}
-            with a clear description and reproduction steps.
+            with subject &ldquo;Security report&rdquo; — include a clear
+            description and reproduction steps. Reports are triaged the
+            same business day.
           </p>
         </div>
       </section>
