@@ -17,6 +17,13 @@ import { test, expect } from "@playwright/test";
 const REPORT_ID = "2f93091b-89b9-4dfc-a411-7d8a867f09c4";
 
 test("E13 branded /r/ view", async ({ page }) => {
+  // Skip in CI / dev — needs a sent report in prod DB with the
+  // project's customBranding flipped via the harness, neither of
+  // which exists when DATABASE_URL is the .env.example placeholder.
+  test.skip(
+    !process.env.DATABASE_URL || process.env.DATABASE_URL.includes("placeholder"),
+    "Requires prod DB + curl-driven branding mutation"
+  );
   await page.goto(`/r/${REPORT_ID}`, { waitUntil: "networkidle" });
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(1500);
