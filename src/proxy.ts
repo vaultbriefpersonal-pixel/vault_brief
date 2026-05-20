@@ -41,6 +41,12 @@ const PUBLIC_PATHS = [
   "/robots.txt",
   "/opengraph-image",
   "/twitter-image",
+  // Sentry tunnel route — `withSentryConfig({ tunnelRoute: "/monitoring" })`
+  // in next.config.ts generates this server-side proxy so client-side
+  // Sentry events sneak past ad-blockers that filter *.sentry.io.
+  // Anonymous browsers POST here on every captured event; gating it
+  // behind auth would silently drop all visitor errors.
+  "/monitoring",
 ];
 
 export default auth((req: NextRequest & { auth: unknown }) => {
