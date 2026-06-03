@@ -10,6 +10,7 @@ const COLS = [
       { label: "Features", href: "/#features" },
       { label: "Pricing", href: "/pricing" },
       { label: "Demo", href: "/demo" },
+      { label: "Roadmap", href: "/roadmap" },
       { label: "Changelog", href: "/changelog" },
       // /docs is the founder-facing product reference (wallet sync,
       // monthly cadence, plan limits). The public API is still on the

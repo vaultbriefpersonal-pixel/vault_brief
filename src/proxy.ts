@@ -12,6 +12,7 @@ const PUBLIC_PATHS = [
   "/about",
   "/demo",
   "/changelog",
+  "/roadmap",
   "/security",
   "/status",
   "/privacy",
