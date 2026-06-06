@@ -232,7 +232,8 @@ const SECTIONS: Section[] = [
           hello@vaultbrief.io
         </a>
         . For API access (read-only endpoints for projects, snapshots,
-        reports), we&apos;re building it now —{" "}
+        reports), it&apos;s on our{" "}
+        <a href="/roadmap">roadmap</a> —{" "}
         <a href="mailto:hello@vaultbrief.io?subject=API%20access%20interest">
           drop us a line
         </a>{" "}

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Product updates — Vault Brief",
@@ -126,23 +127,10 @@ const ENTRIES: {
   },
 ];
 
-// What's next — items that aren't shipped yet. Same shape as monthly
-// items minus the date so they render under their own "What's next"
-// header instead of bleeding into the historical log.
-const WHATS_NEXT: { title: string; desc: string }[] = [
-  {
-    title: "Investor portal",
-    desc: "Secure shared-link portal for investors so founders don't have to email PDFs manually. One link, gated by token, with read receipts.",
-  },
-  {
-    title: "API access",
-    desc: "Read-only API for funds and platforms that want to pull projects, snapshots, and reports into internal dashboards. Per-plan rate limits.",
-  },
-  {
-    title: "White-label reports",
-    desc: "Custom-branded PDFs without the Vault Brief footer for funds and reporting agencies that resell the output.",
-  },
-];
+// "What's next" used to live here as a hardcoded list. Since the
+// dedicated /roadmap page now exists as the single source of truth for
+// future work, we replaced this section with a one-line CTA pointing
+// at /roadmap rather than duplicating items in two places that drift.
 
 const TAG_STYLES: Record<TagType, { bg: string; color: string; label: string }> = {
   shipped: {
@@ -322,8 +310,10 @@ export default function ChangelogPage() {
         </div>
       </section>
 
-      {/* What's next — separated from the historical log so visitors can
-          tell at a glance what's shipped vs. what's coming. */}
+      {/* What's next — single CTA to /roadmap. The full Now / Next
+          breakdown lives there as the source of truth; this footer
+          just nudges visitors over and removes the duplication that
+          existed before /roadmap shipped. */}
       <section
         className="vb-pad-x"
         style={{
@@ -333,7 +323,14 @@ export default function ChangelogPage() {
           borderTop: "1px solid var(--vb-border)",
         }}
       >
-        <div style={{ maxWidth: 760, margin: "0 auto", paddingTop: 60 }}>
+        <div
+          style={{
+            maxWidth: 760,
+            margin: "0 auto",
+            paddingTop: 60,
+            textAlign: "center",
+          }}
+        >
           <p
             style={{
               fontFamily: "var(--font-inter), Inter, sans-serif",
@@ -355,10 +352,10 @@ export default function ChangelogPage() {
               fontWeight: 700,
               color: "var(--vb-text)",
               letterSpacing: "-0.025em",
-              margin: "0 0 8px",
+              margin: "0 0 12px",
             }}
           >
-            On the roadmap
+            Want to know what&apos;s coming?
           </h2>
           <p
             style={{
@@ -366,48 +363,28 @@ export default function ChangelogPage() {
               fontSize: 15,
               color: "var(--vb-muted)",
               lineHeight: 1.65,
-              margin: "0 0 40px",
+              margin: "0 0 24px",
             }}
           >
-            Items below are planned but not shipped yet. Want one of these
-            sooner? Email{" "}
-            <a
-              href="mailto:hello@vaultbrief.io"
-              style={{ color: "var(--accent)", textDecoration: "underline" }}
-            >
-              hello@vaultbrief.io
-            </a>{" "}
-            and we&apos;ll bump the priority.
+            The roadmap page lists everything we&apos;re building now and what
+            ships next.
           </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-            {WHATS_NEXT.map((item) => (
-              <div key={item.title}>
-                <h3
-                  style={{
-                    fontFamily:
-                      "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-                    fontSize: 16,
-                    fontWeight: 600,
-                    color: "var(--vb-text)",
-                    margin: "0 0 6px",
-                  }}
-                >
-                  {item.title}
-                </h3>
-                <p
-                  style={{
-                    fontFamily: "var(--font-inter), Inter, sans-serif",
-                    fontSize: 15,
-                    color: "var(--vb-muted)",
-                    lineHeight: 1.65,
-                    margin: 0,
-                  }}
-                >
-                  {item.desc}
-                </p>
-              </div>
-            ))}
-          </div>
+          <Link
+            href="/roadmap"
+            style={{
+              display: "inline-block",
+              padding: "10px 22px",
+              borderRadius: 100,
+              background: "var(--accent)",
+              color: "#0a0a0a",
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 14,
+              fontWeight: 600,
+              textDecoration: "none",
+            }}
+          >
+            See the roadmap →
+          </Link>
         </div>
       </section>
     </div>

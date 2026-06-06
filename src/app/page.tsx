@@ -693,8 +693,22 @@ export default async function LandingPage() {
             because the compact `CapabilityList kind="coming"` block right
             above already lists the same items, and stacking both made
             the page read as "look at all the things we haven't built."
-            Full roadmap with descriptions lives on /changelog →
-            "What's next" for visitors who want detail. */}
+            Full roadmap with descriptions lives on the dedicated
+            /roadmap page for visitors who want detail. */}
+        <div style={{ textAlign: "center", marginTop: 40 }}>
+          <Link
+            href="/roadmap"
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 14,
+              fontWeight: 500,
+              color: "var(--accent)",
+              textDecoration: "none",
+            }}
+          >
+            See the full roadmap →
+          </Link>
+        </div>
       </section>
 
       {/* How It Works */}

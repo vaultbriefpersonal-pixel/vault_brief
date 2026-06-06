@@ -124,8 +124,8 @@ export function Footer() {
           <div key={col.title}>
             {/* h3 to keep axe's heading-order rule happy — the
                 preceding heading across marketing pages is always at
-                most h2 (FAQ / Comparison / Roadmap blocks), so h3
-                here never skips a level. Visual size unchanged. */}
+                most h2 (FAQ / Comparison / "What's next" blocks), so
+                h3 here never skips a level. Visual size unchanged. */}
             <h3
               style={{
                 fontFamily: "var(--font-inter), Inter, sans-serif",
