@@ -19,6 +19,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  // Canonical origin for resolving relative OG / Twitter image URLs.
+  // Without this, Next.js falls back to http://localhost:3000 at build
+  // time, so social-share previews on vaultbrief.io would point image
+  // tags at localhost and break the unfurl. Matches the apex host used
+  // in sitemap.ts / robots. Keep in sync if the canonical host changes.
+  metadataBase: new URL("https://vaultbrief.io"),
   title: "Vault Brief — Automated Investor Reporting for Web3",
   description:
     "Turn your on-chain treasury into investor-ready reports. Automatically. Connect wallets, generate AI reports, send to investors every month.",
