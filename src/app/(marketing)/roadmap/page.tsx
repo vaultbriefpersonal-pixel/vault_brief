@@ -1,10 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+const TITLE = "Roadmap — Vault Brief";
+const DESC =
+  "What's shipped, what we're building now, and what's coming next. Updated as the product moves.";
+
 export const metadata: Metadata = {
-  title: "Roadmap — Vault Brief",
-  description:
-    "What's shipped, what we're building now, and what's coming next. Updated as the product moves.",
+  title: TITLE,
+  description: DESC,
+  // Page-specific OG/Twitter so sharing the roadmap link unfurls with
+  // "Roadmap" rather than falling back to the root layout's generic
+  // product title. metadataBase (set in the root layout) resolves the
+  // relative image path against the apex host.
+  openGraph: { title: TITLE, description: DESC, type: "website" },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESC },
 };
 
 // Public-facing roadmap. Internal infra work (Sentry source maps, env
