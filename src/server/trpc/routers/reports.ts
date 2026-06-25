@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { eq, desc } from "drizzle-orm";
+import { eq, asc, desc } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
-import { reports } from "@/server/db/schema";
+import { reports, reportEngagements } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { requireProject, requireReport } from "../guards";
 import {
@@ -36,6 +36,90 @@ export const reportsRouter = router({
         where: eq(reports.id, input.reportId),
         with: { project: true, snapshot: true },
       });
+    }),
+
+  // Per-recipient engagement for a single report. The aggregate
+  // openedCount / clickedCount on the report row answers "how many
+  // opens" but not "which investor". The webhook already logs every
+  // Resend event into report_engagements keyed by recipientEmail; this
+  // rolls those rows up into one summary per investor so the report
+  // page can show "Investor X opened 3×, never clicked".
+  //
+  // Volume per report is small (one row per recipient per event), so we
+  // fetch ordered and reduce in JS rather than pushing a GROUP BY into
+  // SQL — keeps the shape obvious and avoids a raw `sql` aggregate.
+  getEngagements: protectedProcedure
+    .input(z.object({ reportId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await requireReport(ctx, input.reportId);
+
+      const events = await ctx.db.query.reportEngagements.findMany({
+        where: eq(reportEngagements.reportId, input.reportId),
+        orderBy: [asc(reportEngagements.occurredAt)],
+      });
+
+      type RecipientSummary = {
+        email: string;
+        opened: number;
+        clicked: number;
+        bounced: number;
+        firstSentAt: Date | null;
+        lastOpenedAt: Date | null;
+        lastClickedAt: Date | null;
+      };
+
+      const byRecipient = new Map<string, RecipientSummary>();
+      const totals = { sent: 0, opened: 0, clicked: 0, bounced: 0 };
+
+      for (const e of events) {
+        let r = byRecipient.get(e.recipientEmail);
+        if (!r) {
+          r = {
+            email: e.recipientEmail,
+            opened: 0,
+            clicked: 0,
+            bounced: 0,
+            firstSentAt: null,
+            lastOpenedAt: null,
+            lastClickedAt: null,
+          };
+          byRecipient.set(e.recipientEmail, r);
+        }
+        // occurredAt defaults to now() in the DB, but the column is
+        // nullable in the schema — guard before assigning.
+        const at = e.occurredAt ?? null;
+        switch (e.eventType) {
+          case "sent":
+            totals.sent++;
+            if (!r.firstSentAt) r.firstSentAt = at;
+            break;
+          case "opened":
+            totals.opened++;
+            r.opened++;
+            r.lastOpenedAt = at; // events are asc-ordered → last wins
+            break;
+          case "clicked":
+            totals.clicked++;
+            r.clicked++;
+            r.lastClickedAt = at;
+            break;
+          case "bounced":
+          case "complained":
+            totals.bounced++;
+            r.bounced++;
+            break;
+        }
+      }
+
+      // Most-engaged first: clicked desc, then opened desc, then email.
+      const recipients = [...byRecipient.values()].sort(
+        (a, b) =>
+          b.clicked - a.clicked ||
+          b.opened - a.opened ||
+          a.email.localeCompare(b.email)
+      );
+
+      return { totals, recipients };
     }),
 
   update: protectedProcedure
