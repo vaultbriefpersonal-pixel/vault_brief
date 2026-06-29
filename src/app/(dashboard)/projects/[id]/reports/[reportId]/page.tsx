@@ -4,6 +4,7 @@ import { use, useState } from "react";
 import { trpc } from "@/lib/api";
 import { ReportEditor } from "@/components/report/ReportEditor";
 import { ReportWidgets } from "@/components/report/ReportWidgets";
+import { ReportEngagements } from "@/components/report/ReportEngagements";
 import { Download, Send, RefreshCw, ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { formatDate } from "@/lib/utils";
@@ -284,6 +285,10 @@ export default function ReportEditorPage({ params }: Props) {
             });
           }}
         />
+        {/* Per-investor engagement — self-hides until the report is sent
+            and events land, so it only appears on reports that have an
+            audience to report on. */}
+        <ReportEngagements reportId={reportId} />
       </div>
     </div>
   );
