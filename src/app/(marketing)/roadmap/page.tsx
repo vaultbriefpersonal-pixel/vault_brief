@@ -57,24 +57,24 @@ const SHIPPED: Item[] = [
     title: "Token contract autofill",
     desc: "Paste a contract address; we prefill description, website, GitHub org, and token symbol from CoinGecko.",
   },
+  {
+    title: "Per-investor engagement tracking",
+    desc: "See which investor opened and clicked each report, how many times, and when — not just aggregate counts.",
+  },
+  {
+    title: "Inline milestone editing",
+    desc: "Edit Looking Ahead and Milestones Completed entries row-by-row — title, status, and dates — straight from the report template.",
+  },
 ];
 
 const NOW: Item[] = [
   {
-    title: "Investor click-tracking dashboard",
-    desc: "Open and click events from Resend already land in the DB. Surfacing them per-report so founders can see who actually read.",
-  },
-  {
-    title: "Milestone editor polish",
-    desc: "Inline editing for the Looking Ahead / Milestones Completed sections so the report template feels like a real editor, not a form.",
+    title: "Investor portal",
+    desc: "A token-gated home for every report so founders stop emailing PDFs by hand — investors sign in once and see the full history, with engagement tracked per recipient.",
   },
 ];
 
 const NEXT: Item[] = [
-  {
-    title: "Investor portal",
-    desc: "Token-gated portal so founders stop emailing PDFs by hand. One link per investor, with read receipts and per-recipient access logs.",
-  },
   {
     title: "Read-only public API",
     desc: "For funds and platforms that want to pull projects, snapshots, and reports into internal dashboards. Per-plan rate limits.",
