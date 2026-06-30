@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VaultBrief
 
-## Getting Started
+Automated, investor-ready monthly reports for crypto teams. Connect your
+treasury wallets once; VaultBrief syncs on-chain balances, classifies
+expenses, pulls token and GitHub metrics, drafts an AI narrative, and
+emails a branded report your investors read at a public link — no account
+required on their end.
 
-First, run the development server:
+Live in production at **[vaultbrief.io](https://vaultbrief.io)**.
+
+> **Read-only on-chain.** VaultBrief never signs or sends transactions and
+> holds no private keys. There are no smart contracts in this repo.
+
+## What it does
+
+- **Treasury sync** across Ethereum, Arbitrum, Polygon, Base, and Solana
+- **Expense classification** + token price / market-cap / holder metrics
+- **GitHub activity** (commits, merged PRs, active contributors)
+- **AI narrative** generated from each monthly snapshot
+- **Report editor** with live KPI / treasury / expense / token widgets
+- **Public investor view** at `/r/<id>` with custom branding, plus PDF export
+- **Email distribution** with per-recipient open/click engagement tracking
+- **Billing** via Stripe (card) and Atlos (USDC)
+
+## Tech stack
+
+Next.js 16 (App Router) · React 19 · TypeScript · Tailwind v4 · tRPC v11 ·
+Drizzle ORM + Neon Postgres · NextAuth v5 (Google + Resend magic-link) ·
+Trigger.dev (scheduled jobs) · Resend · Alchemy / Dune / Helius · OpenRouter
+(LLM) · Upstash Redis · Vercel (hosting + Blob) · Sentry.
+
+## Local setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev      # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The app needs environment variables for its external services (database,
+auth, email, on-chain data, billing). These are **not** committed — see
+`DEPLOY.md` for the full list and how to provision each service. With
+placeholder values the app builds, but live features stay inert.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Common commands
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run dev       # dev server
+npm run build     # production build (also full typecheck)
+npm run lint      # eslint
+npm run test:e2e  # Playwright end-to-end suite
+```
 
-## Learn More
+See **[VERIFY.md](VERIFY.md)** for the complete, authoritative list of
+verification commands (including E2E against a deployed URL and
+approval-gated database commands).
 
-To learn more about Next.js, take a look at the following resources:
+## Project layout
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+src/app/          routes — (marketing), (auth), (dashboard), r/[reportId], api/
+src/components/    UI — marketing, report, settings, ui
+src/server/        db (Drizzle schema), trpc routers, services, jobs
+src/lib/           auth, utils, chains, billing helpers, trpc client
+e2e/               Playwright specs (E1–E13)
+scripts/           seed + smoke scripts, migrations
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Documentation
 
-## Deploy on Vercel
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — system map, routes, data flow
+- **[DEPLOY.md](DEPLOY.md)** — services and environment setup
+- **[VERIFY.md](VERIFY.md)** — how to build, test, and validate
+- **[ROADMAP.md](ROADMAP.md)** — what's shipped and what's next
+- **[SECURITY_NOTES.md](SECURITY_NOTES.md)** — sensitive areas and rules
+- **[AGENTS.md](AGENTS.md)** — conventions for contributors and AI agents
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Contributing
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Work proceeds one small task at a time from `TODO.md` on short-lived
+`task/...` branches; see `AGENTS.md` and `DECISIONS.md` for the workflow.
+Never commit secrets or `.env` files, and never push directly to `main`.
