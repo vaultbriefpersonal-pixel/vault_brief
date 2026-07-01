@@ -239,7 +239,7 @@ export default async function BlogPostPage({ params }: Props) {
                 display: "inline-block",
               }}
             >
-              Start Free Trial
+              Get started free
             </Link>
           </div>
         </div>

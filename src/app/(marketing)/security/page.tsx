@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 //   - read-only data path:      src/server/services/wallet-sync.ts (RPC reads only, no signers)
 //   - private key never asked:  no signer config anywhere in /lib/*
 //   - HTTPS everywhere:         Vercel-enforced HSTS (next.config.ts / Vercel platform)
-//   - Webhook signature checks: /api/webhooks/{stripe,resend,atlos} verify HMAC / Svix
+//   - Webhook signature checks: /api/webhooks/resend verifies Svix signatures
 //   - Per-route rate limits:    src/server/lib/ratelimit.ts (Upstash Redis)
 //   - Encrypted PII at rest:    GitHub PAT stored encrypted (projects.githubTokenEncrypted)
 //   - Authenticated dashboard:  NextAuth v5 + Drizzle adapter, single-host magic links
@@ -30,12 +30,12 @@ const ITEMS = [
   {
     icon: "📨",
     title: "Signed webhooks only",
-    desc: "Every inbound webhook is signature-verified before any side-effect runs. Stripe events check the official HMAC header; Resend uses Svix-signed events for email tracking; Atlos USDC postbacks are HMAC-SHA256 over the raw body with timing-safe comparison.",
+    desc: "Every inbound webhook is signature-verified before any side-effect runs. Email-tracking events from Resend are validated as Svix-signed payloads with timing-safe comparison; unsigned or mismatched requests are rejected.",
   },
   {
     icon: "🔑",
     title: "Encrypted credentials at rest",
-    desc: "GitHub personal access tokens are encrypted before they hit the database. Stripe customer references are opaque IDs only; no card details ever touch our servers.",
+    desc: "GitHub personal access tokens are encrypted before they hit the database. We never ask for or store payment details — VaultBrief is free.",
   },
   {
     icon: "🛡️",
@@ -55,7 +55,7 @@ const ITEMS = [
   {
     icon: "🧾",
     title: "Audit-friendly data layer",
-    desc: "Treasury snapshots are append-only. Every report references the exact snapshot it was generated from, and every webhook event is idempotently logged (Stripe events, Atlos events). Numbers in the AI narrative are validated against the source snapshot at generation time — no fabricated figures.",
+    desc: "Treasury snapshots are append-only. Every report references the exact snapshot it was generated from, and inbound webhook events are idempotently logged. Numbers in the AI narrative are validated against the source snapshot at generation time — no fabricated figures.",
   },
 ];
 

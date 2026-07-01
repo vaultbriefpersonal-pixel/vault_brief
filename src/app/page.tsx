@@ -197,12 +197,6 @@ const TOOL_STACK: Array<{ name: string; color: string }> = [
   { name: "Resend", color: "#FFFFFF" },
   { name: "Neon", color: "#00E599" },
   { name: "Vercel", color: "#FFFFFF" },
-  // Stripe brand indigo #635BFF gives 2.7:1 contrast on the dark
-  // trust-bar background — axe-contrast fail. Use Stripe's own
-  // lighter indigo (their "Indigo 30" — used on dark dashboards
-  // for the same reason) so the chip stays recognisably-Stripe
-  // while clearing the 4.5:1 AA threshold.
-  { name: "Stripe", color: "#A6A1FF" },
 ];
 
 // "Input → report" pillar columns. Drives the new visual section that
@@ -334,12 +328,12 @@ export default async function LandingPage() {
             }}
           >
             {/* Demo first — visitors should see output before committing.
-                Trial is the secondary CTA per the conversion strategy. */}
+                Get-started is the secondary CTA. */}
             <Link href="/demo" className="btn-primary">
               Generate Demo Report
             </Link>
             <Link href="/login" className="btn-secondary">
-              Start Free Trial
+              Get started free
             </Link>
           </div>
 
@@ -353,8 +347,7 @@ export default async function LandingPage() {
               lineHeight: 1.5,
             }}
           >
-            No credit card required. Preview a demo report before connecting
-            your own data.
+            Free to use. Preview a demo report before connecting your own data.
           </p>
         </div>
 
@@ -1027,7 +1020,7 @@ export default async function LandingPage() {
               marginTop: 18,
             }}
           >
-            No credit card required.
+            Free to use.
           </p>
         </div>
       </section>

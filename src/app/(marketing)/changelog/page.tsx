@@ -8,8 +8,8 @@ export const metadata: Metadata = {
 };
 
 // Three-label model per the v2 brief. Only mark Planned for items that
-// are not live. Email distribution / Stripe / USDC / report automation
-// are running in production and are tagged Shipped accordingly.
+// are not live. Email distribution / report automation are running in
+// production and are tagged Shipped accordingly.
 //
 // Planned items used to live inline inside the monthly entries. That
 // blurred the line between "we did this" and "we will". They now live
@@ -98,16 +98,6 @@ const ENTRIES: {
     date: "February 2026",
     version: "v0.7.0",
     items: [
-      {
-        tag: "shipped",
-        title: "Stripe billing",
-        desc: "Paid plans are live. Annual billing is available at a 20% discount.",
-      },
-      {
-        tag: "shipped",
-        title: "USDC payments",
-        desc: "Pay-with-USDC is live for projects that prefer crypto-native billing alongside card payments.",
-      },
       {
         tag: "shipped",
         title: "Token metrics tracking",
