@@ -77,17 +77,9 @@ async function checkResend(): Promise<ServiceCheck> {
   );
 }
 
-async function checkStripe(): Promise<ServiceCheck> {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key || key.includes("placeholder")) {
-    return { name: "Billing", status: "operational", latencyMs: null, detail: "not configured" };
-  }
-  return timed("Billing", () =>
-    pingFetch("https://api.stripe.com/v1/balance", {
-      headers: { Authorization: `Bearer ${key}` },
-    })
-  );
-}
+// Public-goods pivot: VaultBrief is free — no billing health check is
+// surfaced on /status or /api/health. (Stripe/Atlos integration code
+// remains in the repo but dormant.)
 
 async function checkOpenRouter(): Promise<ServiceCheck> {
   const key = process.env.OPENROUTER_API_KEY;
@@ -150,7 +142,6 @@ export async function runHealthChecks(): Promise<SystemHealth> {
   const checks = await Promise.all([
     checkDatabase(),
     checkResend(),
-    checkStripe(),
     checkOpenRouter(),
     checkDuneSim(),
     checkAlchemy(),

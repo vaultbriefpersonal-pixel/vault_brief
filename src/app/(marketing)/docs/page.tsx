@@ -187,33 +187,18 @@ const SECTIONS: Section[] = [
   },
   {
     id: "plan-limits",
-    title: "Plan limits",
+    title: "Pricing",
     body: (
       <>
         <p>
-          Quotas are enforced server-side on every mutation:
+          Vault Brief is <strong>free</strong> — a public good for the
+          ecosystem. There are no paid plans, no trial window, and no
+          per-account limits on projects, wallets, GitHub repos, or reports.
         </p>
-        <ul>
-          <li>
-            <strong>Trial (14 days, automatic on signup)</strong> — same
-            quota as Seed. Generates real reports against your own data.
-          </li>
-          <li>
-            <strong>Seed ($99/mo)</strong> — 1 project, up to 5 treasury
-            wallets, 1 GitHub org.
-          </li>
-          <li>
-            <strong>Growth ($299/mo)</strong> — up to 3 projects, 10
-            wallets, 5 GitHub repos, token metrics, custom branding.
-          </li>
-          <li>
-            <strong>Custom (contact)</strong> — up to 30 projects,
-            unlimited wallets, white-label exports, dedicated support.
-          </li>
-        </ul>
         <p>
-          Plan changes take effect immediately. Reports generated under
-          a higher tier remain accessible if you downgrade.
+          Sign in with your email, connect your treasury and GitHub, and
+          generate as many investor reports as you need. Every feature is
+          available to every account.
         </p>
       </>
     ),

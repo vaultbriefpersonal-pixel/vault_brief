@@ -1,59 +1,45 @@
 import { test, expect } from "@playwright/test";
 
 /**
- * E5: Billing flow
+ * E5: No-paywall guard.
+ *
+ * VaultBrief pivoted to a free "public goods" model — no pricing page,
+ * no plan tiers, no trial CTAs. This spec replaces the old billing-flow
+ * suite and acts as a regression net: if pricing/paywall surfaces ever
+ * reappear, these assertions fail.
  */
-test.describe("E5 - Billing flow (public pages)", () => {
-  test("pricing page shows all 3 paid plans", async ({ page }) => {
-    await page.goto("/pricing");
+test.describe("E5 - No paywall (public goods)", () => {
+  test("/pricing is gone (404 or redirect away from a pricing page)", async ({
+    page,
+  }) => {
+    const res = await page.goto("/pricing");
+    // Either the route 404s, or it redirects elsewhere. Never a live
+    // pricing page. Accept 404 status, or a final URL that isn't /pricing.
+    const status = res?.status() ?? 0;
+    const url = page.url();
+    const looksLikePricing = /\/pricing\/?$/.test(url);
+    expect(status === 404 || !looksLikePricing).toBeTruthy();
+    // And no plan tiers rendered.
+    await expect(page.getByRole("heading", { name: "Seed" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "VC Suite" })).toHaveCount(0);
+  });
 
-    // Seed / Growth / Custom — the "Free Demo" pseudo-tier was demoted
-    // from a pricing card to a CTA banner because it isn't a usage plan
-    // (signup grants a 14-day full-access trial automatically). The demo
-    // CTA still lives on the page and is asserted below.
-    await expect(page.getByRole("heading", { name: "Seed" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Growth" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Custom" })).toBeVisible();
-    await expect(page.getByText("$99", { exact: true })).toBeVisible();
-    await expect(page.getByText("$299", { exact: true })).toBeVisible();
-    // Demo CTA banner sits above the cards.
+  test("nav and footer have no Pricing link", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("link", { name: /^pricing$/i })).toHaveCount(0);
+  });
+
+  test("landing page has no price or trial CTAs", async ({ page }) => {
+    await page.goto("/");
+    const body = await page.locator("body").innerText();
+    expect(body).not.toMatch(/\$\d/); // no dollar amounts
+    expect(body).not.toMatch(/free trial|14-day|per month|\/mo\b/i);
+  });
+
+  test("landing shows a neutral get-started CTA", async ({ page }) => {
+    await page.goto("/");
     await expect(
-      page.getByRole("link", { name: /sample report.*demo/i })
+      page.getByRole("link", { name: /get started/i }).first()
     ).toBeVisible();
-  });
-
-  test("pricing page has CTA links to sign up", async ({ page }) => {
-    await page.goto("/pricing");
-    // Card CTAs now read "Start 14-day trial" or "Contact us". The
-    // older "Start Free Trial" still appears in the marketing nav.
-    const ctaLinks = page.getByRole("link", {
-      name: /start 14-day trial|start free trial|contact us/i,
-    });
-    await expect(ctaLinks.first()).toBeVisible();
-  });
-
-  test("pricing page shows feature list items", async ({ page }) => {
-    await page.goto("/pricing");
-    // Seed-tier feature: "Up to 5 treasury wallets". Growth: "Up to 5 GitHub repos".
-    await expect(
-      page.getByText("Up to 5 treasury wallets").first()
-    ).toBeVisible();
-    await expect(page.getByText("Up to 5 GitHub repos")).toBeVisible();
-    // "API access" appears in both the comparison table (as Roadmap) and
-    // the Custom card. At least one needs to be visible.
-    await expect(page.getByText(/API access/).first()).toBeVisible();
-  });
-});
-
-test.describe("E5 - Billing flow (Stripe integration)", () => {
-  test.skip(
-    !process.env.STRIPE_SECRET_KEY ||
-      process.env.STRIPE_SECRET_KEY.includes("placeholder"),
-    "Requires real Stripe keys"
-  );
-
-  test("authenticated checkout creates session", async ({ page }) => {
-    // Requires authenticated session + real Stripe
-    await page.goto("/billing");
   });
 });

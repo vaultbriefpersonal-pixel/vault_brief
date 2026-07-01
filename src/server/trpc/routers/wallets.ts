@@ -7,17 +7,6 @@ import { requireProject } from "../guards";
 import { checkLimit, mutationLimiter } from "@/server/lib/ratelimit";
 import { assertTrialActive } from "@/server/lib/plan-limits";
 
-// Wallet quota per plan. Aligned with marketing pricing-table:
-//   Seed (starter) = 5, Growth = 10, Custom (vc_suite) = unlimited.
-// Used to read 20 on Growth — generous, but inconsistent with what
-// the upgrade page advertises.
-const PLAN_WALLET_LIMITS: Record<string, number> = {
-  free: 5,
-  starter: 5,
-  growth: 10,
-  vc_suite: Infinity,
-};
-
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
@@ -66,18 +55,8 @@ export const walletsRouter = router({
         });
       }
 
-      const plan =
-        (ctx.session.user as { plan?: string }).plan ?? "free";
-      const limit = PLAN_WALLET_LIMITS[plan] ?? 5;
-      const existing = await ctx.db.query.wallets.findMany({
-        where: eq(wallets.projectId, input.projectId),
-      });
-      if (existing.length >= limit) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: `Your plan allows up to ${limit} wallets per project.`,
-        });
-      }
+      // Public-goods pivot: no per-plan wallet cap — any number of wallets
+      // per project. (Previously gated on PLAN_WALLET_LIMITS.)
 
       try {
         const [wallet] = await ctx.db

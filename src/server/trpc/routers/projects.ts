@@ -48,16 +48,6 @@ function isValidWalletAddress(address: string, chain: string): boolean {
   return EVM_ADDRESS_RE.test(address);
 }
 
-// Project quota per plan. KEEP IN SYNC with the marketing pricing
-// table (src/app/(marketing)/pricing/page.tsx) and PricingCards.tsx —
-// users who upgrade to Growth expect 3 projects (advertised) and used
-// to be silently capped at 1 server-side.
-const PLAN_PROJECT_LIMITS: Record<string, number> = {
-  free: 1,
-  starter: 1,
-  growth: 3,
-  vc_suite: 30,
-};
 
 export const projectsRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -118,18 +108,7 @@ export const projectsRouter = router({
       const userId = ctx.session.user.id!;
       await assertTrialActive(userId);
       await checkLimit(projectCreateLimiter, userId);
-      const existing = await ctx.db.query.projects.findMany({
-        where: eq(projects.userId, userId),
-      });
-
-      const plan = (ctx.session.user as { plan?: string }).plan ?? "free";
-      const limit = PLAN_PROJECT_LIMITS[plan] ?? 1;
-      if (existing.length >= limit) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: `Your plan allows up to ${limit} project(s). Upgrade to add more.`,
-        });
-      }
+      // Public-goods pivot: no per-plan project cap.
 
       // Pre-flight wallet validation. Pull this BEFORE the slug-uniqueness
       // loop so a bad address fails fast without N round-trips to Postgres.
@@ -297,18 +276,7 @@ export const projectsRouter = router({
       await assertTrialActive(userId);
       await requireProject(ctx, input.id);
       await checkLimit(projectCreateLimiter, userId);
-
-      const existing = await ctx.db.query.projects.findMany({
-        where: eq(projects.userId, userId),
-      });
-      const plan = (ctx.session.user as { plan?: string }).plan ?? "free";
-      const limit = PLAN_PROJECT_LIMITS[plan] ?? 1;
-      if (existing.length >= limit) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: `Your plan allows up to ${limit} project(s). Upgrade to add more.`,
-        });
-      }
+      // Public-goods pivot: no per-plan project cap.
 
       const original = await ctx.db.query.projects.findFirst({
         where: eq(projects.id, input.id),

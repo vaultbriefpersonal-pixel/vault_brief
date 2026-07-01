@@ -6,12 +6,11 @@ import { Menu, X } from "lucide-react";
 import { Logo } from "./Logo";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
-// Trimmed for early-conversion: Demo first (visitors need to see output
-// before committing), then Pricing and Docs. Blog/About moved to the
-// footer — they're discoverability surfaces, not conversion paths.
+// Demo first (visitors need to see output before committing), then Docs.
+// Public-goods pivot removed the Pricing link — the product is free.
+// Blog/About live in the footer — discoverability, not conversion paths.
 const NAV_LINKS = [
   { label: "Demo", href: "/demo" },
-  { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
 ];
 
@@ -149,7 +148,7 @@ export function Nav() {
                   e.currentTarget.style.boxShadow = "none";
                 }}
               >
-                Start Free Trial
+                Get started
               </Link>
             </div>
           </>
@@ -247,7 +246,7 @@ export function Nav() {
               marginTop: 16,
             }}
           >
-            Start Free Trial
+            Get started
           </Link>
         </div>
       )}

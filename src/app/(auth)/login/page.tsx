@@ -284,7 +284,7 @@ function LoginForm() {
           automatically.
           <br />
           <span style={{ color: "var(--vb-muted)", fontSize: 12 }}>
-            No credit card required.
+            Free to use — no credit card, no paid plans.
           </span>
         </p>
       </div>

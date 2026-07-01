@@ -20,7 +20,7 @@ Live in production at **[vaultbrief.io](https://vaultbrief.io)**.
 - **Report editor** with live KPI / treasury / expense / token widgets
 - **Public investor view** at `/r/<id>` with custom branding, plus PDF export
 - **Email distribution** with per-recipient open/click engagement tracking
-- **Billing** via Stripe (card) and Atlos (USDC)
+- **Free — a public good.** No paid plans, no trial, no per-account limits
 
 ## Tech stack
 

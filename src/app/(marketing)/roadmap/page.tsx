@@ -50,10 +50,6 @@ const SHIPPED: Item[] = [
     desc: "Set your logo and accent color once; every PDF and investor-view page picks it up.",
   },
   {
-    title: "Stripe billing + USDC",
-    desc: "Paid plans live. Annual at 20% off. Pay-with-USDC for crypto-native teams.",
-  },
-  {
     title: "Token contract autofill",
     desc: "Paste a contract address; we prefill description, website, GitHub org, and token symbol from CoinGecko.",
   },
@@ -186,7 +182,7 @@ export default function RoadmapPage() {
       </section>
 
       {/* Three-column grid on desktop, stacked via vb-stack-mobile on
-          narrow viewports (same utility /pricing and /changelog use). */}
+          narrow viewports (same utility /changelog uses). */}
       <section
         className="vb-pad-x"
         style={{ paddingTop: 40, paddingBottom: 120 }}

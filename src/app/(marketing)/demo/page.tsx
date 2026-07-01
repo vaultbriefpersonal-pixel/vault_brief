@@ -126,7 +126,7 @@ export default function DemoPage() {
             className="btn-secondary"
             style={{ padding: "10px 22px", fontSize: 14 }}
           >
-            Start Free Trial
+            Get started free
           </Link>
         </div>
         <p
@@ -482,7 +482,7 @@ export default function DemoPage() {
             investor report from your own data.
           </p>
           <Link href="/login" className="btn-primary">
-            Start Free Trial
+            Get started free
           </Link>
           <p
             style={{
@@ -492,7 +492,7 @@ export default function DemoPage() {
               marginTop: 14,
             }}
           >
-            No credit card required.
+            Free to use.
           </p>
         </div>
       </section>

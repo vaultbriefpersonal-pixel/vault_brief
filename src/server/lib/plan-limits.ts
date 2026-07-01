@@ -1,81 +1,35 @@
 import { eq, desc } from "drizzle-orm";
-import { TRPCError } from "@trpc/server";
 import { db } from "@/server/db";
-import { projects, users } from "@/server/db/schema";
+import { projects } from "@/server/db/schema";
 
 /**
- * Per-plan project caps. Mirrors the limits enforced at create-time in the
- * projects router. Source of truth for cron-side soft-blocking.
- */
-const PROJECT_LIMITS: Record<string, number> = {
-  free: 1,
-  starter: 1,
-  growth: 1,
-  vc_suite: 30,
-};
-
-/**
- * Returns the set of project IDs the user is currently allowed to sync. If
- * they're over their plan limit (e.g. after a downgrade or expired sub), the
- * most recently created N stay eligible and the rest are silently skipped by
- * the cron jobs.
+ * Returns the set of project IDs the user is allowed to sync.
  *
- * Read-only — does NOT mutate `projects.isActive`. Frontend can show an
- * "upgrade to sync more" banner via a similar query.
+ * Public-goods pivot: VaultBrief is free with no plan limits, so every
+ * project a user owns is eligible. (Previously this sliced the list to a
+ * per-plan cap; that gating has been removed.) Kept as a function so the
+ * cron filter below and its call sites stay unchanged.
  */
 export async function eligibleProjectIds(userId: string): Promise<Set<string>> {
-  const [user] = await db
-    .select({ plan: users.plan, expiresAt: users.planExpiresAt })
-    .from(users)
-    .where(eq(users.id, userId));
-  if (!user) return new Set();
-
-  // An expired subscription falls back to the free-tier limits even if the
-  // plan column still reads "vc_suite" (Stripe webhook may not have caught up).
-  const effectivePlan =
-    user.expiresAt && user.expiresAt < new Date() ? "free" : user.plan;
-  const limit = PROJECT_LIMITS[effectivePlan] ?? 1;
-
   const userProjects = await db
     .select({ id: projects.id })
     .from(projects)
     .where(eq(projects.userId, userId))
     .orderBy(desc(projects.createdAt));
 
-  return new Set(userProjects.slice(0, limit).map((p) => p.id));
+  return new Set(userProjects.map((p) => p.id));
 }
 
 /**
- * Trial gate. Free-plan users get 14 days of full write access (sync,
- * generate, send) starting from their first login. After that, paid
- * actions throw and the UI surfaces the upgrade banner. Paid plans
- * (starter / growth / vc_suite) bypass this entirely.
+ * Trial gate — now a no-op.
  *
- * Reads stay open forever — old reports / dashboards remain visible
- * even after expiry. This is "trial → read-only" not "trial → blocked."
+ * Public-goods pivot: VaultBrief is free, so there is no trial wall. This
+ * function is intentionally retained (and still called from ~15 mutations)
+ * so the pivot is a one-line revert if paid plans ever return — restore the
+ * plan/trial lookup here and gating comes back everywhere at once.
  */
-export async function assertTrialActive(userId: string): Promise<void> {
-  const [user] = await db
-    .select({ plan: users.plan, trialEndsAt: users.trialEndsAt })
-    .from(users)
-    .where(eq(users.id, userId));
-  if (!user) {
-    throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
-  }
-  if (user.plan !== "free") return; // paid → no gate
-  if (!user.trialEndsAt) return; // legacy null (pre-migration) → grant access
-  if (user.trialEndsAt > new Date()) return; // trial still active
-
-  const daysAgo = Math.ceil(
-    (Date.now() - user.trialEndsAt.getTime()) / (24 * 60 * 60 * 1000)
-  );
-  throw new TRPCError({
-    code: "FORBIDDEN",
-    message:
-      daysAgo <= 1
-        ? "Your 14-day trial just ended. Upgrade to continue creating and sending reports — your existing data stays."
-        : `Your 14-day trial ended ${daysAgo} days ago. Upgrade to continue creating and sending reports — your existing data stays.`,
-  });
+export async function assertTrialActive(_userId: string): Promise<void> {
+  return;
 }
 
 /**

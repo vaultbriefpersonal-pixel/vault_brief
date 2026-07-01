@@ -7,8 +7,8 @@ export const metadata: Metadata = {
 };
 
 // Re-run checks at most once per minute. Each render hits external APIs
-// (Resend, Stripe, OpenRouter, Dune, Alchemy) so we don't want to ping
-// upstream on every page load.
+// (Resend, OpenRouter, Dune, Alchemy) so we don't want to ping upstream
+// on every page load.
 export const revalidate = 60;
 
 const STATUS_COLOR: Record<string, string> = {
