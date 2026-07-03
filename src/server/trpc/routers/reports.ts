@@ -64,6 +64,13 @@ export const reportsRouter = router({
         clicked: number;
         bounced: number;
         firstSentAt: Date | null;
+        // Every individual open / click timestamp, ascending. The counts
+        // above are `.length` of these, kept as separate fields so the UI
+        // can show "opened 3×" without walking the array. `lastOpenedAt` /
+        // `lastClickedAt` are the tail of each list — convenient for the
+        // table's summary column.
+        openedAt: Date[];
+        clickedAt: Date[];
         lastOpenedAt: Date | null;
         lastClickedAt: Date | null;
       };
@@ -80,6 +87,8 @@ export const reportsRouter = router({
             clicked: 0,
             bounced: 0,
             firstSentAt: null,
+            openedAt: [],
+            clickedAt: [],
             lastOpenedAt: null,
             lastClickedAt: null,
           };
@@ -96,11 +105,13 @@ export const reportsRouter = router({
           case "opened":
             totals.opened++;
             r.opened++;
+            if (at) r.openedAt.push(at);
             r.lastOpenedAt = at; // events are asc-ordered → last wins
             break;
           case "clicked":
             totals.clicked++;
             r.clicked++;
+            if (at) r.clickedAt.push(at);
             r.lastClickedAt = at;
             break;
           case "bounced":

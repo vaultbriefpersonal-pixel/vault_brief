@@ -32,6 +32,23 @@ function formatEventDate(d: Date | string | null): string {
   });
 }
 
+// Tooltip text for a count cell: every individual event timestamp, one
+// per line ("Opened: Jun 1, 2026 · 2:14 PM"). Returns undefined when
+// there are no events so the cell renders without a title attribute.
+function formatEventList(dates: (Date | string)[], label: string): string | undefined {
+  if (dates.length === 0) return undefined;
+  const lines = dates.map((d) =>
+    new Date(d).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    })
+  );
+  return `${label}:\n${lines.join("\n")}`;
+}
+
 export function ReportEngagements({ reportId }: ReportEngagementsProps) {
   const { data } = trpc.reports.getEngagements.useQuery({ reportId });
 
@@ -157,23 +174,27 @@ export function ReportEngagements({ reportId }: ReportEngagementsProps) {
                   >
                     <td style={cellBase}>{r.email}</td>
                     <td
+                      title={formatEventList(r.openedAt, "Opened")}
                       style={{
                         ...cellBase,
                         textAlign: "right",
                         color:
                           r.opened > 0 ? "var(--accent)" : "var(--vb-dim)",
                         fontVariantNumeric: "tabular-nums",
+                        cursor: r.opened > 0 ? "help" : "default",
                       }}
                     >
                       {r.opened}
                     </td>
                     <td
+                      title={formatEventList(r.clickedAt, "Clicked")}
                       style={{
                         ...cellBase,
                         textAlign: "right",
                         color:
                           r.clicked > 0 ? "var(--accent)" : "var(--vb-dim)",
                         fontVariantNumeric: "tabular-nums",
+                        cursor: r.clicked > 0 ? "help" : "default",
                       }}
                     >
                       {r.clicked}
