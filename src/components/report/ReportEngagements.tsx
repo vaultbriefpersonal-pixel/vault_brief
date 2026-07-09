@@ -50,14 +50,22 @@ function formatEventList(dates: (Date | string)[], label: string): string | unde
 }
 
 export function ReportEngagements({ reportId }: ReportEngagementsProps) {
-  const { data } = trpc.reports.getEngagements.useQuery({ reportId });
+  const { data, isLoading, isError } = trpc.reports.getEngagements.useQuery({
+    reportId,
+  });
 
-  // Nothing to show until the report has actually been sent and at
-  // least one event has landed. Keeps the panel out of the way on
-  // draft / pending-review reports.
-  if (!data || (data.totals.sent === 0 && data.recipients.length === 0)) {
-    return null;
-  }
+  // Render nothing while the first load is in flight, on error, or before
+  // data exists. We deliberately do NOT show a loading skeleton: this
+  // panel self-hides on draft / unsent reports, and we can't tell
+  // sent-from-draft until the data arrives — a skeleton would flash on
+  // every report open (drafts included) and cause a layout jump. Uses
+  // `isLoading` (first load only) not `isFetching`, so a cached panel
+  // keeps its rows during a background refetch instead of blanking.
+  // Engagement is non-critical, so a transient error also stays silent.
+  if (isLoading || isError || !data) return null;
+
+  // Loaded, but the report was never sent (no audience) → stay hidden.
+  if (data.totals.sent === 0 && data.recipients.length === 0) return null;
 
   const { totals, recipients } = data;
 
@@ -141,8 +149,8 @@ export function ReportEngagements({ reportId }: ReportEngagementsProps) {
               padding: "16px",
             }}
           >
-            Delivered, but no opens recorded yet. Open and click events
-            arrive as investors interact with the email.
+            Delivered — no opens yet. This updates automatically as
+            investors open and click through the email.
           </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
