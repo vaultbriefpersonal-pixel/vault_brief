@@ -6,7 +6,6 @@ import {
   projects,
   reports,
   treasurySnapshots,
-  wallets,
 } from "@/server/db/schema";
 import { desc, eq, inArray } from "drizzle-orm";
 import { formatDate, formatUsd } from "@/lib/utils";

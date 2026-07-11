@@ -426,7 +426,14 @@ export function VaultBriefPDF({
         {/* Header — logo left of project name when available, period at right */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            {logoUrl ? <Image src={logoUrl} style={styles.logo} /> : null}
+            {logoUrl ? (
+              // `Image` here is @react-pdf/renderer's PDF-layout primitive,
+              // not an HTML <img> — its props have no `alt` (see
+              // BaseImageProps in the package's type defs). jsx-a11y can't
+              // tell the two apart, hence the disable.
+              // eslint-disable-next-line jsx-a11y/alt-text
+              <Image src={logoUrl} style={styles.logo} />
+            ) : null}
             <Text style={[styles.projectName, { color: accent }]}>
               {projectName}
             </Text>

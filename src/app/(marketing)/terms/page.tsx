@@ -13,7 +13,7 @@ export default function TermsPage() {
   return (
     <div style={{ paddingTop: 72 }}>
       <section className="vb-pad-x" style={{ paddingTop: 80, paddingBottom: 120, maxWidth: 720, margin: "0 auto" }}>
-        <p style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "var(--vb-dim)", marginBottom: 12 }}>Last updated: May 1, 2026</p>
+        <p style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "var(--vb-dim)", marginBottom: 12 }}>Last updated: July 1, 2026</p>
         <h1 style={{ fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif", fontSize: "clamp(32px, 4vw, 44px)", fontWeight: 700, color: "var(--vb-text)", letterSpacing: "-0.03em", margin: "0 0 40px" }}>Terms of Service</h1>
 
         <p style={s.p}>By using Vault Brief, you agree to these Terms of Service. Please read them carefully.</p>
@@ -27,14 +27,14 @@ export default function TermsPage() {
         <h2 style={s.h2}>Acceptable use</h2>
         <p style={s.p}>You may not use Vault Brief to generate reports containing false financial information, to mislead investors, or for any unlawful purpose. We reserve the right to suspend accounts that violate these terms.</p>
 
-        <h2 style={s.h2}>Payment</h2>
-        <p style={s.p}>Paid plans are billed monthly or annually in advance. All prices are in USD. Refunds are provided at our discretion. If you cancel, you retain access until the end of your current billing period.</p>
+        <h2 style={s.h2}>No fees</h2>
+        <p style={s.p}>Vault Brief is free to use. There are no paid plans, subscriptions, or usage limits tied to payment.</p>
 
         <h2 style={s.h2}>Data and reports</h2>
         <p style={s.p}>You retain ownership of all report content and financial data. Vault Brief does not claim any rights to your data. We store it solely to provide the service.</p>
 
         <h2 style={s.h2}>Limitation of liability</h2>
-        <p style={s.p}>Vault Brief is provided "as is". We are not liable for decisions made based on report content, inaccuracies in on-chain data sources, or any indirect damages. Our maximum liability is limited to the fees you paid in the 12 months prior to the claim.</p>
+        <p style={s.p}>Vault Brief is provided &ldquo;as is&rdquo; and free of charge. We are not liable for decisions made based on report content, inaccuracies in on-chain data sources, or any indirect damages. To the maximum extent permitted by law, our aggregate liability for any claim arising from your use of the service is limited to USD $100.</p>
 
         <h2 style={s.h2}>Changes to terms</h2>
         <p style={s.p}>We may update these terms. We will notify you by email 14 days before material changes take effect. Continued use of the service after that date constitutes acceptance.</p>

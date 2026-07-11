@@ -100,7 +100,7 @@ export async function fetchSolanaBalance(
   }
 
   let stablecoinsUsd = 0;
-  let nativeTokenUsd = solUsd;
+  const nativeTokenUsd = solUsd;
   let otherAssetsUsd = 0;
 
   for (const asset of assetsResult.items ?? []) {

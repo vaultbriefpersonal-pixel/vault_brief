@@ -18,8 +18,6 @@ const { SECTION_LIBRARY_META } = await import(
 
 // ─── fixtures ──────────────────────────────────────────────────────────────
 
-const PERIOD = "2026-04";
-
 const project = {
   id: "p1",
   name: "Test Protocol",

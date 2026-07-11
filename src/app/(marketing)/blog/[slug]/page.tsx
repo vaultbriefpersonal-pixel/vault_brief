@@ -57,7 +57,6 @@ export default async function BlogPostPage({ params }: Props) {
         type="application/ld+json"
         // JSON-LD payload — safe to inject as-is because we control
         // every field above. No user input.
-        // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
       />
       <section className="vb-pad-x" style={{ paddingTop: 80, paddingBottom: 120 }}>
