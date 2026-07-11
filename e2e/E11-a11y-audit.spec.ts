@@ -27,7 +27,21 @@ interface AxeResult {
   violations: AxeViolation[];
 }
 
-const ROUTES = ["/", "/pricing", "/demo", "/docs", "/security", "/blog", "/login"];
+// Public, unauthenticated routes. `/pricing` was removed in the
+// public-goods pivot (it now redirects), so it's dropped here; `/roadmap`
+// and `/changelog` are recent additions worth covering. The authenticated
+// surfaces (report editor + investor-engagement panel) need a logged-in
+// Playwright fixture and are audited separately — not by this public spec.
+const ROUTES = [
+  "/",
+  "/demo",
+  "/docs",
+  "/security",
+  "/blog",
+  "/login",
+  "/roadmap",
+  "/changelog",
+];
 
 for (const path of ROUTES) {
   test(`E11 a11y audit: ${path}`, async ({ page }) => {

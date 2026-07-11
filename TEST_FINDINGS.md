@@ -140,3 +140,30 @@ Folded into Phase 1 (covered all 7 mock-shapes during walk-through).
 | Free-trial copy "1 wallet" misrepresented limit (actual 5) | P2 | `03fa878` |
 | No "Generate report" button when reports list non-empty | P1 | `03fa878` |
 | ATLOS env vars / signature verification | P0 | `ea80e45` |
+
+---
+
+## a11y re-audit (TODO-009) — 2026-07-01
+
+Re-ran E11 (axe-core) against production public routes after the
+public-goods pivot. Corrected the spec: dropped the removed `/pricing`
+route, added `/roadmap` and `/changelog`.
+
+Result: **8/8 routes pass** — 0 critical, 0 serious.
+
+Two **moderate** findings (informational; do not fail the suite), both
+the same rule, on the two newly-covered pages:
+
+| Page | Rule | Detail | Node |
+|---|---|---|---|
+| `/roadmap` | `heading-order` (moderate) | `h3` bucket-item title follows the page `h1` with no `h2` between — the bucket labels ("Shipped/Now/Next") are `<span>`, not headings | `div > div:nth-child(2) > div:nth-child(1) > h3` |
+| `/changelog` | `heading-order` (moderate) | same skip in the entries grid — the month/date label is a `<p>`, so the first heading in an entry is `h3` after the page `h1` | `.vb-stack-mobile > div:nth-child(2) > div:nth-child(1) > div > h3` |
+
+Suggested fix (filed as TODO-018): promote the roadmap bucket label
+`<span>` → `<h2>` and the changelog date `<p>` → `<h2>`, keeping the
+existing inline styles so the visual appearance is unchanged (fixes the
+level skip semantically).
+
+Authenticated surfaces (report editor, investor-engagement panel) are
+NOT covered by this public spec — they need a logged-in Playwright
+fixture. Filed as a gap to address when auth-fixtured E2E exists.
