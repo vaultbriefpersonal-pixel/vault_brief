@@ -211,10 +211,16 @@ export default function RoadmapPage() {
               }}
             >
               <div>
-                <span
+                {/* h2 — the page h1 was otherwise followed directly by
+                    each item's h3 with no h2 in between (axe
+                    heading-order, moderate). This badge is the natural
+                    section heading for its bucket; visual style
+                    unchanged, just a semantic tag swap. */}
+                <h2
                   style={{
                     display: "inline-block",
                     padding: "4px 12px",
+                    margin: 0,
                     background: bucket.badge.bg,
                     color: bucket.badge.color,
                     borderRadius: 100,
@@ -227,7 +233,7 @@ export default function RoadmapPage() {
                   }}
                 >
                   {bucket.label}
-                </span>
+                </h2>
                 <p
                   style={{
                     fontFamily: "var(--font-inter), Inter, sans-serif",

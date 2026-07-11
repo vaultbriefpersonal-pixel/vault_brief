@@ -213,7 +213,12 @@ export default function ChangelogPage() {
               }}
             >
               <div>
-                <p
+                {/* h2 — the page h1 was otherwise followed directly by
+                    each entry's h3 (item title) with no h2 in between
+                    (axe heading-order, moderate). The month/date label
+                    is the natural section heading for its entry; visual
+                    style unchanged, just a semantic tag swap. */}
+                <h2
                   style={{
                     fontFamily:
                       "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
@@ -224,7 +229,7 @@ export default function ChangelogPage() {
                   }}
                 >
                   {entry.date}
-                </p>
+                </h2>
                 {entry.version && (
                   <span
                     style={{
