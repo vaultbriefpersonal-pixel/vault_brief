@@ -39,7 +39,6 @@ const isClean = args.has("--clean");
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 const randId = () => crypto.randomUUID();
-const today = () => new Date().toISOString().slice(0, 10);
 function monthsAgo(n) {
   const d = new Date();
   d.setMonth(d.getMonth() - n);

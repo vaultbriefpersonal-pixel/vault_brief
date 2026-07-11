@@ -26,7 +26,7 @@ import {
 } from "@/server/lib/ratelimit";
 import { fetchTokenMetadata } from "@/server/services/project-autofill";
 import { assertTrialActive } from "@/server/lib/plan-limits";
-import { createMonthlySnapshot, getLastMonthPeriod } from "@/server/services/data-sync";
+import { createMonthlySnapshot } from "@/server/services/data-sync";
 import { generateAndSaveReport } from "@/server/services/report-generator";
 import { evaluateReadiness } from "@/server/services/report-sections";
 

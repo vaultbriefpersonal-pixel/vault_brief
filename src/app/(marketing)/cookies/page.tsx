@@ -45,7 +45,7 @@ export default function CookiesPage() {
         </div>
 
         <h2 style={s.h2}>Your choices</h2>
-        <p style={s.p}>Essential cookies are required for Vault Brief to function and cannot be disabled. Analytics cookies can be opted out of by clicking "Decline" on the cookie banner when you first visit, or by emailing us.</p>
+        <p style={s.p}>Essential cookies are required for Vault Brief to function and cannot be disabled. Analytics cookies can be opted out of by clicking &ldquo;Decline&rdquo; on the cookie banner when you first visit, or by emailing us.</p>
         <p style={s.p}>You can also clear cookies at any time in your browser settings. Note that clearing essential cookies will log you out of your account.</p>
 
         <h2 style={s.h2}>Contact</h2>

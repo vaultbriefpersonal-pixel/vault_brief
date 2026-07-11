@@ -16,7 +16,7 @@ export default function PrivacyPage() {
         <p style={{ fontFamily: "var(--font-inter), Inter, sans-serif", fontSize: 13, color: "var(--vb-dim)", marginBottom: 12 }}>Last updated: May 1, 2026</p>
         <h1 style={{ fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif", fontSize: "clamp(32px, 4vw, 44px)", fontWeight: 700, color: "var(--vb-text)", letterSpacing: "-0.03em", margin: "0 0 40px" }}>Privacy Policy</h1>
 
-        <p style={s.p}>This Privacy Policy explains how Vault Brief ("we", "us", or "our") collects, uses, and shares information about you when you use our services.</p>
+        <p style={s.p}>This Privacy Policy explains how Vault Brief (&ldquo;we&rdquo;, &ldquo;us&rdquo;, or &ldquo;our&rdquo;) collects, uses, and shares information about you when you use our services.</p>
 
         <h2 style={s.h2}>Information we collect</h2>
         <p style={s.p}>We collect information you provide directly, such as your name, email address, and project details when you create an account. We also collect wallet addresses you connect and GitHub organization data you authorize us to read.</p>
