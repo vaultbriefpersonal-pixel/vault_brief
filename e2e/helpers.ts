@@ -11,9 +11,3 @@ export async function loginAs(page: Page, email = TEST_EMAIL) {
   // In tests, we mock the magic link — check for "sent" state
   await page.waitForSelector("text=Magic link sent");
 }
-
-export async function signInWithSession(page: Page) {
-  // Set a session cookie directly for testing (bypasses email flow)
-  await page.goto("/api/auth/test-signin?email=" + TEST_EMAIL);
-  await page.waitForURL("**/projects**");
-}
