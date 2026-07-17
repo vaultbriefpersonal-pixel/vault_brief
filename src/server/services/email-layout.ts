@@ -147,10 +147,13 @@ export function ctaButtonHtml(
   return `<a href="${href}" style="display: block; background: ${palette.accent}; color: white !important; text-decoration: none; text-align: center; padding: 14px 24px; border-radius: 8px; font-weight: 600; font-size: 15px; margin: 24px 0;">${escapeHtml(label)}</a>`;
 }
 
-/** Pill badge — used for Draft / Sent statuses inline. */
-export function badgeHtml(text: string, color: "amber" | "green" = "amber"): string {
-  const fg = color === "amber" ? "#92400E" : "#065F46";
-  const bg = color === "amber" ? "#FEF3C7" : "#D1FAE5";
+/** Pill badge — used for Draft / Sent statuses inline, and critical alerts. */
+export function badgeHtml(
+  text: string,
+  color: "amber" | "green" | "red" = "amber"
+): string {
+  const fg = color === "amber" ? "#92400E" : color === "green" ? "#065F46" : "#991B1B";
+  const bg = color === "amber" ? "#FEF3C7" : color === "green" ? "#D1FAE5" : "#FEE2E2";
   return `<span style="display: inline-block; background: ${bg}; color: ${fg}; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; padding: 4px 10px; border-radius: 999px;">${escapeHtml(text)}</span>`;
 }
 

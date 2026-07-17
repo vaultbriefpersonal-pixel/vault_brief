@@ -5,7 +5,8 @@ export type NotificationType =
   | "snapshot_ready"
   | "report_generated"
   | "report_sent"
-  | "sync_failed";
+  | "sync_failed"
+  | "anomaly_detected";
 
 interface NotifyArgs {
   type: NotificationType;
