@@ -6,6 +6,7 @@ import { TRPCError } from "@trpc/server";
 import { requireProject } from "../guards";
 import { checkLimit, mutationLimiter } from "@/server/lib/ratelimit";
 import { assertTrialActive } from "@/server/lib/plan-limits";
+import { getSafeInfoForProject } from "@/server/services/safe-info";
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -24,6 +25,16 @@ export const walletsRouter = router({
         where: eq(wallets.projectId, input.projectId),
         orderBy: (w, { asc }) => [asc(w.createdAt)],
       });
+    }),
+
+  // Signer count + threshold for any wallet tagged gnosis_safe, read live
+  // on-chain (see safe-info.ts for why this isn't cached). Powers the
+  // "Secured by a 3-of-5 multisig" trust signal on the report editor.
+  getSafeInfo: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await requireProject(ctx, input.projectId);
+      return getSafeInfoForProject(input.projectId);
     }),
 
   add: protectedProcedure

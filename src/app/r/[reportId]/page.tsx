@@ -6,6 +6,7 @@ import { reports, projects } from "@/server/db/schema";
 import { ReportPreview } from "@/components/report/ReportPreview";
 import { ReportWidgets } from "@/components/report/ReportWidgets";
 import { formatDate } from "@/lib/utils";
+import { getSafeInfoForProject } from "@/server/services/safe-info";
 
 /**
  * Public investor view of a sent report.
@@ -65,6 +66,7 @@ export default async function PublicReportPage({ params }: Props) {
 
   const accent = branding?.primaryColor ?? "#00e87b";
   const period = formatDate(report.periodEnd);
+  const safes = await getSafeInfoForProject(report.projectId);
 
   return (
     <div
@@ -134,7 +136,7 @@ export default async function PublicReportPage({ params }: Props) {
             marketing demo promises. Null-renders for reports without a
             linked snapshot, in which case the page falls back to the
             existing markdown-only view. */}
-        <ReportWidgets snapshot={report.snapshot} accent={accent} />
+        <ReportWidgets snapshot={report.snapshot} accent={accent} safes={safes} />
         <ReportPreview content={report.contentMd ?? ""} />
       </article>
 

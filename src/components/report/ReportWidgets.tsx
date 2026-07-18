@@ -27,12 +27,25 @@ import { formatUsd } from "@/lib/utils";
  * component owns the real-product rendering.
  */
 
+interface SafeInfo {
+  walletId: string;
+  chain: string;
+  address: string;
+  label: string | null;
+  ownerCount: number;
+  threshold: number;
+}
+
 interface ReportWidgetsProps {
   snapshot: TreasurySnapshot | null | undefined;
   accent: string;
+  /** Signer/threshold info for any gnosis_safe-tagged wallets, read live
+   * on-chain (see safe-info.ts). Omit or pass [] when there are none —
+   * the block self-hides, same null-safe philosophy as every block here. */
+  safes?: SafeInfo[];
 }
 
-export function ReportWidgets({ snapshot, accent }: ReportWidgetsProps) {
+export function ReportWidgets({ snapshot, accent, safes = [] }: ReportWidgetsProps) {
   if (!snapshot) return null;
 
   const total = num(snapshot.totalBalanceUsd);
@@ -114,7 +127,8 @@ export function ReportWidgets({ snapshot, accent }: ReportWidgetsProps) {
     composition.length > 0 ||
     expenses.length > 0 ||
     tokenMetrics.length > 0 ||
-    hasGitHub;
+    hasGitHub ||
+    safes.length > 0;
   if (!renderable) return null;
 
   return (
@@ -224,6 +238,37 @@ export function ReportWidgets({ snapshot, accent }: ReportWidgetsProps) {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {safes.length > 0 && (
+        <div>
+          <SectionHeading subtitle="Verified live on-chain">
+            Treasury security
+          </SectionHeading>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+            {safes.map((s) => (
+              <div
+                key={s.walletId}
+                style={{
+                  background: "var(--vb-bg)",
+                  border: "1px solid var(--vb-border)",
+                  borderRadius: 10,
+                  padding: "12px 16px",
+                  fontFamily: "var(--font-inter), Inter, sans-serif",
+                  fontSize: 14,
+                  color: "var(--vb-text)",
+                }}
+              >
+                <strong style={{ color: accent }}>
+                  Secured by a {s.threshold}-of-{s.ownerCount} multisig
+                </strong>
+                {s.label ? (
+                  <span style={{ color: "var(--vb-muted)" }}> — {s.label}</span>
+                ) : null}
+              </div>
+            ))}
           </div>
         </div>
       )}

@@ -32,6 +32,7 @@ const STATUS_COLOR: Record<string, React.CSSProperties> = {
 export default function ReportEditorPage({ params }: Props) {
   const { id: projectId, reportId } = use(params);
   const { data: report, refetch } = trpc.reports.getById.useQuery({ reportId });
+  const { data: safes } = trpc.wallets.getSafeInfo.useQuery({ projectId });
 
   const [sendError, setSendError] = useState<string | null>(null);
   const [sendSuccess, setSendSuccess] = useState<string | null>(null);
@@ -273,6 +274,7 @@ export default function ReportEditorPage({ params }: Props) {
             (report.project as { customBranding?: { primaryColor?: string } } | null)
               ?.customBranding?.primaryColor ?? "#00e87b"
           }
+          safes={safes ?? []}
         />
         <ReportEditor
           initialContent={report.contentMd ?? ""}
