@@ -4,6 +4,7 @@ import { db } from "@/server/db";
 import { projects, treasurySnapshots } from "@/server/db/schema";
 import { and, desc, eq, lt } from "drizzle-orm";
 import { formatUsd, formatDate } from "@/lib/utils";
+import type { Anomaly } from "./anomalies";
 import {
   renderEmailLayout,
   paletteFor,
@@ -247,6 +248,73 @@ export async function sendReportReadyForReviewEmail(
     from: FROM,
     to: `${to.name} <${to.email}>`,
     subject: `Your ${projectName} report is ready for review (${period})`,
+    html,
+  });
+
+  if (error) throw new Error(`Email send failed: ${error.message}`);
+  return data;
+}
+
+/** Renders one anomaly as a list row — reused HTML list, not the LLM's
+ * plain-text prompt format from anomalies.ts. */
+function anomalyRowHtml(a: Anomaly): string {
+  const dir = a.changePct > 0 ? "+" : "";
+  const detail = a.newCategory
+    ? `${formatUsd(a.current)} (no prior history — first occurrence)`
+    : `${formatUsd(a.baseline)} → ${formatUsd(a.current)} (${dir}${a.changePct.toFixed(0)}%)`;
+  return `<li style="margin-bottom: 8px;"><strong>${escapeHtmlForEmail(a.metric)}:</strong> ${detail}</li>`;
+}
+
+// Same escaping the shared layout helpers use internally — not exported
+// from email-layout.ts, so a minimal local copy for this one call site.
+function escapeHtmlForEmail(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+interface SendAnomalyAlertParams {
+  to: { name: string; email: string };
+  projectName: string;
+  projectUrl: string;
+  anomalies: Anomaly[];
+  logoUrl?: string | null;
+  brandColor?: string;
+}
+
+/**
+ * Founder-only alert for critical treasury anomalies detected OUTSIDE the
+ * monthly report cycle (see src/server/jobs/anomaly-alerts.ts). Never sent
+ * to investors — this is an internal early-warning signal, not part of
+ * the reviewed/approved investor narrative.
+ */
+export async function sendAnomalyAlertEmail(params: SendAnomalyAlertParams) {
+  const { to, projectName, projectUrl, anomalies, logoUrl, brandColor } = params;
+  const palette = paletteFor(brandColor ? { primaryColor: brandColor } : undefined);
+
+  const body = `
+    <p style="${paragraphStyle(palette)}">Hi ${to.name},</p>
+    ${badgeHtml("Critical anomaly", "red")}
+    <p style="${paragraphStyle(palette)} margin-top: 12px;">Vault Brief spotted a significant change in ${escapeHtmlForEmail(projectName)}'s treasury data — before the next monthly report:</p>
+    <ul style="${paragraphStyle(palette)} padding-left: 20px;">
+      ${anomalies.map((a) => anomalyRowHtml(a)).join("")}
+    </ul>
+    ${ctaButtonHtml(projectUrl, "View project →", palette)}
+    <p style="font-size: 12px; color: ${palette.textMuted}; margin-top: 24px; line-height: 1.5;">
+      This alert is for you only — nothing is sent to investors automatically.
+    </p>
+  `;
+
+  const html = renderEmailLayout({
+    title: projectName,
+    subtitle: "Anomaly alert",
+    logoUrl,
+    palette,
+    bodyHtml: body,
+  });
+
+  const { data, error } = await getResend().emails.send({
+    from: FROM,
+    to: `${to.name} <${to.email}>`,
+    subject: `⚠ Anomaly detected in ${projectName}`,
     html,
   });
 
