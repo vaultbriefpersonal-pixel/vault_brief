@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { db } from "@/server/db";
-import { reports, projects } from "@/server/db/schema";
+import { reports, projects, treasurySnapshots } from "@/server/db/schema";
 import { ReportPreview } from "@/components/report/ReportPreview";
 import { ReportWidgets } from "@/components/report/ReportWidgets";
 import { formatDate } from "@/lib/utils";
@@ -67,6 +67,27 @@ export default async function PublicReportPage({ params }: Props) {
   const accent = branding?.primaryColor ?? "#00e87b";
   const period = formatDate(report.periodEnd);
   const safes = await getSafeInfoForProject(report.projectId);
+
+  // Trailing treasury/burn history for the trend chart — same trailing-12
+  // query + shape as projects.getSnapshotTrend (tRPC), duplicated here as a
+  // direct DB read because this page is public and unauthenticated, same
+  // pattern as the safes lookup above.
+  const trendSnapshots = await db.query.treasurySnapshots.findMany({
+    where: eq(treasurySnapshots.projectId, report.projectId),
+    orderBy: [desc(treasurySnapshots.snapshotDate)],
+    limit: 12,
+  });
+  const trendChronological = [...trendSnapshots].reverse();
+  const trend = {
+    treasury: trendChronological.map((s) => ({
+      date: formatDate(s.snapshotDate),
+      totalBalanceUsd: Number(s.totalBalanceUsd ?? 0),
+    })),
+    burn: trendChronological.map((s) => ({
+      date: formatDate(s.snapshotDate),
+      burnRateUsd: Number(s.burnRateUsd ?? 0),
+    })),
+  };
 
   return (
     <div
@@ -136,7 +157,12 @@ export default async function PublicReportPage({ params }: Props) {
             marketing demo promises. Null-renders for reports without a
             linked snapshot, in which case the page falls back to the
             existing markdown-only view. */}
-        <ReportWidgets snapshot={report.snapshot} accent={accent} safes={safes} />
+        <ReportWidgets
+          snapshot={report.snapshot}
+          accent={accent}
+          safes={safes}
+          trend={trend}
+        />
         <ReportPreview content={report.contentMd ?? ""} />
       </article>
 
