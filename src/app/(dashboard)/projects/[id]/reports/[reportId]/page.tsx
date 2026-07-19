@@ -33,6 +33,7 @@ export default function ReportEditorPage({ params }: Props) {
   const { id: projectId, reportId } = use(params);
   const { data: report, refetch } = trpc.reports.getById.useQuery({ reportId });
   const { data: safes } = trpc.wallets.getSafeInfo.useQuery({ projectId });
+  const { data: trend } = trpc.projects.getSnapshotTrend.useQuery({ projectId });
 
   const [sendError, setSendError] = useState<string | null>(null);
   const [sendSuccess, setSendSuccess] = useState<string | null>(null);
@@ -275,6 +276,7 @@ export default function ReportEditorPage({ params }: Props) {
               ?.customBranding?.primaryColor ?? "#00e87b"
           }
           safes={safes ?? []}
+          trend={trend}
         />
         <ReportEditor
           initialContent={report.contentMd ?? ""}

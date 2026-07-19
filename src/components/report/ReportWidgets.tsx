@@ -1,5 +1,7 @@
 import type { TreasurySnapshot } from "@/server/db/schema";
 import { formatUsd } from "@/lib/utils";
+import { TreasuryChart } from "@/components/charts/TreasuryChart";
+import { BurnRateChart } from "@/components/charts/BurnRateChart";
 
 /**
  * Investor-report widget strip.
@@ -36,6 +38,11 @@ interface SafeInfo {
   threshold: number;
 }
 
+interface TrendData {
+  treasury: { date: string; totalBalanceUsd: number }[];
+  burn: { date: string; burnRateUsd: number }[];
+}
+
 interface ReportWidgetsProps {
   snapshot: TreasurySnapshot | null | undefined;
   accent: string;
@@ -43,10 +50,24 @@ interface ReportWidgetsProps {
    * on-chain (see safe-info.ts). Omit or pass [] when there are none —
    * the block self-hides, same null-safe philosophy as every block here. */
   safes?: SafeInfo[];
+  /** Trailing treasury/burn history (see projects.getSnapshotTrend).
+   * Renders nothing below 2 points — a single snapshot makes a
+   * degenerate line, and the trend's whole point is showing change
+   * over time. TreasuryChart/BurnRateChart have their own richer
+   * 0/1-point states for the dashboard; the report surface just omits
+   * the block entirely rather than showing "no data yet" to an investor. */
+  trend?: TrendData;
 }
 
-export function ReportWidgets({ snapshot, accent, safes = [] }: ReportWidgetsProps) {
+export function ReportWidgets({
+  snapshot,
+  accent,
+  safes = [],
+  trend,
+}: ReportWidgetsProps) {
   if (!snapshot) return null;
+
+  const showTrend = (trend?.treasury.length ?? 0) >= 2;
 
   const total = num(snapshot.totalBalanceUsd);
   const inflows = num(snapshot.totalInflowsUsd);
@@ -128,7 +149,8 @@ export function ReportWidgets({ snapshot, accent, safes = [] }: ReportWidgetsPro
     expenses.length > 0 ||
     tokenMetrics.length > 0 ||
     hasGitHub ||
-    safes.length > 0;
+    safes.length > 0 ||
+    showTrend;
   if (!renderable) return null;
 
   return (
@@ -177,6 +199,17 @@ export function ReportWidgets({ snapshot, accent, safes = [] }: ReportWidgetsPro
               ))}
             </Panel>
           )}
+        </div>
+      )}
+
+      {showTrend && trend && (
+        <div className="vb-grid-2" style={{ gap: 24 }}>
+          <Panel title="Treasury over time">
+            <TreasuryChart data={trend.treasury} />
+          </Panel>
+          <Panel title="Burn rate over time">
+            <BurnRateChart data={trend.burn} />
+          </Panel>
         </div>
       )}
 

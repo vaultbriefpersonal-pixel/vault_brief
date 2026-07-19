@@ -14,7 +14,7 @@ import {
   asks,
   qaHighlights,
 } from "@/server/db/schema";
-import { slugify } from "@/lib/utils";
+import { slugify, formatDate } from "@/lib/utils";
 import { TRPCError } from "@trpc/server";
 import { requireProject } from "../guards";
 import {
@@ -168,6 +168,34 @@ export const projectsRouter = router({
         where: eq(projects.id, input.id),
         with: { wallets: true, milestones: true },
       });
+    }),
+
+  // Trailing treasury/burn history for the trend chart on the report
+  // editor + public investor view. Same trailing-12 query and date-
+  // formatting the /projects/[id] dashboard already uses for
+  // TreasuryChart/BurnRateChart — kept identical here so both surfaces
+  // render the exact same numbers, just reachable via tRPC instead of
+  // a direct server-component query.
+  getSnapshotTrend: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await requireProject(ctx, input.projectId);
+      const snapshots = await ctx.db.query.treasurySnapshots.findMany({
+        where: eq(treasurySnapshots.projectId, input.projectId),
+        orderBy: [desc(treasurySnapshots.snapshotDate)],
+        limit: 12,
+      });
+      const chronological = [...snapshots].reverse();
+      return {
+        treasury: chronological.map((s) => ({
+          date: formatDate(s.snapshotDate),
+          totalBalanceUsd: Number(s.totalBalanceUsd ?? 0),
+        })),
+        burn: chronological.map((s) => ({
+          date: formatDate(s.snapshotDate),
+          burnRateUsd: Number(s.burnRateUsd ?? 0),
+        })),
+      };
     }),
 
   update: protectedProcedure
