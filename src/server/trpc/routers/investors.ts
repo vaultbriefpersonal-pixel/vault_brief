@@ -5,6 +5,10 @@ import { investors, reports } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { requireProject, requireInvestor } from "../guards";
 import { sendReportEmail } from "@/server/services/email-sender";
+import {
+  sendDiscordReportNotification,
+  sendTelegramReportNotification,
+} from "@/server/services/chat-notify";
 import { notify } from "@/server/services/notifications";
 import { assertTrialActive } from "@/server/lib/plan-limits";
 import {
@@ -219,6 +223,37 @@ export const investorsRouter = router({
           updatedAt: new Date(),
         })
         .where(eq(reports.id, input.reportId));
+
+      // Chat-channel delivery (Discord/Telegram) — additive alongside the
+      // per-investor email above, never a replacement. A single ping per
+      // configured channel (not per-investor: these are team/community
+      // channels, not investor DMs). Best-effort: a failure here must not
+      // undo the email send that already succeeded, so errors are logged,
+      // not thrown.
+      const reportUrl = `${process.env.NEXT_PUBLIC_APP_URL}/r/${input.reportId}`;
+      const chatResults = await Promise.allSettled([
+        project.discordWebhookUrl
+          ? sendDiscordReportNotification(project.discordWebhookUrl, {
+              projectName: project.name,
+              reportUrl,
+            })
+          : Promise.resolve(),
+        project.telegramBotToken && project.telegramChatId
+          ? sendTelegramReportNotification(
+              project.telegramBotToken,
+              project.telegramChatId,
+              { projectName: project.name, reportUrl }
+            )
+          : Promise.resolve(),
+      ]);
+      chatResults.forEach((r, i) => {
+        if (r.status === "rejected") {
+          console.error(
+            `[investors.sendReport] ${i === 0 ? "Discord" : "Telegram"} notification failed:`,
+            r.reason
+          );
+        }
+      });
 
       // In-app inbox notification — mirrors what the founder just did.
       await notify(ctx.session.user.id!, {

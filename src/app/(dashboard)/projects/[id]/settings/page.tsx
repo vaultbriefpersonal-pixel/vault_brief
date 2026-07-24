@@ -45,6 +45,9 @@ export default function ProjectSettingsPage({ params }: Props) {
     lastFundingAmount: "",
     primaryColor: "#6366F1",
     logoUrl: "",
+    discordWebhookUrl: "",
+    telegramBotToken: "",
+    telegramChatId: "",
   });
   const [saved, setSaved] = useState(false);
 
@@ -70,6 +73,15 @@ export default function ProjectSettingsPage({ params }: Props) {
         lastFundingAmount: project.lastFundingAmount?.toString() ?? "",
         primaryColor: branding?.primaryColor ?? "#6366F1",
         logoUrl: branding?.logoUrl ?? "",
+        discordWebhookUrl:
+          (project as { discordWebhookUrl?: string | null })
+            .discordWebhookUrl ?? "",
+        telegramBotToken:
+          (project as { telegramBotToken?: string | null })
+            .telegramBotToken ?? "",
+        telegramChatId:
+          (project as { telegramChatId?: string | null }).telegramChatId ??
+          "",
       });
     }
   }, [project]);
@@ -106,6 +118,9 @@ export default function ProjectSettingsPage({ params }: Props) {
             logoUrl: form.logoUrl.trim(),
           }
         : null,
+      discordWebhookUrl: form.discordWebhookUrl.trim() || null,
+      telegramBotToken: form.telegramBotToken.trim() || null,
+      telegramChatId: form.telegramChatId.trim() || null,
     });
   }
 
@@ -275,6 +290,75 @@ export default function ProjectSettingsPage({ params }: Props) {
               </span>
             </div>
           )}
+        </div>
+
+        {/* Chat notifications. Additive alongside investor email — posts a
+            "new report available" ping to a team Discord channel and/or
+            Telegram chat when a report is sent. Leave blank to skip either
+            or both; email delivery is unaffected either way. */}
+        <div style={{ gridColumn: "1 / -1", marginTop: 8 }}>
+          <h3
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 13,
+              fontWeight: 600,
+              color: "var(--vb-muted)",
+              margin: "0 0 14px",
+              textTransform: "uppercase",
+              letterSpacing: "0.07em",
+            }}
+          >
+            Chat notifications
+          </h3>
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 13,
+              color: "var(--vb-muted)",
+              margin: "0 0 16px",
+              lineHeight: 1.5,
+            }}
+          >
+            Optional — ping a team Discord channel and/or Telegram chat when
+            a report is sent to investors. Additive alongside email; leave
+            blank to skip.
+          </p>
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={labelStyle}>Discord webhook URL</label>
+          <input
+            type="url"
+            placeholder="https://discord.com/api/webhooks/..."
+            value={form.discordWebhookUrl}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, discordWebhookUrl: e.target.value }))
+            }
+            style={inputStyle}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Telegram bot token</label>
+          <input
+            type="text"
+            placeholder="123456:ABC-DEF..."
+            value={form.telegramBotToken}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, telegramBotToken: e.target.value }))
+            }
+            style={inputStyle}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Telegram chat ID</label>
+          <input
+            type="text"
+            placeholder="-1001234567890"
+            value={form.telegramChatId}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, telegramChatId: e.target.value }))
+            }
+            style={inputStyle}
+          />
         </div>
 
         {/* Report-template constructor. Self-contained — owns its own
