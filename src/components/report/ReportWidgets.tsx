@@ -36,6 +36,10 @@ interface SafeInfo {
   label: string | null;
   ownerCount: number;
   threshold: number;
+  /** Undefined when the Safe Transaction Service call failed — omit the
+   * pending line rather than imply "zero pending" incorrectly. */
+  pendingCount?: number;
+  oldestPendingDate?: string | null;
 }
 
 interface TrendData {
@@ -299,6 +303,21 @@ export function ReportWidgets({
                 </strong>
                 {s.label ? (
                   <span style={{ color: "var(--vb-muted)" }}> — {s.label}</span>
+                ) : null}
+                {s.pendingCount ? (
+                  <div
+                    style={{
+                      color: "var(--vb-muted)",
+                      fontSize: 12,
+                      marginTop: 4,
+                    }}
+                  >
+                    {s.pendingCount} transaction
+                    {s.pendingCount === 1 ? "" : "s"} awaiting signature
+                    {s.oldestPendingDate
+                      ? ` (oldest: ${pendingAgeLabel(s.oldestPendingDate)})`
+                      : ""}
+                  </div>
                 ) : null}
               </div>
             ))}
@@ -564,6 +583,15 @@ function num(v: unknown): number {
   if (v == null) return 0;
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** "3 days" / "1 day" / "today" for a Safe's oldest pending transaction. */
+function pendingAgeLabel(isoDate: string): string {
+  const days = Math.floor(
+    (Date.now() - new Date(isoDate).getTime()) / 86_400_000
+  );
+  if (!Number.isFinite(days) || days <= 0) return "today";
+  return `${days} day${days === 1 ? "" : "s"}`;
 }
 
 /** `expensesByCategory` is JSONB shaped as `{ payroll: 1234, infra: 567, ... }`

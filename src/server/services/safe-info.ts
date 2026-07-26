@@ -25,6 +25,10 @@ export interface SafeInfo {
   label: string | null;
   ownerCount: number;
   threshold: number;
+  /** Undefined when the Safe Transaction Service call failed/timed out —
+   * distinct from 0, which means "we checked, nothing pending". */
+  pendingCount?: number;
+  oldestPendingDate?: string | null;
 }
 
 // Matches chains.ts's EVM entries (deliberately not importing that file —
@@ -53,6 +57,74 @@ const SELECTOR_GET_OWNERS = "0xa0e67e2b"; // getOwners() returns (address[])
 const SELECTOR_GET_THRESHOLD = "0xe75235b8"; // getThreshold() returns (uint256)
 
 const RPC_TIMEOUT_MS = 4000;
+
+// Safe's own hosted Transaction Service — a separate off-chain API, not an
+// RPC. Pending/queued transactions live here (proposed but not yet
+// executed), not on-chain, so `eth_call` can't see them at all. Same
+// chain coverage as ALCHEMY_SUBDOMAIN above.
+const SAFE_TX_SERVICE_SUBDOMAIN: Record<string, string> = {
+  ethereum: "mainnet",
+  polygon: "polygon",
+  arbitrum: "arbitrum",
+  base: "base",
+  optimism: "optimism",
+};
+
+function safeTxServiceUrlFor(chain: string): string | null {
+  const sub = SAFE_TX_SERVICE_SUBDOMAIN[chain];
+  return sub ? `https://safe-transaction-${sub}.safe.global` : null;
+}
+
+const SAFE_TX_SERVICE_TIMEOUT_MS = 4000;
+
+export interface SafePendingInfo {
+  pendingCount: number;
+  /** ISO timestamp of the oldest not-yet-executed transaction, or null
+   * when pendingCount is 0. */
+  oldestPendingDate: string | null;
+}
+
+interface MultisigTxListResponse {
+  count?: number;
+  results?: Array<{ submissionDate?: string }>;
+}
+
+/**
+ * Count of not-yet-executed transactions awaiting signatures, plus the
+ * oldest one's submission date. Deliberately does NOT fetch full
+ * transaction details/calldata — a reporting tool has no reason to
+ * render what a pending transfer actually does, just that founders and
+ * investors can see signatures are outstanding. `ordering=submissionDate`
+ * + `limit=1` gets both the total count and the oldest row in one request.
+ */
+export async function getSafePendingInfo(
+  address: string,
+  chain: string
+): Promise<SafePendingInfo | null> {
+  const base = safeTxServiceUrlFor(chain);
+  if (!base) return null;
+
+  try {
+    const url = `${base}/api/v1/safes/${address}/multisig-transactions/?executed=false&ordering=submissionDate&limit=1`;
+    const res = await fetch(url, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(SAFE_TX_SERVICE_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as MultisigTxListResponse;
+    const pendingCount = json.count ?? 0;
+    return {
+      pendingCount,
+      oldestPendingDate:
+        pendingCount > 0 ? (json.results?.[0]?.submissionDate ?? null) : null,
+    };
+  } catch {
+    // Outage of Safe's hosted service must never break the report — this
+    // is a "nice to have" addition to an already-successful owners/
+    // threshold read, not something the page depends on.
+    return null;
+  }
+}
 
 async function ethCall(
   rpcUrl: string,
@@ -151,12 +223,24 @@ export async function getSafeInfoForProject(
     safeWallets.map(async (w) => {
       const info = await getSafeInfo(w.address, w.chain);
       if (!info) return null;
+      // Best-effort — a Safe Transaction Service outage must not drop a
+      // Safe that already succeeded its owners/threshold on-chain read.
+      // Omit the keys entirely on failure (rather than set them to
+      // undefined) so the object literal stays structurally assignable
+      // to SafeInfo's optional fields.
+      const pending = await getSafePendingInfo(w.address, w.chain);
       return {
         walletId: w.id,
         chain: w.chain,
         address: w.address,
         label: w.label,
         ...info,
+        ...(pending
+          ? {
+              pendingCount: pending.pendingCount,
+              oldestPendingDate: pending.oldestPendingDate,
+            }
+          : {}),
       };
     })
   );
