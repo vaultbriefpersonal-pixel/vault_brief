@@ -43,6 +43,14 @@ interface TrendData {
   burn: { date: string; burnRateUsd: number }[];
 }
 
+interface MilestoneInfo {
+  id: string;
+  title: string;
+  status: string;
+  targetDate: string | null;
+  completedDate: string | null;
+}
+
 interface ReportWidgetsProps {
   snapshot: TreasurySnapshot | null | undefined;
   accent: string;
@@ -57,6 +65,15 @@ interface ReportWidgetsProps {
    * 0/1-point states for the dashboard; the report surface just omits
    * the block entirely rather than showing "no data yet" to an investor. */
   trend?: TrendData;
+  /** Project milestones with a target date, rendered as a target-vs-
+   * actual comparison — useful for grant/milestone-style reporting
+   * (EF ESP, Arbitrum, Optimism, Base programs all expect this shape)
+   * as well as ordinary investor updates. Same milestones table/CRUD
+   * that already backs the "Looking Ahead" / "Milestones Completed"
+   * narrative sections — this is an additional structured view of the
+   * same data, not a separate report "mode". Milestones with no
+   * targetDate are omitted (nothing to compare against). */
+  milestones?: MilestoneInfo[];
 }
 
 export function ReportWidgets({
@@ -64,6 +81,7 @@ export function ReportWidgets({
   accent,
   safes = [],
   trend,
+  milestones = [],
 }: ReportWidgetsProps) {
   if (!snapshot) return null;
 
@@ -85,6 +103,15 @@ export function ReportWidgets({
 
   // Expenses — pull from JSONB, sort desc, collapse long tail into "Other".
   const expenses = expenseSlices(snapshot.expensesByCategory, accent);
+
+  // Milestone progress — target-vs-actual comparison, oldest target first.
+  // Milestones without a targetDate are omitted (nothing to compare
+  // against). Useful for grant/milestone-style reporting as well as
+  // ordinary investor updates — same underlying data as "Looking Ahead" /
+  // "Milestones Completed", just a structured comparison instead of prose.
+  const milestoneRows = [...milestones]
+    .filter((m) => m.targetDate)
+    .sort((a, b) => (a.targetDate! < b.targetDate! ? -1 : 1));
 
   // KPI strip — render only the tiles whose source data exists.
   const kpis: KpiTile[] = [
@@ -150,6 +177,7 @@ export function ReportWidgets({
     tokenMetrics.length > 0 ||
     hasGitHub ||
     safes.length > 0 ||
+    milestoneRows.length > 0 ||
     showTrend;
   if (!renderable) return null;
 
@@ -305,6 +333,51 @@ export function ReportWidgets({
           </div>
         </div>
       )}
+
+      {milestoneRows.length > 0 && (
+        <div>
+          <SectionHeading subtitle="Target vs. actual — useful for grant/milestone reporting">
+            Milestone progress
+          </SectionHeading>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {milestoneRows.map((m) => (
+              <div
+                key={m.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  background: "var(--vb-bg)",
+                  border: "1px solid var(--vb-border)",
+                  borderRadius: 10,
+                  padding: "12px 16px",
+                  fontFamily: "var(--font-inter), Inter, sans-serif",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: "var(--vb-text)",
+                    }}
+                  >
+                    {m.title}
+                  </div>
+                  <div
+                    style={{ fontSize: 12, color: "var(--vb-muted)", marginTop: 2 }}
+                  >
+                    Target: {m.targetDate}
+                    {m.completedDate ? ` · Completed: ${m.completedDate}` : ""}
+                  </div>
+                </div>
+                <MilestoneStatusBadge status={m.status} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -327,6 +400,60 @@ interface MetricTile {
   label: string;
   val: string;
   note: string;
+}
+
+const MILESTONE_STATUS_LABELS: Record<string, string> = {
+  planned: "Planned",
+  in_progress: "In progress",
+  delayed: "Delayed",
+  completed: "Completed",
+};
+
+const MILESTONE_STATUS_STYLE: Record<
+  string,
+  { color: string; background: string; border: string }
+> = {
+  planned: {
+    color: "var(--vb-muted)",
+    background: "rgba(255,255,255,0.06)",
+    border: "var(--vb-border)",
+  },
+  in_progress: {
+    color: "#4f9cf9",
+    background: "rgba(79,156,249,0.12)",
+    border: "rgba(79,156,249,0.3)",
+  },
+  delayed: {
+    color: "#f87171",
+    background: "rgba(248,113,113,0.12)",
+    border: "rgba(248,113,113,0.3)",
+  },
+  completed: {
+    color: "#00e87b",
+    background: "rgba(0,232,123,0.12)",
+    border: "rgba(0,232,123,0.3)",
+  },
+};
+
+function MilestoneStatusBadge({ status }: { status: string }) {
+  const style = MILESTONE_STATUS_STYLE[status] ?? MILESTONE_STATUS_STYLE.planned;
+  return (
+    <span
+      style={{
+        fontFamily: "var(--font-inter), Inter, sans-serif",
+        fontSize: 11,
+        fontWeight: 600,
+        color: style.color,
+        background: style.background,
+        border: `1px solid ${style.border}`,
+        borderRadius: 999,
+        padding: "4px 10px",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {MILESTONE_STATUS_LABELS[status] ?? status}
+    </span>
+  );
 }
 
 function KpiTileView({ label, val, tone }: KpiTile) {
