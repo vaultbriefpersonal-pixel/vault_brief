@@ -16,7 +16,6 @@ const ROUTES: Array<{ slug: string; path: string }> = [
   { slug: "docs", path: "/docs" },
   { slug: "security", path: "/security" },
   { slug: "changelog", path: "/changelog" },
-  { slug: "pricing", path: "/pricing" },
   { slug: "about", path: "/about" },
   { slug: "blog-index", path: "/blog" },
   { slug: "blog-post-new", path: "/blog/monthly-investor-report-checklist-web3" },
