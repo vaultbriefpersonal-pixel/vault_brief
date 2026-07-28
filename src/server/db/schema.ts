@@ -126,6 +126,13 @@ export const projects = pgTable("projects", {
   // public GraphQL API instead of forcing manual entry.
   snapshotSpace: text("snapshot_space"),
 
+  // Optional chat-channel delivery for "new report available" pings,
+  // additive alongside investor email (never a replacement). Null on
+  // either pair means that channel is unconfigured — no-op.
+  discordWebhookUrl: text("discord_webhook_url"),
+  telegramBotToken: text("telegram_bot_token"),
+  telegramChatId: text("telegram_chat_id"),
+
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

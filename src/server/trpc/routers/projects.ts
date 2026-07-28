@@ -233,6 +233,14 @@ export const projectsRouter = router({
           .optional()
           .nullable(),
         snapshotSpace: z.string().trim().min(1).max(120).optional().nullable(),
+        discordWebhookUrl: z
+          .string()
+          .trim()
+          .url()
+          .optional()
+          .nullable(),
+        telegramBotToken: z.string().trim().min(1).optional().nullable(),
+        telegramChatId: z.string().trim().min(1).optional().nullable(),
         // Per-project report-template config — ordered list of section
         // ids with on/off flags. Null clears it back to product defaults.
         reportSections: z
