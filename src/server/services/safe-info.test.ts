@@ -4,6 +4,7 @@ import {
   decodeUint256,
   rpcUrlFor,
   getSafeInfo,
+  getSafePendingInfo,
 } from "./safe-info";
 
 // Builds ABI-encoded fixtures programmatically rather than hand-counting
@@ -137,5 +138,79 @@ describe("getSafeInfo", () => {
     global.fetch = fetchSpy as unknown as typeof fetch;
     expect(await getSafeInfo("0xSolanaAddr", "solana")).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("getSafePendingInfo", () => {
+  const ORIGINAL_FETCH = global.fetch;
+
+  afterEach(() => {
+    global.fetch = ORIGINAL_FETCH;
+  });
+
+  it("returns pending count + oldest submission date", async () => {
+    global.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            count: 3,
+            results: [{ submissionDate: "2026-06-01T00:00:00Z" }],
+          }),
+          { status: 200 }
+        )
+    ) as typeof fetch;
+    expect(await getSafePendingInfo("0xSafe", "ethereum")).toEqual({
+      pendingCount: 3,
+      oldestPendingDate: "2026-06-01T00:00:00Z",
+    });
+  });
+
+  it("returns oldestPendingDate: null when there is nothing pending", async () => {
+    global.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ count: 0, results: [] }), {
+          status: 200,
+        })
+    ) as typeof fetch;
+    expect(await getSafePendingInfo("0xSafe", "ethereum")).toEqual({
+      pendingCount: 0,
+      oldestPendingDate: null,
+    });
+  });
+
+  it("requests the expected Safe Transaction Service URL per chain", async () => {
+    const fetchSpy = vi.fn(async (url: string) => {
+      void url;
+      return new Response(JSON.stringify({ count: 0, results: [] }), {
+        status: 200,
+      });
+    });
+    global.fetch = fetchSpy as unknown as typeof fetch;
+    await getSafePendingInfo("0xSafe", "base");
+    const url = fetchSpy.mock.calls[0][0];
+    expect(url).toContain("safe-transaction-base.safe.global");
+    expect(url).toContain("/api/v1/safes/0xSafe/multisig-transactions/");
+    expect(url).toContain("executed=false");
+  });
+
+  it("returns null without a network call for chains with no Safe Transaction Service", async () => {
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as unknown as typeof fetch;
+    expect(await getSafePendingInfo("0xSafe", "solana")).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("fails open (returns null) when the request throws", async () => {
+    global.fetch = vi.fn(async () => {
+      throw new Error("network error");
+    }) as typeof fetch;
+    expect(await getSafePendingInfo("0xSafe", "ethereum")).toBeNull();
+  });
+
+  it("fails open when the response is not ok", async () => {
+    global.fetch = vi.fn(
+      async () => new Response("", { status: 500 })
+    ) as typeof fetch;
+    expect(await getSafePendingInfo("0xSafe", "ethereum")).toBeNull();
   });
 });
