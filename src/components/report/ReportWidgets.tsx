@@ -2,6 +2,7 @@ import type { TreasurySnapshot } from "@/server/db/schema";
 import { formatUsd } from "@/lib/utils";
 import { TreasuryChart } from "@/components/charts/TreasuryChart";
 import { BurnRateChart } from "@/components/charts/BurnRateChart";
+import { extractDefiPositions } from "@/server/services/defi-positions";
 
 /**
  * Investor-report widget strip.
@@ -86,6 +87,12 @@ export function ReportWidgets({
   // Expenses — pull from JSONB, sort desc, collapse long tail into "Other".
   const expenses = expenseSlices(snapshot.expensesByCategory, accent);
 
+  // DeFi/staking positions — derived from the same balancesDetail the
+  // composition slices above already summarize; these are the subset of
+  // "Other assets" recognized as a known liquid-staking-derivative token.
+  // See defi-positions.ts for scope (Ethereum LSDs only, first slice).
+  const defiPositions = extractDefiPositions(snapshot.balancesDetail);
+
   // KPI strip — render only the tiles whose source data exists.
   const kpis: KpiTile[] = [
     total > 0 ? { label: "Total balance", val: formatUsd(total) } : null,
@@ -150,6 +157,7 @@ export function ReportWidgets({
     tokenMetrics.length > 0 ||
     hasGitHub ||
     safes.length > 0 ||
+    defiPositions.length > 0 ||
     showTrend;
   if (!renderable) return null;
 
@@ -300,6 +308,36 @@ export function ReportWidgets({
                 {s.label ? (
                   <span style={{ color: "var(--vb-muted)" }}> — {s.label}</span>
                 ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {defiPositions.length > 0 && (
+        <div>
+          <SectionHeading subtitle="Recognized positions within Other assets, above">
+            DeFi & staking positions
+          </SectionHeading>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+            {defiPositions.map((p) => (
+              <div
+                key={`${p.chain}-${p.symbol}`}
+                style={{
+                  background: "var(--vb-bg)",
+                  border: "1px solid var(--vb-border)",
+                  borderRadius: 10,
+                  padding: "12px 16px",
+                  fontFamily: "var(--font-inter), Inter, sans-serif",
+                  fontSize: 14,
+                  color: "var(--vb-text)",
+                }}
+              >
+                <strong style={{ color: accent }}>{formatUsd(p.valueUsd)}</strong>
+                <span style={{ color: "var(--vb-muted)" }}>
+                  {" "}
+                  in {p.symbol} ({p.protocol})
+                </span>
               </div>
             ))}
           </div>
