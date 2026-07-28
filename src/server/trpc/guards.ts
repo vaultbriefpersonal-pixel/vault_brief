@@ -2,6 +2,7 @@ import { eq, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import {
   projects,
+  projectMembers,
   reports,
   investors,
   wallets,
@@ -33,11 +34,55 @@ function userId(ctx: GuardCtx): string {
   return id;
 }
 
+/**
+ * Owner OR any invited project_members row (TODO-026, phase 1 — every
+ * member is editor-equivalent regardless of role; viewer read-only
+ * enforcement is a deliberate follow-up, not done here). Existing
+ * solo-owner projects hit only the owner check below — same single
+ * query as before this change, no behavior change for them.
+ */
 export async function requireProject(ctx: GuardCtx, projectId: string) {
+  const uid = userId(ctx);
   const project = await ctx.db.query.projects.findFirst({
-    where: and(eq(projects.id, projectId), eq(projects.userId, userId(ctx))),
+    where: eq(projects.id, projectId),
   });
   if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+  if (project.userId === uid) return project;
+
+  const membership = await ctx.db.query.projectMembers.findFirst({
+    where: and(
+      eq(projectMembers.projectId, projectId),
+      eq(projectMembers.userId, uid)
+    ),
+  });
+  if (!membership) throw new TRPCError({ code: "NOT_FOUND" });
+  return project;
+}
+
+/**
+ * Owner OR a member with role='admin'. Used for member management
+ * (invite/remove/change role) and deleting the project itself — actions
+ * an ordinary editor-level collaborator must not be able to take.
+ * FORBIDDEN (not NOT_FOUND) once we know the caller has SOME access —
+ * the NOT_FOUND-for-enumeration concern only applies to non-members.
+ */
+export async function requireProjectAdmin(ctx: GuardCtx, projectId: string) {
+  const project = await requireProject(ctx, projectId);
+  const uid = userId(ctx);
+  if (project.userId === uid) return project;
+
+  const membership = await ctx.db.query.projectMembers.findFirst({
+    where: and(
+      eq(projectMembers.projectId, projectId),
+      eq(projectMembers.userId, uid)
+    ),
+  });
+  if (membership?.role !== "admin") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Admin access required for this action",
+    });
+  }
   return project;
 }
 
