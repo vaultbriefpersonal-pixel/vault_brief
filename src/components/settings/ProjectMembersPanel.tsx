@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { trpc } from "@/lib/api";
 import { Plus, Trash2 } from "lucide-react";
 
@@ -41,7 +40,11 @@ const labelStyle: React.CSSProperties = {
 };
 
 export function ProjectMembersPanel({ projectId }: { projectId: string }) {
-  const { data: session } = useSession();
+  // No <SessionProvider> exists anywhere in this app (confirmed — the
+  // established pattern for "who am I" client-side is a tRPC query
+  // through protectedProcedure, not next-auth/react's useSession, which
+  // has no context to read from and would throw/return undefined here).
+  const { data: me } = trpc.users.me.useQuery();
   const { data, refetch } = trpc.projectMembers.list.useQuery({ projectId });
   const invite = trpc.projectMembers.invite.useMutation({
     onSuccess: () => {
@@ -62,8 +65,8 @@ export function ProjectMembersPanel({ projectId }: { projectId: string }) {
   const [role, setRole] = useState<Role>("editor");
   const [inviteError, setInviteError] = useState<string | null>(null);
 
-  const isOwner = data?.owner?.id === session?.user?.id;
-  const myMembership = data?.members.find((m) => m.userId === session?.user?.id);
+  const isOwner = data?.owner?.id === me?.id;
+  const myMembership = data?.members.find((m) => m.userId === me?.id);
   const isAdmin = isOwner || myMembership?.role === "admin";
 
   function submitInvite() {
