@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { eq, desc } from "drizzle-orm";
 import { db } from "@/server/db";
-import { reports, projects, treasurySnapshots } from "@/server/db/schema";
+import { reports, projects, treasurySnapshots, milestones } from "@/server/db/schema";
 import { ReportPreview } from "@/components/report/ReportPreview";
 import { ReportWidgets } from "@/components/report/ReportWidgets";
 import { formatDate } from "@/lib/utils";
@@ -89,6 +89,14 @@ export default async function PublicReportPage({ params }: Props) {
     })),
   };
 
+  // Milestone target-vs-actual comparison — same table the founder editor's
+  // milestone manager (SectionDataModal) writes to, re-queried here for the
+  // same reason as safes/trend above: this page is public/unauthenticated,
+  // so it can't go through a protectedProcedure.
+  const milestoneList = await db.query.milestones.findMany({
+    where: eq(milestones.projectId, report.projectId),
+  });
+
   return (
     <div
       style={{
@@ -162,6 +170,7 @@ export default async function PublicReportPage({ params }: Props) {
           accent={accent}
           safes={safes}
           trend={trend}
+          milestones={milestoneList}
         />
         <ReportPreview content={report.contentMd ?? ""} />
       </article>

@@ -34,6 +34,7 @@ export default function ReportEditorPage({ params }: Props) {
   const { data: report, refetch } = trpc.reports.getById.useQuery({ reportId });
   const { data: safes } = trpc.wallets.getSafeInfo.useQuery({ projectId });
   const { data: trend } = trpc.projects.getSnapshotTrend.useQuery({ projectId });
+  const { data: milestoneList } = trpc.milestones.list.useQuery({ projectId });
 
   const [sendError, setSendError] = useState<string | null>(null);
   const [sendSuccess, setSendSuccess] = useState<string | null>(null);
@@ -277,6 +278,7 @@ export default function ReportEditorPage({ params }: Props) {
           }
           safes={safes ?? []}
           trend={trend}
+          milestones={milestoneList ?? []}
         />
         <ReportEditor
           initialContent={report.contentMd ?? ""}
