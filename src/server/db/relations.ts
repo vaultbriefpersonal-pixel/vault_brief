@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
   users,
   projects,
+  projectMembers,
   wallets,
   treasurySnapshots,
   reports,
@@ -16,10 +17,12 @@ import {
 
 export const usersRelations = relations(users, ({ many }) => ({
   projects: many(projects),
+  projectMemberships: many(projectMembers),
 }));
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
   user: one(users, { fields: [projects.userId], references: [users.id] }),
+  members: many(projectMembers),
   wallets: many(wallets),
   snapshots: many(treasurySnapshots),
   reports: many(reports),
@@ -30,6 +33,17 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   partners: many(partners),
   asks: many(asks),
   qaHighlights: many(qaHighlights),
+}));
+
+export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
+  project: one(projects, {
+    fields: [projectMembers.projectId],
+    references: [projects.id],
+  }),
+  user: one(users, {
+    fields: [projectMembers.userId],
+    references: [users.id],
+  }),
 }));
 
 export const walletsRelations = relations(wallets, ({ one }) => ({

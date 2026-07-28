@@ -12,8 +12,10 @@ import { partnersRouter } from "./routers/partners";
 import { asksRouter } from "./routers/asks";
 import { qaHighlightsRouter } from "./routers/qa-highlights";
 import { milestonesRouter } from "./routers/milestones";
+import { projectMembersRouter } from "./routers/project-members";
 
 export const appRouter = router({
+  projectMembers: projectMembersRouter,
   projects: projectsRouter,
   wallets: walletsRouter,
   reports: reportsRouter,

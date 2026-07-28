@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { and, eq, gte, lte, lt, desc } from "drizzle-orm";
+import { and, eq, gte, lte, lt, desc, or, inArray } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import {
   projects,
+  projectMembers,
   reports,
   wallets,
   treasurySnapshots,
@@ -16,7 +17,7 @@ import {
 } from "@/server/db/schema";
 import { slugify, formatDate } from "@/lib/utils";
 import { TRPCError } from "@trpc/server";
-import { requireProject } from "../guards";
+import { requireProject, requireProjectAdmin } from "../guards";
 import {
   checkLimit,
   projectCreateLimiter,
@@ -50,9 +51,19 @@ function isValidWalletAddress(address: string, chain: string): boolean {
 
 
 export const projectsRouter = router({
+  // Owned projects + any project this user was invited onto (TODO-026).
   list: protectedProcedure.query(async ({ ctx }) => {
+    const uid = ctx.session.user.id!;
+    const memberships = await ctx.db.query.projectMembers.findMany({
+      where: eq(projectMembers.userId, uid),
+    });
+    const memberProjectIds = memberships.map((m) => m.projectId);
+
     return ctx.db.query.projects.findMany({
-      where: eq(projects.userId, ctx.session.user.id!),
+      where:
+        memberProjectIds.length > 0
+          ? or(eq(projects.userId, uid), inArray(projects.id, memberProjectIds))
+          : eq(projects.userId, uid),
       with: { wallets: true },
       orderBy: (p, { desc }) => [desc(p.createdAt)],
     });
@@ -266,10 +277,12 @@ export const projectsRouter = router({
       return updated;
     }),
 
+  // Admin-only (owner or role='admin') — deleting the project removes
+  // access for every member, not just an editor's own work.
   delete: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await requireProject(ctx, input.id);
+      await requireProjectAdmin(ctx, input.id);
       await ctx.db.delete(projects).where(eq(projects.id, input.id));
       return { success: true };
     }),

@@ -3,6 +3,7 @@
 import { use, useState, useEffect } from "react";
 import { trpc } from "@/lib/api";
 import { ReportTemplateEditor } from "@/components/settings/ReportTemplateEditor";
+import { ProjectMembersPanel } from "@/components/settings/ProjectMembersPanel";
 import type { SectionConfigEntry } from "@/server/services/report-sections";
 
 interface Props {
@@ -396,6 +397,10 @@ export default function ProjectSettingsPage({ params }: Props) {
           {saved ? "Saved!" : update.isPending ? "Saving..." : "Save changes"}
         </button>
       </form>
+
+      {/* Outside the form on purpose — its own buttons/mutations, not tied
+          to the metadata form's submit/save cycle. */}
+      <ProjectMembersPanel projectId={id} />
     </>
   );
 }

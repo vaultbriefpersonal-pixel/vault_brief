@@ -139,6 +139,36 @@ export const projects = pgTable("projects", {
 });
 
 // =============================================
+// PROJECT MEMBERS (TODO-026, phase 1)
+// Purely additive — `projects.userId` (the original owner) is untouched
+// and keeps working exactly as before for existing solo-owner projects.
+// This table only adds INVITED collaborators on top. `role` is admin |
+// editor | viewer, but phase 1 treats every member as editor-equivalent
+// (see requireProject/requireProjectAdmin in trpc/guards.ts) — viewer
+// read-only enforcement is a deliberately separate follow-up task.
+// =============================================
+export const projectMembers = pgTable(
+  "project_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("editor"), // admin | editor | viewer
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_project_members_project_user").on(
+      table.projectId,
+      table.userId
+    ),
+  ]
+);
+
+// =============================================
 // WALLETS
 // =============================================
 export const wallets = pgTable(
