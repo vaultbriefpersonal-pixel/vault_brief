@@ -39,6 +39,25 @@ const labelStyle: React.CSSProperties = {
   letterSpacing: "0.05em",
 };
 
+/** Avoids "email (email)" when no display name is set — only show the
+ * parenthetical when it's actually a second, distinct piece of info. */
+function DisplayIdentity({
+  name,
+  email,
+}: {
+  name: string | null;
+  email: string;
+}) {
+  if (name && name !== email) {
+    return (
+      <>
+        {name} <span style={{ color: "var(--vb-dim)" }}>({email})</span>
+      </>
+    );
+  }
+  return <>{email}</>;
+}
+
 export function ProjectMembersPanel({ projectId }: { projectId: string }) {
   // No <SessionProvider> exists anywhere in this app (confirmed — the
   // established pattern for "who am I" client-side is a tRPC query
@@ -75,7 +94,13 @@ export function ProjectMembersPanel({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div style={{ marginTop: 40 }}>
+    <div
+      style={{
+        marginTop: 40,
+        paddingTop: 32,
+        borderTop: "1px solid var(--vb-border)",
+      }}
+    >
       <h3
         style={{
           fontFamily: "var(--font-inter), Inter, sans-serif",
@@ -119,8 +144,7 @@ export function ProjectMembersPanel({ projectId }: { projectId: string }) {
           }}
         >
           <span style={{ color: "var(--vb-text)" }}>
-            {data.owner.name || data.owner.email}{" "}
-            <span style={{ color: "var(--vb-dim)" }}>({data.owner.email})</span>
+            <DisplayIdentity name={data.owner.name} email={data.owner.email} />
           </span>
           <span style={{ color: "var(--vb-dim)", fontSize: 11 }}>Owner</span>
         </div>
@@ -144,8 +168,7 @@ export function ProjectMembersPanel({ projectId }: { projectId: string }) {
           }}
         >
           <span style={{ flex: 1, minWidth: 0, color: "var(--vb-text)" }}>
-            {m.name || m.email}{" "}
-            <span style={{ color: "var(--vb-dim)" }}>({m.email})</span>
+            <DisplayIdentity name={m.name} email={m.email ?? "—"} />
           </span>
           {isAdmin ? (
             <>
@@ -195,59 +218,68 @@ export function ProjectMembersPanel({ projectId }: { projectId: string }) {
       {isAdmin && (
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "2fr 1fr auto",
-            gap: 8,
+            background: "var(--vb-card)",
+            border: "1px solid var(--vb-border)",
+            borderRadius: 12,
+            padding: 20,
             marginTop: 12,
-            alignItems: "end",
           }}
         >
-          <div>
-            <label style={labelStyle}>Invite by email</label>
-            <input
-              type="email"
-              style={inputStyle}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="cofounder@example.com"
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>Role</label>
-            <select
-              style={inputStyle}
-              value={role}
-              onChange={(e) => setRole(e.target.value as Role)}
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            type="button"
-            onClick={submitInvite}
-            disabled={!email.trim() || invite.isPending}
+          <div
             style={{
-              background: "#00e87b",
-              color: "#0a0a0a",
-              border: "none",
-              borderRadius: 6,
-              padding: "9px 14px",
-              fontSize: 12,
-              fontWeight: 600,
-              fontFamily: "var(--font-inter), Inter, sans-serif",
-              cursor: invite.isPending ? "not-allowed" : "pointer",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              whiteSpace: "nowrap",
+              display: "grid",
+              gridTemplateColumns: "2fr 1fr auto",
+              gap: 8,
+              alignItems: "end",
             }}
           >
-            <Plus size={12} /> {invite.isPending ? "Inviting…" : "Invite"}
-          </button>
+            <div>
+              <label style={labelStyle}>Invite by email</label>
+              <input
+                type="email"
+                style={inputStyle}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="cofounder@example.com"
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Role</label>
+              <select
+                style={inputStyle}
+                value={role}
+                onChange={(e) => setRole(e.target.value as Role)}
+              >
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={submitInvite}
+              disabled={!email.trim() || invite.isPending}
+              style={{
+                background: "#00e87b",
+                color: "#0a0a0a",
+                border: "none",
+                borderRadius: 6,
+                padding: "9px 14px",
+                fontSize: 12,
+                fontWeight: 600,
+                fontFamily: "var(--font-inter), Inter, sans-serif",
+                cursor: invite.isPending ? "not-allowed" : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <Plus size={12} /> {invite.isPending ? "Inviting…" : "Invite"}
+            </button>
+          </div>
         </div>
       )}
       {inviteError && (
