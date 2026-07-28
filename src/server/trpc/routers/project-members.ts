@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, ilike } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import { projectMembers, users } from "@/server/db/schema";
 import { requireProject, requireProjectAdmin } from "../guards";
+import { checkLimit, inviteLimiter } from "@/server/lib/ratelimit";
 import { TRPCError } from "@trpc/server";
 
 const ROLES = ["admin", "editor", "viewer"] as const;
@@ -58,10 +59,18 @@ export const projectMembersRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const project = await requireProjectAdmin(ctx, input.projectId);
+      // Throttle before the enumeration-capable lookup runs, not just the
+      // eventual write — probing arbitrary emails is the thing to bound.
+      await checkLimit(inviteLimiter, ctx.session.user.id!);
       const email = input.email.toLowerCase();
 
+      // Case-insensitive: users.email is never normalized to lowercase at
+      // write time (see src/lib/auth.ts), so an exact match could silently
+      // miss a real account. orderBy is a deterministic tie-break for the
+      // (currently theoretical) case where two rows differ only by case.
       const invitee = await ctx.db.query.users.findFirst({
-        where: eq(users.email, email),
+        where: ilike(users.email, email),
+        orderBy: (u, { asc }) => [asc(u.createdAt)],
       });
       if (!invitee) {
         throw new TRPCError({

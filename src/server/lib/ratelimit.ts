@@ -53,6 +53,10 @@ export const chatLimiter = makeLimiter(10, "1 h", "rl:chat");
 // CoinGecko autofill — keyed by userId, gives some headroom for retries
 // on typo'd contract addresses without burning the global CG budget.
 export const autofillLimiter = makeLimiter(15, "1 h", "rl:autofill");
+// Invite-by-email enumeration guard — the "no account found" error is
+// informative by design (see project-members.ts), so throttle how fast
+// a project admin can probe arbitrary emails rather than hiding the signal.
+export const inviteLimiter = makeLimiter(15, "1 h", "rl:invite");
 
 type LimiterFactory = () => Ratelimit | null;
 
