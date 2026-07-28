@@ -47,17 +47,27 @@ npx drizzle-kit push
 
 ---
 
-## Step 4: Billing — disabled (public goods)
+## Step 4: Billing — UI restored, pricing not finalized
 
-VaultBrief is free. There are no paid plans, trial, or payment setup.
+VaultBrief is still free today (no trial wall, no plan-limit enforcement —
+`assertTrialActive` in `src/server/lib/plan-limits.ts` remains a no-op).
+As of 2026-07-28 the **dashboard billing UI is live again**: authenticated
+users see `/billing` (current plan, "Manage billing" portal button, and
+named plan tiers) instead of a redirect. There is still **no public
+`/pricing` page** — billing surfaces only inside the authenticated
+dashboard.
 
-The Stripe + Atlos integration code (`billing.ts` router,
-`/api/billing/checkout`, `/api/webhooks/{stripe,atlos}`, `src/lib/atlos.ts`,
-`PayWithUsdcButton`) is retained in the repo but **dormant** — no
-`STRIPE_*` / `ATLOS_*` env vars are required to build or deploy. To
-re-introduce paid plans later, restore the limit maps + `assertTrialActive`
-body in `src/server/lib/plan-limits.ts`, re-add the pricing route, and
-provision the Stripe/Atlos env vars.
+Each tier's "Upgrade" button is disabled ("Coming soon") until its
+`STRIPE_PRICE_*` env var holds a real Stripe price ID instead of the
+`price_placeholder` default — no further code changes are needed once
+real prices are set. The Atlos (USDC) rail (`src/lib/atlos.ts`,
+`PayWithUsdcButton`, `/api/webhooks/atlos`) remains fully dormant/unmounted
+— restoring it is a separate follow-up (needs `ATLOS_API_SECRET` and
+`NEXT_PUBLIC_ATLOS_MERCHANT_ID`, neither of which is provisioned).
+
+No `STRIPE_*` / `ATLOS_*` env vars are required to build or deploy today —
+without them the tier cards just show as "Coming soon" and the "Manage
+billing" button returns a friendly "no billing account" error.
 
 ---
 
@@ -107,8 +117,9 @@ Required env vars for production:
 - `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN` — optional; sets up server + browser error tracking. Without these the SDK silently no-ops (app behaves identically). To enable: create a project at sentry.io, copy the DSN to both vars, redeploy.
 - `NEXT_PUBLIC_APP_URL=https://vaultbrief.io`
 
-> Billing env vars (`STRIPE_*`, `ATLOS_*`) are **not required** — billing
-> is disabled (public goods). The payment code is dormant.
+> Billing env vars (`STRIPE_*`, `ATLOS_*`) are **not required** to deploy —
+> the dashboard billing UI degrades gracefully to "Coming soon" tiers
+> without them. See Step 4.
 
 ---
 

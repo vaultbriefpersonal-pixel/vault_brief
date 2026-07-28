@@ -1,9 +1,20 @@
-import { redirect } from "next/navigation";
+import { BillingPanel } from "@/components/billing/BillingPanel";
 
-// Public-goods pivot: VaultBrief is free — there is no billing surface.
-// The old plan/USDC dashboard has been retired. Any bookmark or stale
-// link to /billing lands on the projects list instead. (Stripe/Atlos
-// integration code remains in the repo but dormant.)
+// Restored billing UI, dashboard-only (no public /pricing page). Pricing
+// itself hasn't been decided yet — STRIPE_PRICE_* env vars are still
+// placeholders in production, so each tier's checkout is disabled until a
+// real Stripe price ID replaces the placeholder. Nothing else changes at
+// that point: the checkout wiring below is already live.
+function isRealPrice(value: string | undefined): boolean {
+  return !!value && !value.includes("placeholder");
+}
+
 export default function BillingPage() {
-  redirect("/projects");
+  const plansAvailable = {
+    starter: isRealPrice(process.env.STRIPE_PRICE_STARTER),
+    growth: isRealPrice(process.env.STRIPE_PRICE_GROWTH),
+    vc_suite: isRealPrice(process.env.STRIPE_PRICE_VC_SUITE),
+  };
+
+  return <BillingPanel plansAvailable={plansAvailable} />;
 }
