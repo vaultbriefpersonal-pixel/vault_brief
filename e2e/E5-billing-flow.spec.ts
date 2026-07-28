@@ -32,7 +32,11 @@ test.describe("E5 - No paywall (public goods)", () => {
   test("landing page has no price or trial CTAs", async ({ page }) => {
     await page.goto("/");
     const body = await page.locator("body").innerText();
-    expect(body).not.toMatch(/\$\d/); // no dollar amounts
+    // The landing page legitimately shows real dollar figures today (demo
+    // report KPI tiles, the "Treasury under watch" production stat) —
+    // that's product content, not pricing. What must never reappear is a
+    // price-per-period pattern like the old "$99/mo" plan cards.
+    expect(body).not.toMatch(/\$\d+(\.\d+)?\s*\/\s*(mo|month)\b/i);
     expect(body).not.toMatch(/free trial|14-day|per month|\/mo\b/i);
   });
 

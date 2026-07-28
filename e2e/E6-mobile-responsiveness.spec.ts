@@ -28,18 +28,16 @@ test.describe("E6 - Mobile responsiveness", () => {
     await expect(button).toBeVisible();
   });
 
-  test("pricing page renders at 375px", async ({ page }) => {
-    await page.goto("/pricing");
-    // Hero headline rewrite (v3): "Simple pricing for Web3 reporting".
+  test("docs page renders at 375px", async ({ page }) => {
+    await page.goto("/docs");
     await expect(
-      page.getByRole("heading", { name: /Simple pricing for Web3 reporting/ })
+      page.getByRole("heading", { name: /How Vault Brief works/ })
     ).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Seed" })).toBeVisible();
   });
 
   // No horizontal overflow on the public surface — these have all bitten us
   // before, so each gets its own test for clean failure attribution.
-  for (const path of ["/", "/login", "/pricing", "/docs", "/status"]) {
+  for (const path of ["/", "/login", "/docs", "/roadmap", "/status"]) {
     test(`no horizontal overflow on ${path}`, async ({ page }) => {
       await page.goto(path);
       const scrollWidth = await page.evaluate(
@@ -93,20 +91,20 @@ test.describe("E6 - Mobile responsiveness", () => {
     // Closed: nav links not visible (drawer translated off-screen).
     await page.getByRole("button", { name: /open menu/i }).click();
 
-    // Drawer link visible (footer also has /pricing — drawer is the first
+    // Drawer link visible (footer also has /docs — drawer is the first
     // one in DOM order on mobile, before the footer).
-    const pricingLink = page
-      .locator('a[href="/pricing"]', { hasText: "Pricing" })
+    const docsLink = page
+      .locator('a[href="/docs"]', { hasText: "Docs" })
       .first();
-    await expect(pricingLink).toBeVisible();
+    await expect(docsLink).toBeVisible();
 
     // Body scroll locked while drawer is open.
     const overflow = await page.evaluate(() => document.body.style.overflow);
     expect(overflow).toBe("hidden");
 
     // Tap a nav link — drawer should auto-close and body scroll unlock.
-    await pricingLink.click();
-    await page.waitForURL("**/pricing");
+    await docsLink.click();
+    await page.waitForURL("**/docs");
     const overflowAfter = await page.evaluate(() => document.body.style.overflow);
     expect(overflowAfter).toBe("");
   });

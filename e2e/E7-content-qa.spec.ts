@@ -13,10 +13,11 @@ import { test, expect } from "@playwright/test";
  *   - /docs:         must be product docs, NOT the old API waitlist.
  *   - /security:     must list shipped controls, no vague
  *                    "Security roadmap" placeholder section.
- *   - /pricing:      three paid cards (Seed/Growth/Custom), 14-day
- *                    trial copy, ATLOS-positive crypto-payments FAQ.
- *   - /changelog:    has the "What's next" section, no inline
- *                    Planned badges in monthly rows.
+ *   - /changelog:    has the "What's next" CTA (links to /roadmap,
+ *                    which is now the single source of truth for
+ *                    future work), no inline Planned badges in
+ *                    monthly rows. (/pricing was removed entirely in
+ *                    the public-goods pivot — see E5-billing-flow.)
  *   - /:             landing has no "Coming soon" text, single
  *                    "On roadmap" compact list, no duplicate
  *                    detailed roadmap grid below it.
@@ -87,44 +88,17 @@ test.describe("E7 - marketing content QA", () => {
     ).toHaveCount(0);
   });
 
-  test("/pricing has 3 paid plans, 14-day trial, ATLOS-positive", async ({
-    page,
-  }) => {
-    await page.goto("/pricing");
-    await expect(page.getByRole("heading", { name: "Seed" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Growth" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Custom" })).toBeVisible();
-    await expect(page.getByText("$99", { exact: true })).toBeVisible();
-    await expect(page.getByText("$299", { exact: true })).toBeVisible();
-    // Free Demo is now a CTA banner above the cards, not a card itself —
-    // there should be NO pricing card heading "Free Demo".
-    await expect(
-      page.getByRole("heading", { name: "Free Demo" })
-    ).toHaveCount(0);
-    // 14-day trial copy is in the hero AND each card CTA.
-    await expect(page.getByText(/14-day/).first()).toBeVisible();
-    // FAQ updated for ATLOS-as-live. Source copy reads
-    // "Yes — pay with USDC at checkout via ATLOS, ..." — lowercase
-    // 'p' so the regex needs the `i` flag to match.
-    await expect(page.getByText(/pay with USDC/i).first()).toBeVisible();
-    await expect(page.getByText(/where enabled/)).toHaveCount(0);
-  });
-
-  test("/changelog has What's next section, no inline Planned", async ({
+  test("/changelog has a What's next CTA pointing at /roadmap, no inline Planned", async ({
     page,
   }) => {
     await page.goto("/changelog");
+    // "What's next" is now a single CTA section linking to /roadmap (the
+    // single source of truth for future work) rather than a duplicated
+    // hardcoded item list — see the comment in changelog/page.tsx.
     await expect(page.getByText("What's next")).toBeVisible();
-    // Each What's next item is rendered (titles only — descriptions vary).
     await expect(
-      page.getByRole("heading", { name: "Investor portal" })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "API access" })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "White-label reports" })
-    ).toBeVisible();
+      page.getByRole("link", { name: /see the roadmap/i })
+    ).toHaveAttribute("href", "/roadmap");
     // The "Planned" capital-P badge that used to render inline on
     // monthly entries must not return. (Lowercase "planned" still
     // appears in the legitimate intro copy: "Items below are planned
