@@ -23,6 +23,8 @@ import { formatAnomaliesForPrompt } from "./anomalies";
 // report-derived.ts for why they live in their own module.
 import {
   attributionOf,
+  budgetComparison,
+  budgetsForPeriod,
   burnBasis,
   burnBasisLabel,
   liquidityOf,
@@ -32,6 +34,8 @@ import {
   CONCENTRATION_PCT_FLOOR,
   STABLE_COVER_FLOOR_MONTHS,
   TRAILING_BURN_MONTHS,
+  type BudgetLine,
+  type BudgetSide,
   type ReportSectionContext,
 } from "./report-derived";
 import { evidenceOf, formatEvidenceItems } from "./report-evidence";
@@ -797,6 +801,107 @@ const expenseBreakdown: ReportSection = {
   notReadyHint: "Needs operating outflows in this period (rebalances don't count).",
 };
 
+// ─── plan vs actual ────────────────────────────────────────────────────────
+
+/** One budget row as a prompt bullet, with its own materiality verdict. */
+function budgetLineBullet(line: BudgetLine, kind: "expense" | "income"): string {
+  const pct =
+    line.variancePct === null
+      ? "percentage not meaningful — nothing was planned for this line"
+      : `${line.variancePct >= 0 ? "+" : ""}${line.variancePct.toFixed(1)}%`;
+  // Direction is stated as plain fact and never as good or bad news. Which of
+  // the four combinations (expense over/under, income above/below) is welcome
+  // depends on why, and the input carries no whys.
+  const direction =
+    line.varianceUsd === 0
+      ? "exactly on plan"
+      : kind === "expense"
+        ? line.varianceUsd > 0
+          ? "spent more than planned"
+          : "spent less than planned"
+        : line.varianceUsd > 0
+          ? "earned more than planned"
+          : "earned less than planned";
+  const verdict = line.material
+    ? "MATERIAL — clears both the 20% and the $5K floor"
+    : "within tolerance — do NOT call this out";
+  const planned = line.unplanned
+    ? "not in the plan"
+    : formatUsd(line.plannedUsd);
+  const notes = line.notes ? ` — founder's note: ${line.notes}` : "";
+  return `- ${line.label}: planned ${planned}, actual ${formatUsd(
+    line.actualUsd
+  )}, variance ${signedUsd(line.varianceUsd)} (${pct}) — ${direction} — ${verdict}${notes}`;
+}
+
+function budgetSideBlock(side: BudgetSide): string[] {
+  const heading =
+    side.kind === "expense"
+      ? "Operating expenses — plan vs actual"
+      : "Income — plan vs actual";
+  const lines: string[] = [];
+  if (side.totalOnly) {
+    lines.push(
+      `${heading} (the founder planned ONE total for the period, not a per-category plan — there is no category detail to report):`,
+      budgetLineBullet(side.total, side.kind)
+    );
+  } else {
+    lines.push(
+      `${heading} by category:`,
+      ...side.lines.map((l) => budgetLineBullet(l, side.kind)),
+      "",
+      budgetLineBullet(side.total, side.kind)
+    );
+  }
+  if (side.kind === "expense") {
+    lines.push(
+      "The actual above is operating spend only. Treasury reallocation (the token_sale bucket) is excluded, exactly as it is in Operating Expenses, unless the founder budgeted for it by name."
+    );
+  }
+  return lines;
+}
+
+const actualVsBudget: ReportSection = {
+  id: "actual_vs_budget",
+  title: "Plan vs Actual",
+  description:
+    "The founder's own budget for the period next to what the treasury actually did — per category, with variances.",
+  // The one section in the library that is OFF by default, and deliberately:
+  // it renders nothing at all until a founder types a plan in. A section that
+  // ships enabled and then silently never appears teaches the founder that
+  // the toggle means nothing; one they opt into does what they asked.
+  defaultEnabled: false,
+  requires: (ctx) => budgetsForPeriod(ctx).length > 0,
+  userPromptFragment: (ctx) => {
+    const cmp = budgetComparison(ctx);
+    const blocks: string[] = [];
+    if (cmp.expense) blocks.push(...budgetSideBlock(cmp.expense));
+    if (cmp.income) {
+      if (blocks.length > 0) blocks.push("");
+      blocks.push(...budgetSideBlock(cmp.income));
+    }
+    if (blocks.length === 0) return "";
+
+    const revised = cmp.planUpdatedAt
+      ? `\nThe plan was last revised ${formatDate(cmp.planUpdatedAt)}.`
+      : "";
+    return `\n## Plan vs actual (${ctx.period})\nPlanned figures are the founder's own budget for this period, entered by hand. Actual figures are measured from synced on-chain activity. Every line below carries its own MATERIAL / within-tolerance verdict — that verdict is the input's, not yours to re-derive.${revised}\n\n${blocks.join(
+      "\n"
+    )}`;
+  },
+  systemPromptFragment: `### Plan vs Actual (CONDITIONAL)
+- Only render when the input includes a "## Plan vs actual" block.
+- Render as a table with one row per line the input gives you — Category, Planned, Actual, Variance $, Variance % — followed by the total row. When the input says the founder planned one total rather than a per-category plan, render the single total row and say plainly that the plan was not itemised. Do NOT invent category rows to fill the table out.
+- **Report the variance; do not editorialise it.** State what was planned, what happened, and the gap. No "impressively disciplined", no "concerning blowout", no grades.
+- **Call out ONLY the lines the input marks MATERIAL.** Lines marked "within tolerance" belong in the table and nowhere else — no sentence, no mention. A 200% overrun on a $50 line is noise, and naming it costs the reader the attention the real variance needed.
+- **Under-spend is not automatically good news, and must never be framed as a win, a saving, efficiency, or discipline.** Spending less than planned frequently means a hire that did not happen, an audit that stalled, a program that never launched — outcomes that show up as *lower* spend and *worse* execution. Report it as a gap between plan and actual, in the same neutral register you use for an overspend. If the input does not say why the money went unspent, say nothing about why.
+- Do not attribute any variance to a cause. The input carries planned figures, actual figures and the founder's own notes — nothing else. A cause that does not appear verbatim in this input is fabrication, including plausible ones.
+- Where a line is marked "not in the plan", say the spend fell outside the budget rather than quoting a percentage — a percentage against a zero base is not a number.
+- Do not project the variance forward, and do not tell the project what to do about it.`,
+  notReadyHint:
+    "Click Edit data to enter a budget for this period — one total, or a figure per category.",
+};
+
 const protocolRevenue: ReportSection = {
   id: "protocol_revenue",
   title: "Protocol Revenue",
@@ -1420,6 +1525,7 @@ export const SECTION_LIBRARY: readonly ReportSection[] = [
   previousMonthComparison,
   financialHealth,
   expenseBreakdown,
+  actualVsBudget,
   protocolRevenue,
   treasuryOperations,
   majorTransactions,

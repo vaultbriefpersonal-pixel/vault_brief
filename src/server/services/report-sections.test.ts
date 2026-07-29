@@ -8,7 +8,11 @@ import {
   type ReportSectionContext,
   type SectionConfigEntry,
 } from "./report-sections";
-import { INCOME_CATEGORIES } from "./expense-classifier";
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "./expense-classifier";
+import {
+  EXPENSE_CATEGORY_NAMES,
+  INCOME_CATEGORY_NAMES,
+} from "./report-derived";
 import type { TreasurySnapshot } from "@/server/db/schema";
 
 // These tests are about ordering, not content, so everything is asserted on
@@ -248,6 +252,7 @@ function contextWith(
     partners: [],
     asks: [],
     qaHighlights: [],
+    budgets: [],
     anomalies: [],
     total: TREASURY_TOTAL,
     minSignificant: MIN_SIGNIFICANT,
@@ -264,8 +269,17 @@ function section(id: string): ReportSection {
 }
 
 describe("library placement of the new sections", () => {
-  it("puts protocol_revenue directly after expense_breakdown", () => {
+  it("puts actual_vs_budget directly after expense_breakdown", () => {
+    // Plan vs Actual reads the same expensesByCategory payload the Operating
+    // Expenses table just printed, so it belongs immediately under it —
+    // between them is where a reader compares a number to its plan.
     expect(LIBRARY_IDS[LIBRARY_IDS.indexOf("expense_breakdown") + 1]).toBe(
+      "actual_vs_budget"
+    );
+  });
+
+  it("puts protocol_revenue directly after actual_vs_budget", () => {
+    expect(LIBRARY_IDS[LIBRARY_IDS.indexOf("actual_vs_budget") + 1]).toBe(
       "protocol_revenue"
     );
   });
@@ -994,5 +1008,342 @@ describe("anomalies — data and rules share one switch", () => {
     const user = buildUserPrompt(withAnomaly(), resolveSections(stored));
     expect(user).not.toContain("## Anomalies");
     expect(user).not.toContain("Burn rate:");
+  });
+});
+
+// ─── plan vs actual ────────────────────────────────────────────────────────
+//
+// The section exists to put a founder's own plan next to what the treasury
+// actually did. Two failure modes it must not have: reporting variances the
+// reader cannot act on (the >20%-AND->$5K filter), and rendering a heading
+// over a project that never typed a plan.
+
+const BUDGET_PERIOD = "2026-04";
+
+/** A `project_budgets` row, in the shape the router writes. */
+function budget(
+  fields: Partial<{
+    id: string;
+    kind: "expense" | "income";
+    category: string;
+    plannedUsd: string | number;
+    period: string;
+    notes: string | null;
+    updatedAt: Date | null;
+  }> = {}
+): ReportSectionContext["budgets"][number] {
+  return {
+    id: fields.id ?? `b-${fields.category ?? "x"}-${fields.kind ?? "expense"}`,
+    projectId: "p1",
+    period: fields.period ?? BUDGET_PERIOD,
+    kind: fields.kind ?? "expense",
+    category: fields.category ?? "__total__",
+    plannedUsd: String(fields.plannedUsd ?? 0),
+    notes: fields.notes ?? null,
+    createdAt: new Date("2026-04-01T00:00:00Z"),
+    updatedAt: fields.updatedAt ?? new Date("2026-04-02T00:00:00Z"),
+  } as unknown as ReportSectionContext["budgets"][number];
+}
+
+/** Context carrying a budget plus the actuals it is measured against. */
+function budgetContext(
+  budgets: ReportSectionContext["budgets"],
+  snapshotFields: Record<string, unknown> = {}
+): ReportSectionContext {
+  return contextWith(
+    {
+      expensesByCategory: {
+        payroll: 280_000,
+        infrastructure: 35_000,
+        token_sale: 150_000,
+      },
+      incomeByCategory: { revenue: 120_000 },
+      ...snapshotFields,
+    },
+    null,
+    { budgets }
+  );
+}
+
+describe("client-safe category mirrors", () => {
+  // report-derived.ts is in the client bundle graph and cannot import
+  // expense-classifier.ts (it opens with `import OpenAI from "openai"`), so
+  // the names are duplicated. A rename on one side with no rename on the
+  // other gives the budget form a category the router's Zod enum rejects —
+  // a form that silently cannot be submitted. These two assertions are the
+  // only thing standing between that and a deploy.
+  it("mirrors every expense category, in order", () => {
+    expect([...EXPENSE_CATEGORY_NAMES]).toEqual([...EXPENSE_CATEGORIES]);
+  });
+
+  it("mirrors every income category", () => {
+    expect([...INCOME_CATEGORY_NAMES].sort()).toEqual(
+      [...INCOME_CATEGORIES].sort()
+    );
+  });
+});
+
+describe("actual_vs_budget — placement and default", () => {
+  const budgetSection = section("actual_vs_budget");
+
+  it("is the one library section that ships off by default", () => {
+    expect(budgetSection.defaultEnabled).toBe(false);
+    expect(DEFAULT_IDS).not.toContain("actual_vs_budget");
+  });
+
+  it("is not spliced into a config saved before it existed", () => {
+    // The counterpart of off-by-default: resolveSections only re-adds
+    // sections that default on, so an existing founder is not handed a
+    // section that would render nothing for them.
+    const stored = fullConfig().filter((e) => e.id !== "actual_vs_budget");
+    expect(ids(stored)).not.toContain("actual_vs_budget");
+  });
+});
+
+describe("actual_vs_budget — requires", () => {
+  const budgetSection = section("actual_vs_budget");
+
+  it("is gated off when the project has no budget at all", () => {
+    expect(budgetSection.requires(budgetContext([]))).toBe(false);
+    expect(budgetSection.userPromptFragment(budgetContext([]))).toBe("");
+  });
+
+  it("is gated off when the only budget belongs to another period", () => {
+    const ctx = budgetContext([
+      budget({ period: "2026-03", plannedUsd: 300_000 }),
+    ]);
+    expect(budgetSection.requires(ctx)).toBe(false);
+    expect(budgetSection.userPromptFragment(ctx)).toBe("");
+  });
+
+  it("fires on a single row for this period", () => {
+    expect(
+      budgetSection.requires(budgetContext([budget({ plannedUsd: 300_000 })]))
+    ).toBe(true);
+  });
+
+  it("names the manual-entry path in its notReadyHint", () => {
+    expect(budgetSection.notReadyHint).toContain("Edit data");
+  });
+});
+
+describe("actual_vs_budget — a '__total__'-only plan", () => {
+  const budgetSection = section("actual_vs_budget");
+  // One planned number, $250K, against $315K of operating spend
+  // (280K payroll + 35K infra; the 150K token_sale is a reallocation).
+  const out = budgetSection.userPromptFragment(
+    budgetContext([budget({ category: "__total__", plannedUsd: 250_000 })])
+  );
+
+  it("renders one total row and says the plan was not itemised", () => {
+    expect(out).toContain("## Plan vs actual (2026-04)");
+    expect(out).toContain("planned ONE total for the period");
+    expect(out).toContain(
+      "Total operating spend: planned $250.0K, actual $315.0K, variance +$65.0K (+26.0%)"
+    );
+  });
+
+  it("compares against operating spend only, excluding the reallocation", () => {
+    // $465K would be the figure if token_sale had been swept in — the number
+    // that turns a $65K overspend into a $215K one that never happened.
+    expect(out).not.toContain("$465.0K");
+    expect(out).toContain(
+      "Treasury reallocation (the token_sale bucket) is excluded"
+    );
+  });
+
+  it("emits no per-category rows to pad the table with", () => {
+    expect(out).not.toContain("payroll:");
+    expect(out).not.toContain("infrastructure:");
+  });
+
+  it("includes the reallocation bucket when the founder budgeted it by name", () => {
+    const itemised = budgetSection.userPromptFragment(
+      budgetContext([
+        budget({ category: "payroll", plannedUsd: 260_000 }),
+        budget({ category: "token_sale", plannedUsd: 100_000 }),
+      ])
+    );
+    expect(itemised).toContain("token_sale: planned $100.0K, actual $150.0K");
+  });
+});
+
+describe("actual_vs_budget — an itemised plan", () => {
+  const budgetSection = section("actual_vs_budget");
+  const out = budgetSection.userPromptFragment(
+    budgetContext([
+      budget({ category: "payroll", plannedUsd: 200_000 }),
+      budget({ category: "infrastructure", plannedUsd: 40_000 }),
+      budget({
+        kind: "income",
+        category: "revenue",
+        plannedUsd: 200_000,
+        notes: "assumes the fee switch lands mid-month",
+      }),
+    ])
+  );
+
+  it("gives every planned category planned / actual / variance $ / variance %", () => {
+    expect(out).toContain(
+      "payroll: planned $200.0K, actual $280.0K, variance +$80.0K (+40.0%)"
+    );
+    expect(out).toContain(
+      "infrastructure: planned $40.0K, actual $35.0K, variance -$5.0K (-12.5%)"
+    );
+  });
+
+  it("closes each side with a total row that its own lines add up to", () => {
+    // 200K + 40K planned, 280K + 35K actual.
+    expect(out).toContain(
+      "Total operating spend: planned $240.0K, actual $315.0K, variance +$75.0K (+31.3%)"
+    );
+    expect(out).toContain(
+      "Total income: planned $200.0K, actual $120.0K, variance -$80.0K (-40.0%)"
+    );
+  });
+
+  it("carries the founder's own note through to the line it belongs to", () => {
+    expect(out).toContain(
+      "founder's note: assumes the fee switch lands mid-month"
+    );
+  });
+
+  it("refuses a percentage for a category the plan never mentioned", () => {
+    const unplanned = budgetSection.userPromptFragment(
+      budgetContext([budget({ category: "payroll", plannedUsd: 200_000 })], {
+        expensesByCategory: { payroll: 200_000, legal: 42_000 },
+      })
+    );
+    expect(unplanned).toContain("legal: planned not in the plan, actual $42.0K");
+    expect(unplanned).toContain(
+      "percentage not meaningful — nothing was planned for this line"
+    );
+    expect(unplanned).not.toContain("Infinity");
+    expect(unplanned).not.toMatch(/legal:.*NaN/);
+  });
+});
+
+describe("actual_vs_budget — the materiality filter", () => {
+  const budgetSection = section("actual_vs_budget");
+
+  /** One expense line, planned vs actual, as the bullet the prompt emits. */
+  function lineFor(planned: number, actual: number): string {
+    const out = budgetSection.userPromptFragment(
+      budgetContext(
+        [
+          budget({ category: "payroll", plannedUsd: planned }),
+          // A second planned line keeps the plan itemised so the per-category
+          // bullet (not just the total) is what we are reading.
+          budget({ category: "legal", plannedUsd: 1_000 }),
+        ],
+        { expensesByCategory: { payroll: actual, legal: 1_000 } }
+      )
+    );
+    const line = out.split("\n").find((l) => l.startsWith("- payroll:"));
+    if (!line) throw new Error(`no payroll line in:\n${out}`);
+    return line;
+  }
+
+  it("marks a variance MATERIAL only when it clears BOTH floors", () => {
+    // 50% over and $100K over — both floors cleared.
+    expect(lineFor(200_000, 300_000)).toContain("MATERIAL");
+  });
+
+  it("suppresses a huge percentage on a tiny line", () => {
+    // +200% but only $100 — the noise the dollar floor exists to kill.
+    const line = lineFor(50, 150);
+    expect(line).toContain("+200.0%");
+    expect(line).toContain("within tolerance — do NOT call this out");
+    expect(line).not.toContain("MATERIAL");
+  });
+
+  it("suppresses a large dollar gap that is a small share of the plan", () => {
+    // $50K over, but only 5% of a $1M line — big number, no story.
+    const line = lineFor(1_000_000, 1_050_000);
+    expect(line).toContain("+5.0%");
+    expect(line).toContain("within tolerance — do NOT call this out");
+    expect(line).not.toContain("MATERIAL");
+  });
+
+  it("holds the floors as exclusive, not inclusive", () => {
+    // Exactly 20% and exactly $5K clears neither `>` comparison.
+    const line = lineFor(25_000, 30_000);
+    expect(line).toContain("+20.0%");
+    expect(line).toContain("within tolerance");
+  });
+
+  it("applies the same filter to under-spend", () => {
+    const line = lineFor(200_000, 100_000);
+    expect(line).toContain("MATERIAL");
+    expect(line).toContain("spent less than planned");
+  });
+
+  it("judges an unplanned line on the dollar floor alone", () => {
+    const out = budgetSection.userPromptFragment(
+      budgetContext([budget({ category: "payroll", plannedUsd: 200_000 })], {
+        expensesByCategory: { payroll: 200_000, legal: 42_000, other: 900 },
+      })
+    );
+    const lines = out.split("\n");
+    expect(lines.find((l) => l.startsWith("- legal:"))).toContain("MATERIAL");
+    expect(lines.find((l) => l.startsWith("- other:"))).toContain(
+      "within tolerance"
+    );
+  });
+});
+
+describe("actual_vs_budget — how variance is allowed to be framed", () => {
+  const budgetSection = section("actual_vs_budget");
+  const rules = budgetSection.systemPromptFragment;
+
+  it("forbids treating under-spend as good news", () => {
+    expect(rules).toContain("Under-spend is not automatically good news");
+    expect(rules).toContain("a hire that did not happen");
+    // The specific words a model reaches for when congratulating a project
+    // for not spending its money.
+    expect(rules).toContain(
+      "never be framed as a win, a saving, efficiency, or discipline"
+    );
+  });
+
+  it("states the direction neutrally in the data itself", () => {
+    const out = budgetSection.userPromptFragment(
+      budgetContext([
+        budget({ category: "payroll", plannedUsd: 400_000 }),
+        budget({ category: "infrastructure", plannedUsd: 40_000 }),
+      ])
+    );
+    expect(out).toContain("spent less than planned");
+    // Not "saved", not "efficient" — both read as approval.
+    expect(out).not.toMatch(/\bsaved\b/);
+    expect(out).not.toMatch(/\befficien/i);
+  });
+
+  it("hands the model the verdict rather than the thresholds", () => {
+    expect(rules).toContain("Call out ONLY the lines the input marks MATERIAL");
+    expect(rules).toContain("do not editorialise");
+  });
+
+  it("forbids attributing a variance to a cause", () => {
+    expect(rules).toContain("Do not attribute any variance to a cause");
+  });
+});
+
+describe("actual_vs_budget — data and rules share one switch", () => {
+  it("keeps the block out of a report that never enabled the section", () => {
+    const ctx = budgetContext([budget({ plannedUsd: 250_000 })]);
+    const user = buildUserPrompt(ctx, resolveSections(null));
+    expect(user).not.toContain("## Plan vs actual");
+  });
+
+  it("emits the block once the founder enables it and has a plan", () => {
+    const ctx = budgetContext([budget({ plannedUsd: 250_000 })]);
+    const user = buildUserPrompt(ctx, resolveSections(fullConfig()));
+    expect(user).toContain("## Plan vs actual (2026-04)");
+  });
+
+  it("stays silent when enabled but no plan exists for the period", () => {
+    const user = buildUserPrompt(budgetContext([]), resolveSections(fullConfig()));
+    expect(user).not.toContain("## Plan vs actual");
   });
 });

@@ -42,6 +42,7 @@ import type {
   Partner,
   Ask,
   QaHighlight,
+  ProjectBudget,
 } from "@/server/db/schema";
 import { formatUsd } from "@/lib/utils";
 import {
@@ -86,6 +87,13 @@ export interface ReportSectionContext {
   partners: Partner[];
   asks: Ask[];
   qaHighlights: QaHighlight[];
+  /**
+   * Manually entered plan rows for the project, across every period — the
+   * Plan vs Actual section filters to `ctx.period` itself, matching how
+   * `grants` and the other manual-entry datasets travel. Empty when the
+   * founder has never typed a budget, which is what gates the section off.
+   */
+  budgets: ProjectBudget[];
   /**
    * Detected anomalies for this snapshot, from `detectAnomalies(snapshot,
    * trailing)`. Travels in the context so the anomalies section owns both
@@ -243,14 +251,29 @@ export function netFlowOf(ctx: ReportSectionContext): number | null {
 // load-bearing — they must match `IncomeCategory` exactly, and the tests
 // assert that they do.
 
-const RECURRING_INCOME_CATEGORIES = ["revenue", "staking_reward"] as const;
+export const RECURRING_INCOME_CATEGORIES = [
+  "revenue",
+  "staking_reward",
+] as const;
 
-const NON_RECURRING_INCOME_CATEGORIES = [
+export const NON_RECURRING_INCOME_CATEGORIES = [
   "funding_round",
   "token_sale_inflow",
   "airdrop",
   "other_income",
 ] as const;
+
+/**
+ * Every `IncomeCategory` name, in one list. Exported so server-only code that
+ * must validate a category string — the project-budgets router's Zod input —
+ * can reach the names without importing expense-classifier.ts, which opens
+ * with `import OpenAI from "openai"`. Same mirroring discipline as the two
+ * arrays above, and the same test asserts it stays in step.
+ */
+export const INCOME_CATEGORY_NAMES: readonly string[] = [
+  ...RECURRING_INCOME_CATEGORIES,
+  ...NON_RECURRING_INCOME_CATEGORIES,
+];
 
 /** Investor-facing names. `token_sale_inflow` means nothing to a reader. */
 const INCOME_LABELS: Record<string, string> = {
@@ -321,4 +344,258 @@ export function splitIncome(raw: unknown): IncomeSplit {
     nonRecurring: buildIncomeGroup(record, NON_RECURRING_INCOME_CATEGORIES),
     classified: true,
   };
+}
+
+// ─── plan vs actual ────────────────────────────────────────────────────────
+//
+// The founder's typed plan for the period, joined to what the sync actually
+// measured. Lives here rather than in the section for the reason every other
+// derived view does: `requires()` and the fragment must read one function, so
+// a gate that fires on "there is a material overspend" and a table that shows
+// none is unreachable.
+
+/**
+ * The sentinel category from `project_budgets.category`. A founder who plans
+ * one number for the whole month writes a single row carrying this instead of
+ * a real category name. Defined here — client-safe, no OpenAI import — so the
+ * router's Zod enum, the section, and the modal all read one constant.
+ */
+export const TOTAL_BUDGET_CATEGORY = "__total__";
+
+/**
+ * `ExpenseCategory`, mirrored for the client the same way the income names
+ * above are and for the same reason: the module that defines them opens with
+ * `import OpenAI from "openai"`, and the budget entry form in
+ * SectionDataModal.tsx is a "use client" component that needs the list to
+ * render its category picker. The strings are load-bearing — a value the
+ * picker offers that the router's Zod enum rejects is a form that cannot be
+ * submitted — so a test asserts this array equals `EXPENSE_CATEGORIES`.
+ *
+ * Server-side code must NOT read this. The router validates against the real
+ * export in expense-classifier.ts, which is what makes the mirror checkable
+ * rather than merely duplicated.
+ */
+export const EXPENSE_CATEGORY_NAMES: readonly string[] = [
+  "payroll",
+  "infrastructure",
+  "marketing",
+  "grants",
+  "legal",
+  "token_sale",
+  "operational",
+  "other",
+];
+
+/**
+ * A variance is worth naming only when it clears BOTH floors. 20% alone makes
+ * a $50 line into a headline at 200% over; $5K alone makes a rounding
+ * difference on payroll look deliberate. Requiring both is what keeps the
+ * section's callouts to things a reader would act on.
+ */
+export const VARIANCE_PCT_FLOOR = 20;
+export const VARIANCE_USD_FLOOR = 5_000;
+
+/**
+ * `token_sale` outflows are a treasury reallocation, not operating spend —
+ * `expenseBreakdown` and `treasuryOperations` split on exactly this. A
+ * `__total__` plan ("we expect to spend $180K") means operating spend, so the
+ * actual it is compared against must exclude the reallocation. A founder who
+ * deliberately budgets the `token_sale` line still gets it: an explicitly
+ * planned category is always shown.
+ */
+const NON_OPERATING_EXPENSE_CATEGORY = "token_sale";
+
+export interface BudgetLine {
+  category: string;
+  /** What the report prints. Raw category for expenses, investor-facing label for income. */
+  label: string;
+  plannedUsd: number;
+  actualUsd: number;
+  /** actual − planned. Positive is over plan on the expense side, above plan on income. */
+  varianceUsd: number;
+  /**
+   * Percent of plan, or null when nothing was planned for this category —
+   * a percentage against a zero base is not a number, and printing one
+   * ("+Infinity%", "+100%") would be a fabricated figure.
+   */
+  variancePct: number | null;
+  /** Clears both floors — the only lines the prompt is allowed to call out. */
+  material: boolean;
+  /** True when actuals landed in a category the plan never mentioned. */
+  unplanned: boolean;
+  notes: string | null;
+}
+
+export interface BudgetSide {
+  kind: "expense" | "income";
+  /** Per-category rows, largest plan first. Empty for a `__total__`-only plan. */
+  lines: BudgetLine[];
+  /** The roll-up. Always present when the side has any budget row at all. */
+  total: BudgetLine;
+  /** True when the founder planned one number rather than a per-category plan. */
+  totalOnly: boolean;
+}
+
+export interface BudgetComparison {
+  expense: BudgetSide | null;
+  income: BudgetSide | null;
+  /** Newest `updatedAt` across the period's rows — when the plan last changed. */
+  planUpdatedAt: Date | null;
+}
+
+/** Rows for a period, or an empty array. Tolerates a context built without budgets. */
+export function budgetsForPeriod(ctx: ReportSectionContext): ProjectBudget[] {
+  return (ctx.budgets ?? []).filter((b) => b.period === ctx.period);
+}
+
+function toNumber(raw: unknown): number {
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : 0;
+}
+
+/** Positive per-category actuals from a stored JSONB payload. */
+function actualsOf(raw: unknown): Record<string, number> {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const usd = toNumber(value);
+    if (usd > 0) out[key] = usd;
+  }
+  return out;
+}
+
+function makeLine(
+  category: string,
+  label: string,
+  plannedUsd: number,
+  actualUsd: number,
+  notes: string | null
+): BudgetLine {
+  const varianceUsd = actualUsd - plannedUsd;
+  // Percent is undefined against a zero plan, so an unplanned line clears the
+  // percentage floor vacuously and is judged on the dollar floor alone.
+  const variancePct =
+    plannedUsd > 0 ? (varianceUsd / plannedUsd) * 100 : null;
+  const material =
+    Math.abs(varianceUsd) > VARIANCE_USD_FLOOR &&
+    (variancePct === null || Math.abs(variancePct) > VARIANCE_PCT_FLOOR);
+  return {
+    category,
+    label,
+    plannedUsd,
+    actualUsd,
+    varianceUsd,
+    variancePct,
+    material,
+    unplanned: plannedUsd <= 0,
+    notes,
+  };
+}
+
+function buildSide(
+  kind: "expense" | "income",
+  rows: ProjectBudget[],
+  rawActuals: unknown
+): BudgetSide | null {
+  const sideRows = rows.filter((r) => r.kind === kind);
+  if (sideRows.length === 0) return null;
+
+  const totalRow = sideRows.find((r) => r.category === TOTAL_BUDGET_CATEGORY);
+  const itemised = sideRows.filter(
+    (r) => r.category !== TOTAL_BUDGET_CATEGORY
+  );
+  const plannedByCategory = new Map(
+    itemised.map((r) => [r.category, r])
+  );
+
+  const actuals = actualsOf(rawActuals);
+  // The universe of rows the table covers: everything planned, plus anything
+  // the period actually spent or earned. The reallocation bucket joins only
+  // when it was planned on purpose — see NON_OPERATING_EXPENSE_CATEGORY.
+  const categories = new Set(plannedByCategory.keys());
+  for (const category of Object.keys(actuals)) {
+    if (
+      kind === "expense" &&
+      category === NON_OPERATING_EXPENSE_CATEGORY &&
+      !plannedByCategory.has(category)
+    ) {
+      continue;
+    }
+    categories.add(category);
+  }
+
+  const lines =
+    itemised.length === 0
+      ? []
+      : [...categories]
+          .map((category) => {
+            const row = plannedByCategory.get(category);
+            return makeLine(
+              category,
+              kind === "income"
+                ? INCOME_LABELS[category] ?? category
+                : category,
+              toNumber(row?.plannedUsd),
+              actuals[category] ?? 0,
+              row?.notes ?? null
+            );
+          })
+          .sort(
+            (a, b) => b.plannedUsd - a.plannedUsd || b.actualUsd - a.actualUsd
+          );
+
+  // Actual total spans the whole universe whether or not the plan itemised
+  // it, so an itemised table's rows always add up to the total beneath them.
+  const actualTotal = [...categories].reduce(
+    (sum, category) => sum + (actuals[category] ?? 0),
+    0
+  );
+  // A stated `__total__` wins over the sum of the lines. The founder wrote it
+  // deliberately, and silently replacing it with a sum would misreport the
+  // plan whenever the itemisation is partial.
+  const plannedTotal = totalRow
+    ? toNumber(totalRow.plannedUsd)
+    : lines.reduce((sum, l) => sum + l.plannedUsd, 0);
+
+  return {
+    kind,
+    lines,
+    total: makeLine(
+      TOTAL_BUDGET_CATEGORY,
+      kind === "expense"
+        ? "Total operating spend"
+        : "Total income",
+      plannedTotal,
+      actualTotal,
+      totalRow?.notes ?? null
+    ),
+    totalOnly: itemised.length === 0,
+  };
+}
+
+const BUDGET_MEMO = new WeakMap<ReportSectionContext, BudgetComparison>();
+
+/**
+ * Plan vs actual for `ctx.period`. Memoized per context like `attributionOf`,
+ * because `requires()`, the fragment and (through them) readiness all call it
+ * on the same object.
+ */
+export function budgetComparison(ctx: ReportSectionContext): BudgetComparison {
+  const cached = BUDGET_MEMO.get(ctx);
+  if (cached) return cached;
+
+  const rows = budgetsForPeriod(ctx);
+  const timestamps = rows
+    .map((r) => r.updatedAt)
+    .filter((t): t is Date => t instanceof Date);
+  const result: BudgetComparison = {
+    expense: buildSide("expense", rows, ctx.snapshot.expensesByCategory),
+    income: buildSide("income", rows, ctx.snapshot.incomeByCategory),
+    planUpdatedAt:
+      timestamps.length > 0
+        ? new Date(Math.max(...timestamps.map((t) => t.getTime())))
+        : null,
+  };
+  BUDGET_MEMO.set(ctx, result);
+  return result;
 }

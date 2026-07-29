@@ -3,6 +3,15 @@
 import { useEffect, useState } from "react";
 import { trpc } from "@/lib/api";
 import { X, Plus, Trash2, Download } from "lucide-react";
+// Client-safe by construction: report-derived.ts imports pure services and
+// `import type` on the schema only. The real category unions live in
+// expense-classifier.ts, which pulls the OpenAI SDK and must never be
+// imported from here — see the mirror note on EXPENSE_CATEGORY_NAMES.
+import {
+  EXPENSE_CATEGORY_NAMES,
+  INCOME_CATEGORY_NAMES,
+  TOTAL_BUDGET_CATEGORY,
+} from "@/server/services/report-derived";
 
 /**
  * Single modal that handles CRUD for the manual-entry sections:
@@ -21,6 +30,7 @@ import { X, Plus, Trash2, Download } from "lucide-react";
  */
 
 const SECTION_TITLES: Record<string, string> = {
+  actual_vs_budget: "Plan vs Actual",
   grants_distributed: "Grants Distributed",
   governance_updates: "Governance Updates",
   partners_integrations: "Partners & Integrations",
@@ -176,6 +186,9 @@ export function SectionDataModal({
         </div>
 
         <div style={{ padding: 20 }}>
+          {sectionId === "actual_vs_budget" && (
+            <BudgetRenderer projectId={projectId} />
+          )}
           {sectionId === "grants_distributed" && (
             <GrantsRenderer projectId={projectId} />
           )}
@@ -194,6 +207,196 @@ export function SectionDataModal({
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Plan vs Actual ────────────────────────────────────────────────────
+
+/**
+ * The budget entry form. Unlike the other renderers this one writes through
+ * an UPSERT keyed on (period, kind, category), so saving a category the
+ * founder already budgeted edits that row instead of adding a second one —
+ * the list below never grows a duplicate the report would double-count.
+ *
+ * The category picker is a select rather than the free-text field grants uses
+ * on purpose: a budget category only means something if it matches the name
+ * the classifier writes into the snapshot. A typo here is not a cosmetic
+ * problem, it is a plan row that can never find its actual.
+ */
+function BudgetRenderer({ projectId }: { projectId: string }) {
+  const [period, setPeriod] = useState(defaultPeriod());
+  const validPeriod = PERIOD_RE.test(period);
+
+  const { data: list = [], refetch } = trpc.projectBudgets.list.useQuery(
+    { projectId, period },
+    { enabled: validPeriod }
+  );
+  const upsert = trpc.projectBudgets.upsert.useMutation({
+    onSuccess: () => refetch(),
+  });
+  const remove = trpc.projectBudgets.remove.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  const [kind, setKind] = useState<"expense" | "income">("expense");
+  const [category, setCategory] = useState(TOTAL_BUDGET_CATEGORY);
+  const [plannedUsd, setPlannedUsd] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const categories =
+    kind === "expense" ? EXPENSE_CATEGORY_NAMES : INCOME_CATEGORY_NAMES;
+  const planned = parseFloat(plannedUsd);
+  const plannedValid = Number.isFinite(planned) && planned >= 0;
+
+  function submit() {
+    if (!validPeriod || !plannedValid) return;
+    upsert.mutate(
+      {
+        projectId,
+        period,
+        kind,
+        category,
+        plannedUsd: planned,
+        notes: notes || undefined,
+      },
+      {
+        onSuccess: () => {
+          setPlannedUsd("");
+          setNotes("");
+        },
+      }
+    );
+  }
+
+  return (
+    <>
+      <p
+        style={{
+          fontSize: 12,
+          color: "var(--vb-muted)",
+          margin: "0 0 14px",
+          lineHeight: 1.5,
+        }}
+      >
+        Enter what you planned to spend or earn this period. One{" "}
+        <strong style={{ color: "var(--vb-text)" }}>total</strong> is enough —
+        the report compares it against your actual operating spend. Add a
+        figure per category if you want a line-by-line table. Saving the same
+        category twice replaces the earlier figure.
+      </p>
+
+      <div
+        style={{
+          display: "grid",
+          gap: 10,
+          gridTemplateColumns: "1fr 1fr",
+          marginBottom: 16,
+        }}
+      >
+        <div>
+          <label style={labelStyle}>Period (YYYY-MM)</label>
+          <input
+            style={inputStyle}
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+            placeholder="2026-04"
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Side</label>
+          <select
+            style={inputStyle}
+            value={kind}
+            onChange={(e) => {
+              // The two namespaces are disjoint, so an unchanged category
+              // would be invalid against the new side the moment this flips.
+              setKind(e.target.value as "expense" | "income");
+              setCategory(TOTAL_BUDGET_CATEGORY);
+            }}
+          >
+            <option value="expense">Expense</option>
+            <option value="income">Income</option>
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Category</label>
+          <select
+            style={inputStyle}
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
+            <option value={TOTAL_BUDGET_CATEGORY}>
+              Single total for the period
+            </option>
+            {categories.map((c) => (
+              <option key={c} value={c}>
+                {c.replace(/_/g, " ")}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Planned (USD)</label>
+          <input
+            style={inputStyle}
+            type="number"
+            min="0"
+            value={plannedUsd}
+            onChange={(e) => setPlannedUsd(e.target.value)}
+            placeholder="180000"
+          />
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={labelStyle}>Notes (optional)</label>
+          <input
+            style={inputStyle}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Assumes the second audit lands this month"
+          />
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <button
+            type="button"
+            style={submitStyle}
+            disabled={!validPeriod || !plannedValid || upsert.isPending}
+            onClick={submit}
+          >
+            <Plus size={12} /> {upsert.isPending ? "Saving…" : "Save budget line"}
+          </button>
+        </div>
+      </div>
+
+      <ItemList
+        rows={list}
+        empty={
+          validPeriod
+            ? `No budget entered for ${period} yet.`
+            : "Enter a period as YYYY-MM."
+        }
+        render={(b) => (
+          <>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                style={{ fontSize: 13, color: "var(--vb-text)", fontWeight: 600 }}
+              >
+                {b.category === TOTAL_BUDGET_CATEGORY
+                  ? "Total for the period"
+                  : b.category.replace(/_/g, " ")}{" "}
+                — ${Number(b.plannedUsd).toLocaleString()}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--vb-dim)", marginTop: 2 }}>
+                {b.kind} · {b.period}
+                {b.notes ? ` · ${b.notes}` : ""}
+              </div>
+            </div>
+            <RemoveBtn
+              onClick={() => remove.mutate({ projectId, budgetId: b.id })}
+            />
+          </>
+        )}
+      />
+    </>
   );
 }
 

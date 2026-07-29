@@ -14,6 +14,7 @@ import {
 // milestones_completed + looking_ahead share one milestones table; the
 // modal routes both section IDs to the same MilestonesRenderer.
 const MANUAL_DATA_SECTIONS = new Set([
+  "actual_vs_budget",
   "grants_distributed",
   "governance_updates",
   "partners_integrations",

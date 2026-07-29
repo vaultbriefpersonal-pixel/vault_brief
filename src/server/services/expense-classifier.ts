@@ -54,6 +54,24 @@ export const INCOME_CATEGORIES: IncomeCategory[] = [
   "other_income",
 ];
 
+/**
+ * The `ExpenseCategory` union as a runtime list. Server-only consumers that
+ * need to validate a category string against the real set — the
+ * project-budgets router's Zod input — read this rather than re-typing the
+ * names. Nothing in the client bundle may import it: this module opens with
+ * `import OpenAI from "openai"`.
+ */
+export const EXPENSE_CATEGORIES: ExpenseCategory[] = [
+  "payroll",
+  "infrastructure",
+  "marketing",
+  "grants",
+  "legal",
+  "token_sale",
+  "operational",
+  "other",
+];
+
 export interface RawTransaction {
   hash: string;
   from: string;

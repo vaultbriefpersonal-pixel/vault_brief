@@ -13,6 +13,7 @@ import {
   partners,
   asks,
   qaHighlights,
+  projectBudgets,
 } from "./schema";
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -33,6 +34,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   partners: many(partners),
   asks: many(asks),
   qaHighlights: many(qaHighlights),
+  budgets: many(projectBudgets),
 }));
 
 export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
@@ -119,6 +121,13 @@ export const asksRelations = relations(asks, ({ one }) => ({
 export const qaHighlightsRelations = relations(qaHighlights, ({ one }) => ({
   project: one(projects, {
     fields: [qaHighlights.projectId],
+    references: [projects.id],
+  }),
+}));
+
+export const projectBudgetsRelations = relations(projectBudgets, ({ one }) => ({
+  project: one(projects, {
+    fields: [projectBudgets.projectId],
     references: [projects.id],
   }),
 }));
