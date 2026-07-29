@@ -429,6 +429,71 @@ export const qaHighlights = pgTable("qa_highlights", {
 });
 
 // =============================================
+// PROJECT BUDGETS
+// The planned side of the ledger: what a founder said they intended to
+// spend (or take in) for a period, so a report can put plan next to
+// actual instead of only reporting actual.
+//
+// Per-project, per-period, manually entered — the same shape as the five
+// tables above, and `period` is deliberately the identical 'YYYY-MM'
+// text column as grants/partners/qaHighlights rather than a date or a
+// range. The report pipeline already derives its period as
+// `snapshotDate.slice(0, 7)` (see ReportSectionContext.period), so
+// matching a budget row to a report is plain string equality: no date
+// arithmetic, no timezone class of bug, and the period-string validation
+// the other manual sections already use is reusable unchanged. A
+// quarterly budget is simply three rows.
+//
+// Deliberately NO foreign key to treasury_snapshots: a budget is entered
+// *before* the period it describes has been synced, so the snapshot row
+// it will eventually be compared against does not exist yet. The join is
+// (project_id, period), resolved at read time.
+// =============================================
+export const projectBudgets = pgTable(
+  "project_budgets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    period: text("period").notNull(), // 'YYYY-MM'
+    // Separates the expense and income namespaces, which is not cosmetic:
+    // "grants" is a legitimate ExpenseCategory while income carries its
+    // own disjoint set (revenue, funding_round, ...). Without `kind` a
+    // category string would be ambiguous about which side it belongs to.
+    kind: text("kind").notNull().default("expense"), // expense | income
+    // Free text on purpose, with a '__total__' sentinel. A founder who
+    // plans a single number ("we expect to spend $180K/month") writes one
+    // row; a founder with a real per-category plan writes one row per
+    // category. The section adapts to whichever it finds. The constraint
+    // to a real ExpenseCategory/IncomeCategory member lives in the
+    // SERVER's Zod input schema, not in the database — keeping it out of
+    // the DB means adding a category later is a code change, not a
+    // migration.
+    category: text("category").notNull(), // a real category, or '__total__'
+    plannedUsd: numeric("planned_usd", { precision: 18, scale: 2 }).notNull(),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    // Unlike the five manual-section tables, budgets carry updatedAt:
+    // a plan gets revised mid-period, and a report should be able to say
+    // when the plan it is measuring against last changed.
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    // The unique key is what makes the write path an idempotent upsert
+    // (`onConflictDoUpdate`): re-submitting a budget for a period edits
+    // the existing row instead of silently accumulating duplicates that
+    // would double-count in any plan-vs-actual sum.
+    uniqueIndex("idx_project_budgets_project_period_kind_category").on(
+      table.projectId,
+      table.period,
+      table.kind,
+      table.category
+    ),
+  ]
+);
+
+// =============================================
 // TOKEN PRICE CACHE
 // Historical USD prices per (symbol, date). Historic prices never change,
 // so rows live forever and any future sync hits the cache instead of an API.
@@ -536,6 +601,8 @@ export type Ask = typeof asks.$inferSelect;
 export type NewAsk = typeof asks.$inferInsert;
 export type QaHighlight = typeof qaHighlights.$inferSelect;
 export type NewQaHighlight = typeof qaHighlights.$inferInsert;
+export type ProjectBudget = typeof projectBudgets.$inferSelect;
+export type NewProjectBudget = typeof projectBudgets.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
 export type TokenPrice = typeof tokenPrices.$inferSelect;
