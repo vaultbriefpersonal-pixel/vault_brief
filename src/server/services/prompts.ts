@@ -7,6 +7,7 @@ import type {
   Partner,
   Ask,
   QaHighlight,
+  ProjectBudget,
 } from "@/server/db/schema";
 import { formatUsd } from "@/lib/utils";
 import type { Anomaly } from "./anomalies";
@@ -40,6 +41,13 @@ export interface BuildReportPromptsInput {
   asks?: Ask[];
   qaHighlights?: QaHighlight[];
   /**
+   * Manually entered budget rows, all periods. The Plan vs Actual section
+   * filters to the snapshot's period itself, same as `grants`. Omitted means
+   * no plan exists, which gates the section off rather than rendering an
+   * empty comparison.
+   */
+  budgets?: ProjectBudget[];
+  /**
    * Output of `detectAnomalies(snapshot, trailing)`. Optional so existing
    * callers keep compiling; an omitted list means "no anomalies", which
    * gates the section off rather than smuggling data past it.
@@ -62,6 +70,7 @@ export function buildReportPrompts(
     partners = [],
     asks = [],
     qaHighlights = [],
+    budgets = [],
     anomalies = [],
     storedSections = null,
   } = input;
@@ -80,6 +89,7 @@ export function buildReportPrompts(
     partners,
     asks,
     qaHighlights,
+    budgets,
     anomalies,
     period,
     total,

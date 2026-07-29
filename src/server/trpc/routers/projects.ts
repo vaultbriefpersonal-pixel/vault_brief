@@ -14,6 +14,7 @@ import {
   partners,
   asks,
   qaHighlights,
+  projectBudgets,
 } from "@/server/db/schema";
 import { slugify, formatDate } from "@/lib/utils";
 import { TRPCError } from "@trpc/server";
@@ -435,6 +436,7 @@ export const projectsRouter = router({
         partnersRows,
         asksRows,
         qaRows,
+        budgetRows,
       ] = await Promise.all([
         ctx.db.query.milestones.findMany({
           where: eq(milestones.projectId, input.projectId),
@@ -453,6 +455,12 @@ export const projectsRouter = router({
         }),
         ctx.db.query.qaHighlights.findMany({
           where: eq(qaHighlights.projectId, input.projectId),
+        }),
+        // Without this the Plan vs Actual chip would read "not ready" for a
+        // founder who HAS entered a budget — a readiness verdict that is
+        // simply wrong, and permanently so.
+        ctx.db.query.projectBudgets.findMany({
+          where: eq(projectBudgets.projectId, input.projectId),
         }),
       ]);
 
@@ -481,6 +489,7 @@ export const projectsRouter = router({
         partners: partnersRows,
         asks: asksRows,
         qaHighlights: qaRows,
+        budgets: budgetRows,
         // Readiness does not run the anomaly detector — that needs the
         // trailing series this endpoint deliberately skips, and detection is
         // a report-time computation. Empty means the Anomalies chip reads

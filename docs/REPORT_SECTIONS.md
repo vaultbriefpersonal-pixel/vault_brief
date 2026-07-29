@@ -104,6 +104,7 @@ Final pre-codification list, in suggested default order. Each entry:
 | 6 | `previous_month_comparison` | Month-over-Month | yes | `prevSnapshot` exists |
 | 7 | `financial_health` | Financial Health (burn, runway) | yes | `burnRateUsd > 0` |
 | 8 | `expense_breakdown` | Operating Expenses | yes | `expensesByCategory` non-empty |
+| 8a | `actual_vs_budget` | Plan vs Actual | OFF | ≥1 `project_budgets` row for the period |
 | 9 | `treasury_operations` | Treasury Operations | yes | `token_sale` outflows present |
 | 10 | `grants_distributed` | Grants Distributed | OFF | Off-by-default; foundations enable |
 | 11 | `token_metrics` | Token Metrics | yes | `project.tokenSymbol` set |
@@ -127,6 +128,19 @@ factors expanded the count:
    for projects that aren't foundations.
 3. **`qa_highlights`** added off-by-default for projects whose report
    ships as a quarterly tokenholder call recap.
+
+`actual_vs_budget` was added later, directly under `expense_breakdown` —
+it measures the same `expensesByCategory` payload that section prints,
+against a plan the founder types in by hand (`project_budgets`). It is
+off by default, which is unusual for a data-driven section and
+deliberate: with no budget entered it renders nothing at all, and a
+toggle that is on while the section never appears teaches the founder
+that the toggle does not mean anything. The plan can be a single
+`'__total__'` row ("we expect to spend $180K") or one row per category;
+the section adapts to whichever it finds. Variances are called out only
+when they clear **both** 20% and $5K, and the section's rules forbid
+reading under-spend as good news — money unspent is as often a stalled
+audit or a hire that never happened as it is discipline.
 
 ## Default templates by project shape
 

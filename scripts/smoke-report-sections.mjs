@@ -762,5 +762,152 @@ const baseInput = {
   );
 }
 
+// 12) Plan vs Actual — off by default, and renders only from a typed plan.
+//
+// The section is the only one in the library that ships disabled. These
+// assertions pin both halves of that: it must not appear for a founder who
+// never opted in, and it must not appear for one who did but has no plan.
+{
+  const budgetRow = (over = {}) => ({
+    id: "bud-1",
+    projectId: "p1",
+    period: "2026-04",
+    kind: "expense",
+    category: "__total__",
+    plannedUsd: "250000",
+    notes: null,
+    createdAt: new Date(),
+    updatedAt: new Date("2026-04-18T00:00:00Z"),
+    ...over,
+  });
+
+  // Off by default: neither the rules nor the data reach the prompt.
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      budgets: [budgetRow()],
+    });
+    check(
+      "budgets: section is off by default even with a plan entered",
+      !system.includes("### Plan vs Actual") &&
+        !user.includes("## Plan vs actual")
+    );
+  }
+
+  const enableBudget = SECTION_LIBRARY_META.map((m) => ({
+    id: m.id,
+    enabled: m.defaultEnabled || m.id === "actual_vs_budget",
+  }));
+
+  // Enabled but no plan: rules travel, data does not — same shape as every
+  // other conditional section.
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      storedSections: enableBudget,
+    });
+    check(
+      "budgets: enabled with no plan renders no data block",
+      system.includes("### Plan vs Actual") &&
+        !user.includes("## Plan vs actual")
+    );
+  }
+
+  // A '__total__'-only plan: one row, compared against operating spend.
+  // The fixture snapshot spends 280K payroll + 35K infra (the 150K
+  // token_sale is a reallocation and must stay out of the comparison).
+  {
+    const { user } = buildReportPrompts({
+      ...baseInput,
+      budgets: [budgetRow()],
+      storedSections: enableBudget,
+    });
+    check(
+      "budgets: '__total__' plan renders a single total row",
+      user.includes("## Plan vs actual (2026-04)") &&
+        user.includes("planned ONE total for the period")
+    );
+    check(
+      "budgets: '__total__' actual is operating spend, not the reallocation",
+      user.includes(
+        "Total operating spend: planned $250.0K, actual $315.0K, variance +$65.0K (+26.0%)"
+      ),
+      "the 150K token_sale bucket must not be swept in"
+    );
+  }
+
+  // An itemised plan: per-category rows plus a total, and the variance
+  // filter applied per line.
+  {
+    const { user } = buildReportPrompts({
+      ...baseInput,
+      budgets: [
+        budgetRow({ id: "b-pay", category: "payroll", plannedUsd: "200000" }),
+        budgetRow({ id: "b-inf", category: "infra", plannedUsd: "40000" }),
+      ],
+      storedSections: enableBudget,
+    });
+    check(
+      "budgets: itemised plan renders per-category rows",
+      user.includes(
+        "payroll: planned $200.0K, actual $280.0K, variance +$80.0K (+40.0%)"
+      )
+    );
+    check(
+      "budgets: a >20% AND >$5K variance is marked MATERIAL",
+      user.includes(
+        "payroll: planned $200.0K, actual $280.0K, variance +$80.0K (+40.0%) — spent more than planned — MATERIAL"
+      )
+    );
+    check(
+      "budgets: a within-tolerance line is told not to be called out",
+      user.includes(
+        "infra: planned $40.0K, actual $35.0K, variance -$5.0K (-12.5%) — spent less than planned — within tolerance — do NOT call this out"
+      ),
+      "-12.5% clears neither floor"
+    );
+    check(
+      "budgets: the itemised table closes with its own total row",
+      user.includes("Total operating spend: planned $240.0K, actual $315.0K")
+    );
+  }
+
+  // A plan for a period the report does not cover changes nothing.
+  {
+    const { user } = buildReportPrompts({
+      ...baseInput,
+      budgets: [budgetRow({ period: "2026-03" })],
+      storedSections: enableBudget,
+    });
+    check(
+      "budgets: a prior period's plan does not leak into this report",
+      !user.includes("## Plan vs actual")
+    );
+  }
+
+  // The rules the section exists to enforce.
+  {
+    const { system } = buildReportPrompts({
+      ...baseInput,
+      storedSections: enableBudget,
+    });
+    check(
+      "budgets: under-spend is explicitly not framed as good news",
+      system.includes("Under-spend is not automatically good news") &&
+        system.includes(
+          "never be framed as a win, a saving, efficiency, or discipline"
+        )
+    );
+    check(
+      "budgets: only MATERIAL lines may be called out",
+      system.includes("Call out ONLY the lines the input marks MATERIAL")
+    );
+    check(
+      "budgets: variances may not be attributed to a cause",
+      system.includes("Do not attribute any variance to a cause")
+    );
+  }
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

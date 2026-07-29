@@ -13,6 +13,7 @@ import { asksRouter } from "./routers/asks";
 import { qaHighlightsRouter } from "./routers/qa-highlights";
 import { milestonesRouter } from "./routers/milestones";
 import { projectMembersRouter } from "./routers/project-members";
+import { projectBudgetsRouter } from "./routers/project-budgets";
 
 export const appRouter = router({
   projectMembers: projectMembersRouter,
@@ -29,6 +30,7 @@ export const appRouter = router({
   asks: asksRouter,
   qaHighlights: qaHighlightsRouter,
   milestones: milestonesRouter,
+  projectBudgets: projectBudgetsRouter,
 });
 
 export type AppRouter = typeof appRouter;
