@@ -30,6 +30,11 @@ import {
   liquidRunwayMonths,
   trailingAverageBurn,
 } from "./burn-metrics";
+// `anomalies.ts` is a pure module — its only import is `import type` on the
+// schema, erased at build — so pulling the formatter in as a value is safe
+// for the client bundle this file ships to (ReportTemplateEditor is
+// "use client"). Keep it that way: no db/env/node imports over there.
+import { formatAnomaliesForPrompt, type Anomaly } from "./anomalies";
 
 /**
  * Report section library — single source of truth for every block the
@@ -73,6 +78,15 @@ export interface ReportSectionContext {
   partners: Partner[];
   asks: Ask[];
   qaHighlights: QaHighlight[];
+  /**
+   * Detected anomalies for this snapshot, from `detectAnomalies(snapshot,
+   * trailing)`. Travels in the context so the anomalies section owns both
+   * halves of its rendering like every other section: previously the data was
+   * concatenated onto the user prompt in report-generator.ts, which meant
+   * disabling the section stripped its rules (including "Don't fabricate
+   * causes") while the figures still reached the model.
+   */
+  anomalies: Anomaly[];
   /** Total balance in USD, computed once. */
   total: number;
   /** Minimum balance to be worth mentioning (0.1% of total). */
@@ -1261,14 +1275,15 @@ const anomalies: ReportSection = {
   description:
     "Statistical anomalies vs. trailing average — sudden cost spikes, dev-activity drops, etc.",
   defaultEnabled: true,
-  // gated by the anomaly detector — handled in report-generator, not here
-  requires: () => true,
-  userPromptFragment: () => "",
+  requires: (ctx) => ctx.anomalies.length > 0,
+  userPromptFragment: (ctx) => formatAnomaliesForPrompt(ctx.anomalies),
   systemPromptFragment: `### Anomalies (CONDITIONAL)
 - If the input contains an "Anomalies" section listing metric deltas vs trailing average, mention each one in the Executive Summary with one short sentence per anomaly.
 - Don't fabricate causes — if no contextual reason is available, write "warrants investigation" or "see breakdown below". Never invent reasons.
 - Critical-severity anomalies (>100% change) deserve a sentence in their own; minor anomalies can be combined ("payroll up 35%, marketing down 40%").
 - If no Anomalies section is provided in input, do NOT add this commentary.`,
+  notReadyHint:
+    "Runs at report time against the trailing snapshots — not computed for this preview.",
 };
 
 const lookingAhead: ReportSection = {

@@ -476,6 +476,12 @@ export const projectsRouter = router({
         partners: partnersRows,
         asks: asksRows,
         qaHighlights: qaRows,
+        // Readiness does not run the anomaly detector — that needs the
+        // trailing series this endpoint deliberately skips, and detection is
+        // a report-time computation. Empty means the Anomalies chip reads
+        // "not ready", which its notReadyHint explains: the section works,
+        // it just isn't evaluated here.
+        anomalies: [],
         period,
         total,
         minSignificant: total > 0 ? total * 0.001 : 0,
