@@ -20,6 +20,16 @@ import {
   extractMajorTransactions,
   type MajorTransaction,
 } from "./major-transactions";
+import {
+  analyzeTreasuryLiquidity,
+  liquidReservesUsd,
+  type TreasuryLiquidity,
+} from "./treasury-liquidity";
+import {
+  burnTrend,
+  liquidRunwayMonths,
+  trailingAverageBurn,
+} from "./burn-metrics";
 
 /**
  * Report section library — single source of truth for every block the
@@ -186,6 +196,120 @@ function tokenMovement(t: TokenAttribution): string {
   if (qtyMoved) return "quantity moved, price unchanged";
   if (priceMoved) return "price moved, quantity unchanged";
   return "neither quantity nor price moved";
+}
+
+// ─── liquidity + burn basis ────────────────────────────────────────────────
+//
+// Two sections (Financial Health, Treasury Concentration) read the same two
+// derived views. They go through these helpers rather than each computing
+// their own so a gate and the fragment it gates can never disagree about the
+// figure — a section that fires on "under 3 months of stablecoin cover" and
+// then prints 3.4 months is worse than a section that never fired.
+
+/** Window for the trailing burn average. Matches the dashboard's burn tile. */
+const TRAILING_BURN_MONTHS = 3;
+
+/** Below this many months of stablecoin cover, the concentration section fires. */
+const STABLE_COVER_FLOOR_MONTHS = 3;
+
+/**
+ * Own-token share of the treasury, in percent, above which concentration is
+ * material enough to name. A fifth of the balance sheet is the point at which
+ * the reported total stops being a fair proxy for what the project can spend.
+ */
+const CONCENTRATION_PCT_FLOOR = 20;
+
+function liquidityOf(ctx: ReportSectionContext): TreasuryLiquidity {
+  return analyzeTreasuryLiquidity(ctx.snapshot.balancesDetail, ctx.project);
+}
+
+interface BurnBasis {
+  /** The denominator to divide reserves by. 0 when there is no usable burn. */
+  avgUsd: number;
+  /** Prior months that contributed. 0 unless `source` is "trailing". */
+  monthsUsed: number;
+  /**
+   * Which figure `avgUsd` actually is — the label the report must print. A
+   * one-month figure presented as a trailing average is a false statement
+   * about the evidence, even when the number is identical.
+   */
+  source: "trailing" | "current" | "none";
+}
+
+/**
+ * The best available burn denominator, in preference order: the trailing
+ * average, then this period's burn, then nothing. The fallback exists because
+ * a project on its first or second report has no trailing history and would
+ * otherwise get no liquid runway figure at all — which is the very number this
+ * work exists to surface. The `source` field is what keeps the fallback
+ * honest: it is disclosed in the fragment, never silently substituted.
+ */
+function burnBasis(ctx: ReportSectionContext): BurnBasis {
+  const trailing = trailingAverageBurn(ctx.trailing, TRAILING_BURN_MONTHS);
+  if (trailing.monthsUsed > 0) {
+    return {
+      avgUsd: trailing.avgUsd,
+      monthsUsed: trailing.monthsUsed,
+      source: "trailing",
+    };
+  }
+  const current = Number(ctx.snapshot.burnRateUsd ?? 0);
+  if (Number.isFinite(current) && current > 0) {
+    return { avgUsd: current, monthsUsed: 0, source: "current" };
+  }
+  return { avgUsd: 0, monthsUsed: 0, source: "none" };
+}
+
+/** Human label for the denominator, used inside the runway bullet itself. */
+function burnBasisLabel(basis: BurnBasis): string {
+  if (basis.source === "trailing") {
+    return `trailing ${basis.monthsUsed}-mo avg burn`;
+  }
+  return "this month's burn (no trailing history yet)";
+}
+
+/**
+ * The four buckets, as prompt bullets. Zero buckets are dropped per house rule
+ * — except the own-token bucket, which is stated even at zero when the project
+ * has a token, because "the treasury holds none of its own token" is a real
+ * and load-bearing finding for the runway figure directly above it.
+ */
+function liquidityLines(
+  liq: TreasuryLiquidity,
+  ctx: ReportSectionContext
+): string[] {
+  const lines: string[] = [];
+  if (liq.liquidStableUsd > 0) {
+    lines.push(`- Liquid stablecoins: ${formatUsd(liq.liquidStableUsd)}`);
+  }
+  if (liq.liquidCryptoUsd > 0) {
+    const btc =
+      liq.btcUsd > 0 ? ` (of which BTC and wrapped BTC: ${formatUsd(liq.btcUsd)})` : "";
+    lines.push(
+      `- Liquid crypto — ETH, BTC, liquid-staking tokens: ${formatUsd(liq.liquidCryptoUsd)}${btc}`
+    );
+  }
+  const tokenName = ctx.project.tokenSymbol
+    ? `${ctx.project.tokenSymbol}, the project's own token`
+    : "the project's own token";
+  if (liq.concentratedUsd > 0 || ctx.project.tokenSymbol) {
+    lines.push(
+      `- ${tokenName} — NOT spendable reserves: ${formatUsd(
+        liq.concentratedUsd
+      )} (${liq.concentrationPct.toFixed(1)}% of the treasury)`
+    );
+  }
+  if (liq.otherUsd > 0) {
+    lines.push(
+      `- Other assets, unrecognised and treated as illiquid: ${formatUsd(liq.otherUsd)}`
+    );
+  }
+  lines.push(
+    `- Spendable liquid reserves (stablecoins + liquid crypto): ${formatUsd(
+      liquidReservesUsd(liq)
+    )}`
+  );
+  return lines;
 }
 
 // ─── income split ──────────────────────────────────────────────────────────
@@ -393,6 +517,68 @@ const treasuryByChain: ReportSection = {
   notReadyHint: "Add wallets on ≥2 chains.",
 };
 
+const treasuryConcentration: ReportSection = {
+  id: "treasury_concentration",
+  title: "Treasury Concentration",
+  description:
+    "Fires when the treasury leans on the project's own token, or when stablecoins cover under three months of burn. States the split and why own-token holdings don't behave like reserves.",
+  defaultEnabled: true,
+  // Two independent triggers, because they describe two different problems:
+  // a treasury that is mostly a bet on its own token, and a treasury without
+  // enough price-stable cash to pay next quarter's bills. Either alone is
+  // worth a paragraph.
+  //
+  // The `derived` gate comes first and is not optional. Without per-token
+  // detail every bucket is zero, which reads as "zero months of stablecoin
+  // cover" and would fire this section on every legacy snapshot in the
+  // database — asserting a liquidity finding from an absence of data.
+  requires: (ctx) => {
+    const liq = liquidityOf(ctx);
+    if (!liq.derived || liq.totalUsd <= 0) return false;
+    if (liq.concentrationPct > CONCENTRATION_PCT_FLOOR) return true;
+    const basis = burnBasis(ctx);
+    if (basis.avgUsd <= 0) return false;
+    return liq.liquidStableUsd / basis.avgUsd < STABLE_COVER_FLOOR_MONTHS;
+  },
+  userPromptFragment: (ctx) => {
+    const liq = liquidityOf(ctx);
+    if (!liq.derived || liq.totalUsd <= 0) return "";
+    const basis = burnBasis(ctx);
+
+    const lines: string[] = [
+      `- Total treasury measured per-token: ${formatUsd(liq.totalUsd)}`,
+      ...liquidityLines(liq, ctx),
+    ];
+
+    if (basis.avgUsd > 0) {
+      const cover = liq.liquidStableUsd / basis.avgUsd;
+      lines.push(
+        `- Stablecoin cover: ${cover.toFixed(
+          1
+        )} months of spending at the ${burnBasisLabel(basis)} of ${formatUsd(
+          basis.avgUsd
+        )}`
+      );
+    } else {
+      lines.push(
+        `- Stablecoin cover: not measurable — no period on record carries operating outflows to measure it against.`
+      );
+    }
+
+    return `\n## Treasury concentration and liquidity (${ctx.snapshot.snapshotDate})\n${lines.join(
+      "\n"
+    )}`;
+  },
+  systemPromptFragment: `### Treasury Concentration (CONDITIONAL)
+- Only render when the input contains a "## Treasury concentration and liquidity" block. Two sentences, maximum.
+- Sentence one states the fact, with the input's own figures: what share of the treasury is the project's own token, and how many months of burn the stablecoin holdings cover.
+- Sentence two states the mechanism, once: a project's own token cannot be sold at size without moving its price against the project, and it is worth least in exactly the conditions that would force a sale — so it does not behave like reserves.
+- **No alarmism and no advice.** Do not write "critical", "dangerous", "at risk", "urgent", or a survival timeline. Do not recommend diversifying, selling, hedging, raising, or extending runway — that is financial advice, and this section does not give it. State the position and the mechanism; the reader draws the conclusion.
+- The figures are derived from per-token balances and are approximate at the margins. Never present the split as audited or exact, and never restate the "Other assets" bucket as confirmed-illiquid — it is unclassified.`,
+  notReadyHint:
+    "Needs a synced snapshot with per-token balances (run a sync), plus either own-token concentration or thin stablecoin cover.",
+};
+
 const previousMonthComparison: ReportSection = {
   id: "previous_month_comparison",
   title: "Month-over-Month",
@@ -545,12 +731,77 @@ const financialHealth: ReportSection = {
   userPromptFragment: (ctx) => {
     const lines: string[] = [];
     const { snapshot } = ctx;
+    const liq = liquidityOf(ctx);
+    const basis = burnBasis(ctx);
+    const currentBurn = Number(snapshot.burnRateUsd ?? 0);
+
     if (snapshot.burnRateUsd) {
-      lines.push(`- Monthly burn rate: ${formatUsd(Number(snapshot.burnRateUsd))}`);
+      lines.push(
+        `- Monthly burn rate (this period): ${formatUsd(currentBurn)}`
+      );
     }
-    if (snapshot.runwayMonths) {
-      lines.push(`- Runway: ${Number(snapshot.runwayMonths).toFixed(1)} months`);
+
+    if (basis.source === "trailing") {
+      lines.push(
+        `- Trailing ${TRAILING_BURN_MONTHS}-month average burn: ${formatUsd(
+          basis.avgUsd
+        )} — averaged over the ${basis.monthsUsed} prior period${
+          basis.monthsUsed === 1 ? "" : "s"
+        } that recorded operating outflows${
+          basis.monthsUsed < TRAILING_BURN_MONTHS
+            ? ". THIN SAMPLE — say how many periods it covers whenever you quote a figure derived from it"
+            : ""
+        }`
+      );
+      const trend = burnTrend(currentBurn, basis.avgUsd);
+      if (trend !== "unknown") {
+        lines.push(`- Burn trend vs that trailing average: ${trend}`);
+      }
     }
+
+    // Both runway figures, always labelled with their own denominator. The
+    // stored column divides the WHOLE treasury — own token, unrecognised
+    // assets and all — by one month's burn, and is charted on the dashboard,
+    // so it is reported rather than quietly redefined. The liquid figure is
+    // the one an investor can act on.
+    const storedRunway =
+      snapshot.runwayMonths == null ? null : Number(snapshot.runwayMonths);
+    if (storedRunway != null && Number.isFinite(storedRunway) && storedRunway > 0) {
+      lines.push(
+        `- Runway (total treasury ÷ this month's burn): ${storedRunway.toFixed(
+          1
+        )} months — an UPPER BOUND only: it counts the project's own token and every unrecognised asset as spendable, and divides by a single month`
+      );
+    } else if (currentBurn <= 0) {
+      lines.push(
+        `- Runway (total treasury ÷ this month's burn): NOT MEASURABLE this period — no operating outflows were recorded, so the ratio has no denominator. This does NOT mean the runway is zero or short; do not report it as a number, and do not imply the project is out of money.`
+      );
+    }
+
+    const reserves = liquidReservesUsd(liq);
+    if (!liq.derived) {
+      lines.push(
+        `- Runway (liquid reserves ÷ average burn): NOT COMPUTABLE — this snapshot stores no per-token balance detail, so spendable reserves cannot be separated from the project's own token. Do NOT present the total-treasury figure above as a liquid or conservative runway.`
+      );
+    } else if (basis.source === "none") {
+      lines.push(
+        `- Runway (liquid reserves ÷ average burn): NOT MEASURABLE — no period on record carries operating outflows to divide by. Spendable liquid reserves are ${formatUsd(
+          reserves
+        )}. Do not state this as a runway of zero.`
+      );
+    } else {
+      const months = liquidRunwayMonths(reserves, basis.avgUsd);
+      if (months != null) {
+        lines.push(
+          `- Runway (liquid reserves ÷ ${burnBasisLabel(
+            basis
+          )}): ${months.toFixed(
+            1
+          )} months — the conservative figure, and the one to lead with`
+        );
+      }
+    }
+
     if (snapshot.totalInflowsUsd) {
       lines.push(`- Total inflows: ${formatUsd(Number(snapshot.totalInflowsUsd))}`);
     }
@@ -568,11 +819,25 @@ const financialHealth: ReportSection = {
       );
     }
     if (lines.length === 0) return "";
+
+    if (liq.derived) {
+      lines.push(
+        "",
+        "Treasury liquidity — what those reserves actually consist of, derived per-token from the stored balances:",
+        ...liquidityLines(liq, ctx)
+      );
+    }
+
     return `\n## Financial Metrics\n${lines.join("\n")}`;
   },
   systemPromptFragment: `### Financial Health
+- **Lead with the liquid runway** — "Runway (liquid reserves ÷ ...)" — and identify what it divides: spendable reserves (stablecoins plus liquid crypto) over average burn. It is the figure an investor can act on, and it is the headline.
+- The input may carry TWO runway figures with different denominators. Report both only when you also state what separates them, and NEVER present the total-treasury figure as the headline when the input shows the project holds its own token. The total-treasury figure counts that token as spendable, and a DAO cannot sell its own token at size without moving the price against itself — worst of all in the moment it most needs to sell. Quoting it alone overstates survival time, often by years.
+- A runway figure marked NOT MEASURABLE or NOT COMPUTABLE is not a runway of zero and not a short runway. Say the period gives no basis for the figure, in one clause, and move on — never print "0 months", never imply the money has run out, and never substitute the other runway figure in its place.
+- When the trailing average is flagged THIN SAMPLE, state how many periods it covers in the same sentence that quotes any figure derived from it. A one-month "trailing average" presented as three months misrepresents the evidence even when the number is right.
+- Report the burn trend only as the input labels it (accelerating / stable / decelerating), and only against the trailing average. Do not infer a trend from a single period, and do not explain the cause of one — the input carries no causes.
+- When the input lists the liquidity breakdown, give the split in one or two sentences: how much is stablecoins, how much is volatile-but-liquid crypto, how much is the project's own token, how much is unrecognised. Assets in the "Other" bucket are unrecognised, NOT confirmed illiquid — say "not classified" rather than asserting they cannot be sold.
 - Monthly burn rate (only if available).
-- Runway in months (only if available).
 - Inflows and outflows totals — only the ones the input provides.
 - When the input gives a net flow, report it alongside inflows and outflows — it is what reconciles them, and omitting it leaves the reader unable to tell whether the treasury took in more than it paid out. Preserve its sign: a negative net flow means the project paid out more than it received, and must read that way. Never state it as a bare positive figure.
 - Do NOT echo "Not available" for missing fields. Drop the bullet.`,
@@ -1108,6 +1373,7 @@ export const SECTION_LIBRARY: readonly ReportSection[] = [
   lowsConcerns,
   treasuryOverview,
   treasuryByChain,
+  treasuryConcentration,
   previousMonthComparison,
   financialHealth,
   expenseBreakdown,

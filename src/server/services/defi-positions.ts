@@ -60,6 +60,114 @@ const KNOWN_LSD_TOKENS: Record<string, KnownToken> = {
   },
 };
 
+// ─── liquidity recognition (bucketing only, never labelling) ───────────────
+//
+// `KNOWN_LSD_TOKENS` above answers "what protocol is this, exactly?" and its
+// answer is printed in an investor report, so it stays mainnet-only and
+// address-keyed: every entry is a claim we can defend.
+//
+// The two tables below answer a different, weaker question — "is this position
+// something the project could sell without a bespoke unwind?" — asked by
+// treasury-liquidity.ts to sort a token into a liquidity bucket. That answer is
+// never rendered as a protocol name, which is what makes the looser matching
+// acceptable:
+//
+//   • Guessing "Lido" from the symbol `wstETH` on an unrecognised contract
+//     would put a false, specific statement into an investor report.
+//   • Guessing "this is liquid" from the same symbol is a bounded
+//     approximation of a market property, and the report discloses that the
+//     liquidity split is derived, not exact.
+//
+// So: address matches extend across L2s here, and a symbol fallback exists —
+// but NEITHER feeds `extractDefiPositions`, whose output and signature are
+// unchanged (defi-positions.test.ts and ReportWidgets.tsx depend on both).
+
+/**
+ * Canonical bridged deployments of the three major LSDs on the L2s this
+ * product tracks. `KNOWN_LSD_TOKENS` is Ethereum-mainnet-only, so without
+ * these a DAO holding wstETH on Arbitrum, Base or Optimism has that position
+ * bucketed as illiquid — understating its liquid reserves and, through the
+ * runway figure, its survival time.
+ *
+ * Chain-agnostic on purpose: the value is a Set of addresses, not a
+ * chain→address map. Two different tokens colliding on the same 20-byte
+ * address across chains is not a realistic failure mode, and matching without
+ * the chain means a wallet synced under an unexpected chain key still resolves.
+ * A wrong or missing entry degrades to the symbol fallback below, then to
+ * `otherUsd` — always the safe direction.
+ */
+const L2_LSD_ADDRESSES: ReadonlySet<string> = new Set([
+  // wstETH
+  "0x5979d7b546e38e414f7e9822514be443a4800529", // Arbitrum
+  "0x1f32b1c2345538c0c6f582fcb022739c4a194ebb", // Optimism
+  "0xc1cba3fcea344f92d9239c08c0568f6f2f0ee452", // Base
+  "0x03b54a6e9a984069379fae1a4fc4dbae93b3bccd", // Polygon
+  // rETH
+  "0xec70dcb4a1efa46b8f2d97c310c9c4790ba5ffa8", // Arbitrum
+  "0x9bcef72be871e61ed4fbbc7630889bee758eb81d", // Optimism
+  "0xb6fe221fe9eef5aba221c348ba20a1bf5e73624c", // Base
+  // cbETH
+  "0x1debd73e752beaf79865fd6446b0c970eae7732f", // Arbitrum
+  "0xadbb6a0412de1ba0f936dcaeb8aaa24578dcf3b2", // Optimism
+  "0x2ae3f1ec7f1f5012cfeab0185bfc7aa3cf0dec22", // Base
+]);
+
+/**
+ * Uppercase symbols of liquid-staking tokens with deep secondary markets.
+ * Used ONLY when no address matched — a token held on a chain we have not
+ * enumerated, or reported by the balance provider without a contract address,
+ * would otherwise be called illiquid purely because our address table is
+ * incomplete.
+ *
+ * The known cost: a token that merely calls itself `stETH` on some unrelated
+ * contract is counted as liquid. That is a bounded error on one bucket of a
+ * disclosed-as-derived breakdown — and it is emphatically NOT licence to print
+ * "Lido" next to it. Bucketing only.
+ */
+const LIQUID_STAKING_SYMBOLS: ReadonlySet<string> = new Set([
+  // ETH staking
+  "STETH",
+  "WSTETH",
+  "RETH",
+  "CBETH",
+  "SFRXETH",
+  "FRXETH",
+  "OSETH",
+  "SWETH",
+  "ANKRETH",
+  "METH",
+  "LSETH",
+  // ETH restaking wrappers — same "sell it on a DEX" liquidity profile
+  "EZETH",
+  "WEETH",
+  "RSETH",
+  // Solana staking
+  "MSOL",
+  "JITOSOL",
+  "BSOL",
+  // Polygon staking
+  "STMATIC",
+  "MATICX",
+]);
+
+/**
+ * True when a holding is a liquid-staking derivative that could plausibly be
+ * sold or redeemed at size. For LIQUIDITY BUCKETING ONLY — callers must not
+ * use this to name a protocol, and must not present its verdict as exact.
+ * Defensive: any input shape returns a boolean, never throws.
+ */
+export function isLiquidStakingToken(token: {
+  symbol?: string | null;
+  contractAddress?: string | null;
+}): boolean {
+  const address = token?.contractAddress?.toLowerCase();
+  if (address && (KNOWN_LSD_TOKENS[address] || L2_LSD_ADDRESSES.has(address))) {
+    return true;
+  }
+  const symbol = token?.symbol?.toUpperCase();
+  return Boolean(symbol && LIQUID_STAKING_SYMBOLS.has(symbol));
+}
+
 interface StoredTokenBalance {
   symbol?: string;
   valueUsd?: number;
