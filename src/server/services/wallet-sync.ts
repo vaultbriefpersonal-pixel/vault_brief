@@ -103,7 +103,6 @@ async function fetchDuneBalances(
 
 function classifyTokens(
   tokens: DuneTokenBalance[],
-  nativeSymbol: string,
   projectTokenSymbol?: string | null
 ): { stablecoinsUsd: number; ethUsd: number; nativeTokenUsd: number; otherAssetsUsd: number } {
   let stablecoinsUsd = 0;
@@ -148,8 +147,11 @@ export async function fetchWalletBalance(
   }));
 
   const totalUsd = tokens.reduce((sum, t) => sum + t.valueUsd, 0);
-  const nativeSymbol = wallet.chain === "solana" ? "SOL" : "ETH";
-  const classified = classifyTokens(duneData.balances, nativeSymbol, projectTokenSymbol);
+  // fetchWalletBalance is only ever called for EVM wallets — Solana routes
+  // through fetchSolanaBalance in solana-sync.ts, which classifies natively
+  // and never calls classifyTokens. So there is no native symbol to branch on
+  // here beyond ETH/WETH.
+  const classified = classifyTokens(duneData.balances, projectTokenSymbol);
 
   return {
     walletAddress: wallet.address,

@@ -197,7 +197,7 @@ export default async function ProjectPage({ params }: Props) {
               >
                 {(
                   latestSnapshot.syncWarnings as Array<{
-                    wallet?: string;
+                    walletAddress?: string;
                     chain?: string;
                     error?: string;
                   }>
@@ -211,7 +211,7 @@ export default async function ProjectPage({ params }: Props) {
                           opacity: 0.7,
                         }}
                       >
-                        {w.wallet?.slice(0, 10)}…{w.wallet?.slice(-4)}
+                        {w.walletAddress?.slice(0, 10)}…{w.walletAddress?.slice(-4)}
                       </code>{" "}
                       ({w.chain}) — {w.error}
                     </li>
