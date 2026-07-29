@@ -9,6 +9,7 @@ import { BurnRateChart } from "@/components/charts/BurnRateChart";
 import { ExpenseBreakdown } from "@/components/charts/ExpenseBreakdown";
 import { IncomeBreakdown } from "@/components/charts/IncomeBreakdown";
 import { ChainIcon } from "@/components/ui/ChainIcon";
+import { trailingAverageBurn } from "@/server/services/burn-metrics";
 
 // Brand colors keyed by chain id, used by the per-chain stacked bar so
 // each segment matches the wallet-list ChainIcon palette. Unknown chains
@@ -130,21 +131,20 @@ export default async function ProjectPage({ params }: Props) {
   // 3-mo average as a tooltip. Founders who want the comparison get it
   // on hover; investors looking at the dashboard see truthful, calm copy.
   const latestBurn = Number(latestSnapshot?.burnRateUsd ?? 0);
-  const trailingBurns = snapshots
-    .slice(1, 4) // 3 prior months
-    .map((s) => Number(s.burnRateUsd ?? 0))
-    .filter((n) => n > 0);
-  const trailingAvgBurn =
-    trailingBurns.length > 0
-      ? trailingBurns.reduce((a, b) => a + b, 0) / trailingBurns.length
-      : 0;
+  // `slice(1)` drops the current snapshot — trailingAverageBurn takes PRIOR
+  // periods only, and applies the same 3-month window and zero-burn exclusion
+  // this block used to inline. Same numbers, one definition, now shared with
+  // the report's runway calculation so the dashboard and the report cannot
+  // disagree about what "trailing average burn" means.
+  const trailing = trailingAverageBurn(snapshots.slice(1), 3);
+  const trailingAvgBurn = trailing.avgUsd;
   const burnTile =
     latestBurn > 0
       ? statCard("Burn / mo", formatUsd(latestBurn), "#f87171")
       : trailingAvgBurn > 0
         ? statCard("Burn / mo", "No outflows this period", "var(--vb-muted)", {
-            subtitle: `${formatUsd(trailingAvgBurn)} avg over prior ${trailingBurns.length} mo`,
-            tooltip: `Latest snapshot reports zero operating outflows. Trailing ${trailingBurns.length}-month average: ${formatUsd(trailingAvgBurn)}. token_sale rebalances are tracked separately as treasury operations.`,
+            subtitle: `${formatUsd(trailingAvgBurn)} avg over prior ${trailing.monthsUsed} mo`,
+            tooltip: `Latest snapshot reports zero operating outflows. Trailing ${trailing.monthsUsed}-month average: ${formatUsd(trailingAvgBurn)}. token_sale rebalances are tracked separately as treasury operations.`,
             small: true,
           })
         : statCard("Burn / mo", "—", "#f87171");

@@ -194,7 +194,8 @@ function snapshotWith(fields: Record<string, unknown>): TreasurySnapshot {
 
 function contextWith(
   snapshotFields: Record<string, unknown>,
-  prevSnapshot: TreasurySnapshot | null = null
+  prevSnapshot: TreasurySnapshot | null = null,
+  extra: Partial<ReportSectionContext> = {}
 ): ReportSectionContext {
   return {
     snapshot: snapshotWith(snapshotFields),
@@ -210,6 +211,9 @@ function contextWith(
     qaHighlights: [],
     total: TREASURY_TOTAL,
     minSignificant: MIN_SIGNIFICANT,
+    // Last, so a test can override any of the defaults above — `trailing` and
+    // `project` in particular, which the runway and concentration sections read.
+    ...extra,
   } as unknown as ReportSectionContext;
 }
 
@@ -589,5 +593,273 @@ describe("both sections stay silent when their data is absent", () => {
     const user = buildUserPrompt(ctx, resolveSections(null));
     expect(user).toContain("## Income by source");
     expect(user).toContain("## Major transactions");
+  });
+});
+
+// ─── liquid runway + concentration ─────────────────────────────────────────
+//
+// A deliberately realistic own-token-heavy treasury: $8.5M total, of which
+// $5M is the project's own token. Total-treasury runway flatters it; liquid
+// runway is the figure an investor can act on. The two must never be confused,
+// which is why every assertion below is on the labelled line, not the number.
+
+const OWN_CONTRACT = "0x1111111111111111111111111111111111111111";
+
+const OWN_TOKEN_HEAVY_BALANCES = [
+  {
+    walletAddress: "0xtreasury",
+    chain: "ethereum",
+    tokens: [
+      { symbol: "USDC", valueUsd: 1_600_000 },
+      { symbol: "WETH", valueUsd: 900_000 },
+      { symbol: "WBTC", valueUsd: 600_000 },
+      { symbol: "TEST", contractAddress: OWN_CONTRACT, valueUsd: 5_000_000 },
+      { symbol: "RANDOMDAO", contractAddress: "0xabc", valueUsd: 200_000 },
+    ],
+  },
+  {
+    walletAddress: "0xops",
+    chain: "arbitrum",
+    tokens: [
+      {
+        symbol: "wstETH",
+        contractAddress: "0x5979D7b546E38E414F7E9822514be443A4800529",
+        valueUsd: 200_000,
+      },
+    ],
+  },
+];
+
+const TOKEN_PROJECT = {
+  name: "Test Protocol",
+  tokenSymbol: "TEST",
+  tokenContract: OWN_CONTRACT,
+} as unknown as ReportSectionContext["project"];
+
+/** Three prior periods with real outflows — a full trailing sample. */
+const TRAILING_BURNS = [
+  { burnRateUsd: "300000" },
+  { burnRateUsd: "260000" },
+  { burnRateUsd: "220000" },
+] as unknown as TreasurySnapshot[];
+
+function ownTokenHeavyContext(
+  snapshotFields: Record<string, unknown> = {},
+  extra: Partial<ReportSectionContext> = {}
+): ReportSectionContext {
+  return contextWith(
+    {
+      balancesDetail: OWN_TOKEN_HEAVY_BALANCES,
+      burnRateUsd: "320000",
+      runwayMonths: "26.6",
+      totalOutflowsUsd: "320000",
+      ...snapshotFields,
+    },
+    null,
+    { project: TOKEN_PROJECT, trailing: TRAILING_BURNS, ...extra }
+  );
+}
+
+describe("financial_health — both runways", () => {
+  const health = section("financial_health");
+
+  it("emits both runway figures, each labelled with its own denominator", () => {
+    const out = health.userPromptFragment(ownTokenHeavyContext());
+    // 8.5M / 320K, straight from the stored column — reported, not redefined.
+    expect(out).toContain(
+      "- Runway (total treasury ÷ this month's burn): 26.6 months"
+    );
+    // (1.6M stables + 1.7M liquid crypto) / 260K trailing avg = 12.7.
+    expect(out).toContain(
+      "- Runway (liquid reserves ÷ trailing 3-mo avg burn): 12.7 months"
+    );
+    expect(out).toContain("UPPER BOUND");
+  });
+
+  it("excludes the own token and the unrecognised assets from liquid reserves", () => {
+    const out = health.userPromptFragment(ownTokenHeavyContext());
+    expect(out).toContain(
+      "- Spendable liquid reserves (stablecoins + liquid crypto): $3.3M"
+    );
+    expect(out).toContain(
+      "TEST, the project's own token — NOT spendable reserves: $5.0M (58.8% of the treasury)"
+    );
+  });
+
+  it("breaks BTC out instead of leaving it in 'other assets'", () => {
+    const out = health.userPromptFragment(ownTokenHeavyContext());
+    expect(out).toContain("of which BTC and wrapped BTC: $600.0K");
+    expect(out).toContain(
+      "- Other assets, unrecognised and treated as illiquid: $200.0K"
+    );
+  });
+
+  it("reports the trailing average with its sample size, and the trend", () => {
+    const out = health.userPromptFragment(ownTokenHeavyContext());
+    expect(out).toContain("- Trailing 3-month average burn: $260.0K");
+    expect(out).toContain("3 prior periods that recorded operating outflows");
+    // 320K vs 260K is +23%, outside the ±15% dead band.
+    expect(out).toContain("- Burn trend vs that trailing average: accelerating");
+  });
+
+  it("flags a thin trailing sample and drops the zero-burn month from it", () => {
+    const out = health.userPromptFragment(
+      ownTokenHeavyContext(
+        {},
+        {
+          trailing: [
+            { burnRateUsd: "300000" },
+            { burnRateUsd: "0" },
+          ] as unknown as TreasurySnapshot[],
+        }
+      )
+    );
+    expect(out).toContain("- Trailing 3-month average burn: $300.0K");
+    expect(out).toContain("1 prior period that recorded operating outflows");
+    expect(out).toContain("THIN SAMPLE");
+  });
+
+  it("labels the fallback denominator when there is no trailing history", () => {
+    const out = health.userPromptFragment(
+      ownTokenHeavyContext({}, { trailing: [] })
+    );
+    // Never dressed up as a trailing average it does not have.
+    expect(out).not.toContain("trailing 3-mo avg burn");
+    expect(out).toContain(
+      "- Runway (liquid reserves ÷ this month's burn (no trailing history yet)): 10.3 months"
+    );
+  });
+
+  it("says runway is NOT MEASURABLE — never zero — when burn is zero", () => {
+    const out = health.userPromptFragment(
+      ownTokenHeavyContext(
+        { burnRateUsd: "0", runwayMonths: null, totalOutflowsUsd: "150000" },
+        { trailing: [] }
+      )
+    );
+    expect(out).toContain(
+      "- Runway (total treasury ÷ this month's burn): NOT MEASURABLE this period"
+    );
+    expect(out).toContain(
+      "- Runway (liquid reserves ÷ average burn): NOT MEASURABLE"
+    );
+    expect(out).not.toContain("0.0 months");
+    expect(out).toContain("Do not state this as a runway of zero.");
+  });
+
+  it("refuses to compute a liquid runway from a snapshot with no per-token detail", () => {
+    const out = health.userPromptFragment(
+      ownTokenHeavyContext({ balancesDetail: null })
+    );
+    expect(out).toContain(
+      "- Runway (liquid reserves ÷ average burn): NOT COMPUTABLE"
+    );
+    expect(out).not.toContain("Treasury liquidity");
+    // The legacy figure still gets reported — with its caveat attached.
+    expect(out).toContain(
+      "- Runway (total treasury ÷ this month's burn): 26.6 months"
+    );
+  });
+
+  it("leads the system prompt with the liquid figure", () => {
+    expect(health.systemPromptFragment).toContain("Lead with the liquid runway");
+    expect(health.systemPromptFragment).toContain(
+      "NEVER present the total-treasury figure as the headline"
+    );
+  });
+});
+
+describe("treasury_concentration", () => {
+  const concentration = section("treasury_concentration");
+
+  it("sits directly after treasury_by_chain and ships on by default", () => {
+    expect(LIBRARY_IDS[LIBRARY_IDS.indexOf("treasury_by_chain") + 1]).toBe(
+      "treasury_concentration"
+    );
+    expect(DEFAULT_IDS).toContain("treasury_concentration");
+  });
+
+  it("splices into a config saved before it existed", () => {
+    const stored = fullConfig().filter((e) => e.id !== "treasury_concentration");
+    expect(ids(stored)).toEqual(LIBRARY_IDS);
+  });
+
+  it("fires on own-token concentration above 20%", () => {
+    expect(concentration.requires(ownTokenHeavyContext())).toBe(true);
+  });
+
+  it("fires on thin stablecoin cover even with no own token", () => {
+    // $150K of stables against $260K average burn — 0.6 months.
+    const ctx = ownTokenHeavyContext({
+      balancesDetail: [
+        {
+          chain: "ethereum",
+          tokens: [
+            { symbol: "USDC", valueUsd: 150_000 },
+            { symbol: "WETH", valueUsd: 4_000_000 },
+          ],
+        },
+      ],
+    });
+    expect(concentration.requires(ctx)).toBe(true);
+    expect(concentration.userPromptFragment(ctx)).toContain(
+      "- Stablecoin cover: 0.6 months"
+    );
+  });
+
+  it("stays silent on a diversified treasury with deep stablecoin cover", () => {
+    const ctx = ownTokenHeavyContext({
+      balancesDetail: [
+        {
+          chain: "ethereum",
+          tokens: [
+            { symbol: "USDC", valueUsd: 5_000_000 },
+            { symbol: "WETH", valueUsd: 1_000_000 },
+          ],
+        },
+      ],
+    });
+    expect(concentration.requires(ctx)).toBe(false);
+  });
+
+  it("NEVER fires on a snapshot without per-token balances", () => {
+    // Zero buckets would otherwise read as "zero months of stablecoin cover"
+    // and fire this section on every legacy row in the database.
+    for (const balancesDetail of [null, undefined, [], "legacy", {}]) {
+      expect(
+        concentration.requires(ownTokenHeavyContext({ balancesDetail }))
+      ).toBe(false);
+      expect(
+        concentration.userPromptFragment(
+          ownTokenHeavyContext({ balancesDetail })
+        )
+      ).toBe("");
+    }
+  });
+
+  it("gives the model the buckets, the concentration and the cover", () => {
+    const out = concentration.userPromptFragment(ownTokenHeavyContext());
+    expect(out).toContain(
+      "## Treasury concentration and liquidity (2026-04-30)"
+    );
+    expect(out).toContain("- Total treasury measured per-token: $8.5M");
+    expect(out).toContain("58.8% of the treasury");
+    expect(out).toContain("- Liquid stablecoins: $1.6M");
+    expect(out).toContain("- Stablecoin cover: 6.2 months");
+  });
+
+  it("forbids alarmism and advice in its system prompt", () => {
+    expect(concentration.systemPromptFragment).toContain(
+      "No alarmism and no advice"
+    );
+    expect(concentration.systemPromptFragment).toContain(
+      "Two sentences, maximum."
+    );
+  });
+
+  it("renders end-to-end in the default section set", () => {
+    const user = buildUserPrompt(ownTokenHeavyContext(), resolveSections(null));
+    expect(user).toContain("## Treasury concentration and liquidity");
+    expect(user).toContain("## Financial Metrics");
   });
 });
