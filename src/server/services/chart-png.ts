@@ -223,6 +223,15 @@ export async function rasterizeAndUpload(
       // key. Vercel Blob's `addRandomSuffix=false` means we overwrite in place.
       addRandomSuffix: false,
       allowOverwrite: true,
+      // key is fully deterministic (reportId + chartName, no content hash),
+      // so the blob path — and its public URL — never changes across
+      // regenerations. @vercel/blob's put() defaults cacheControlMaxAge to one
+      // month, so without an explicit override, browsers and the Blob CDN keep
+      // serving pre-regeneration bytes at this same URL for up to a month after
+      // the content actually changed. 60 is the lowest value Vercel allows
+      // ("Cannot be set to a value lower than 1 minute") — this isn't an
+      // arbitrary magic number, it's the enforced floor.
+      cacheControlMaxAge: 60,
     });
     return url;
   } catch (err) {
