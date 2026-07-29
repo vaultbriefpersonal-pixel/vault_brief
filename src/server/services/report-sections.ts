@@ -42,6 +42,14 @@ import {
 export interface ReportSectionContext {
   snapshot: TreasurySnapshot;
   prevSnapshot: TreasurySnapshot | undefined | null;
+  /**
+   * Prior snapshots in chronological order, most-recent-first, EXCLUDING the
+   * current one — so `trailing[0]` is the same row as `prevSnapshot`. Sections
+   * needing a series rather than a single comparison (trailing burn average,
+   * burn trend, a mechanical projection) read this instead of re-querying.
+   * May be shorter than requested, or empty, on a young project.
+   */
+  trailing: TreasurySnapshot[];
   project: Project;
   milestones: Milestone[];
   /** 'YYYY-MM' derived from snapshot.snapshotDate; used for period match. */
@@ -849,6 +857,11 @@ const SECTION_BY_ID: Record<string, ReportSection> = Object.fromEntries(
   SECTION_LIBRARY.map((s) => [s.id, s])
 );
 
+/** Library position by id — the canonical order a stored config deviates from. */
+const SECTION_LIBRARY_INDEX: ReadonlyMap<string, number> = new Map(
+  SECTION_LIBRARY.map((s, i) => [s.id, i])
+);
+
 /**
  * Plain-data view of the library. Safe to ship to the client (no closures,
  * no server-only deps). The constructor UI iterates this; the resolver +
@@ -911,15 +924,42 @@ export interface SectionConfigEntry {
 }
 
 /**
+ * Where a library section that the stored config never mentioned belongs in
+ * an already-resolved list. Walks backwards from the section's library
+ * position to the nearest neighbour that is actually present and returns the
+ * slot just after it; the front of the list when nothing precedes it.
+ *
+ * Anchoring on a neighbour — rather than sorting the result by library index —
+ * is what leaves a deliberate reorder alone. The founder's own sequence is
+ * never rewritten; the new section just slots in beside the section it
+ * follows in the library.
+ */
+function insertionPointFor(
+  section: ReportSection,
+  result: ReportSection[]
+): number {
+  const libIdx = SECTION_LIBRARY_INDEX.get(section.id) ?? 0;
+  for (let i = libIdx - 1; i >= 0; i--) {
+    const at = result.findIndex((r) => r.id === SECTION_LIBRARY[i].id);
+    if (at !== -1) return at + 1;
+  }
+  return 0;
+}
+
+/**
  * Resolve the effective section list for a project. When the stored
  * config is null (legacy projects + freshly created), use the library
  * defaults. When stored, walk the stored array in its order, drop
  * disabled entries, ignore unknown ids (forward/backward-compat).
  *
- * Sections in the library that aren't in the stored config are
- * appended at the end with their default enabled flag — so adding a
- * new section to the library doesn't silently disappear from existing
- * reports.
+ * Sections in the library that aren't in the stored config are spliced
+ * back in at the position the library implies, honoring their default
+ * enabled flag — so adding a new section to the library doesn't silently
+ * disappear from existing reports, and doesn't land at the bottom of them
+ * either. Order is load-bearing: `buildSystemPrompt` joins fragments in
+ * sequence and instructs the model to emit sections "in the order shown",
+ * so a section that belongs right under the Executive Summary must not
+ * surface below Q&A Highlights for every founder who has ever hit Save.
  */
 export function resolveSections(
   stored: SectionConfigEntry[] | null
@@ -939,10 +979,13 @@ export function resolveSections(
     seenIds.add(entry.id);
     result.push(section);
   }
-  // Append library sections that the stored config doesn't mention,
-  // honoring their defaultEnabled.
+  // Splice in library sections the stored config doesn't mention, honoring
+  // their defaultEnabled. Walking the library in order matters: each section
+  // inserted here becomes an anchor for the next one, so a run of consecutive
+  // new sections keeps its relative order instead of stacking up backwards.
   for (const s of SECTION_LIBRARY) {
-    if (!seenIds.has(s.id) && s.defaultEnabled) result.push(s);
+    if (seenIds.has(s.id) || !s.defaultEnabled) continue;
+    result.splice(insertionPointFor(s, result), 0, s);
   }
   return result;
 }
