@@ -1555,6 +1555,18 @@ const SECTION_BY_ID: Record<string, ReportSection> = Object.fromEntries(
   SECTION_LIBRARY.map((s) => [s.id, s])
 );
 
+// Sections whose system rule must reach the model even when their own
+// userPromptFragment is empty this period — because they are designed to
+// write something regardless: a graceful "nothing material" sentence
+// (Lows/Concerns), or content assembled implicitly from the whole context
+// rather than a dedicated data block (Executive Summary). Every other
+// section must go silent — rule and all — when its own fragment produces
+// nothing, or the model can (and did, in production) reconstruct that
+// section's narrative from figures that belong to a different section,
+// obeying the letter of "use only the provided data" while violating the
+// point of it.
+const ALWAYS_INCLUDE_RULE = new Set(["executive_summary", "lows_concerns"]);
+
 /** Library position by id — the canonical order a stored config deviates from. */
 const SECTION_LIBRARY_INDEX: ReadonlyMap<string, number> = new Map(
   SECTION_LIBRARY.map((s, i) => [s.id, i])
@@ -1688,8 +1700,16 @@ export function resolveSections(
   return result;
 }
 
-export function buildSystemPrompt(enabled: ReportSection[]): string {
+export function buildSystemPrompt(
+  enabled: ReportSection[],
+  ctx: ReportSectionContext
+): string {
   const sectionRules = enabled
+    .filter(
+      (s) =>
+        ALWAYS_INCLUDE_RULE.has(s.id) ||
+        s.userPromptFragment(ctx).trim().length > 0
+    )
     .map((s) => s.systemPromptFragment)
     .filter(Boolean)
     .join("\n\n");

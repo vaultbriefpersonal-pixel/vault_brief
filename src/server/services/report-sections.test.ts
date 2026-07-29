@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildSystemPrompt,
   buildUserPrompt,
   getSectionById,
   resolveSections,
@@ -1008,6 +1009,99 @@ describe("treasury_concentration", () => {
     const user = buildUserPrompt(ownTokenHeavyContext(), resolveSections(null));
     expect(user).toContain("## Treasury concentration and liquidity");
     expect(user).toContain("## Financial Metrics");
+  });
+});
+
+// ─── buildSystemPrompt gates conditional rules by data presence ───────────
+//
+// `buildSystemPrompt` used to include every enabled section's rule text
+// unconditionally, regardless of whether that section's own trigger held
+// for this period. Most rules are self-labelled "(CONDITIONAL)" and tell
+// the model to only render "when the input contains a '## X' block" — but
+// with the rule present even when that block was absent, a model could (and
+// in production did) reconstruct the section's narrative from figures that
+// belong to a different, unconditionally-present section, obeying the
+// letter of "use only the provided data" while violating the point of it.
+//
+// The fix gates each section's rule by the same signal `buildUserPrompt`
+// already uses to gate its data block — `userPromptFragment(ctx)` being
+// non-empty — with one explicit exception: `executive_summary` (whose
+// fragment is always empty by design) and `lows_concerns` (whose fragment
+// is empty exactly when it is designed to fall back to a graceful "nothing
+// material" sentence) always keep their rule.
+describe("buildSystemPrompt gates conditional rules by data presence", () => {
+  it("does NOT include the Treasury Concentration rule when its own trigger is false — the exact production bug", () => {
+    // Same "Uniswap DAO Treasury"-shaped ctx as the requires()/fragment
+    // agreement tests above: the dominant holding has no contractAddress and
+    // the project has no tokenSymbol, so nothing lands in `concentratedUsd`
+    // (concentrationPct stays 0), and there is no burn history to measure
+    // stablecoin cover against either (avgUsd stays 0). Neither trigger
+    // holds, so `treasury_concentration`'s data block is correctly absent
+    // from the user prompt. Before this fix, `buildSystemPrompt` took no
+    // `ctx` argument at all and included every enabled section's rule text
+    // unconditionally — so this exact rule (with its "(CONDITIONAL)" label
+    // and the "Only render when..." instruction) still reached the model
+    // every time, whether or not the data justified it. Only gating the
+    // rule itself, the same way the data block is gated, closes that gap.
+    const ctx = contextWith(
+      {
+        balancesDetail: [
+          {
+            walletAddress: "0xtreasury",
+            chain: "ethereum",
+            tokens: [{ symbol: "UNI", valueUsd: 8_500_000 }],
+          },
+        ],
+        burnRateUsd: "0",
+        totalOutflowsUsd: "0",
+      },
+      null,
+      {
+        project: {} as unknown as ReportSectionContext["project"],
+        trailing: [],
+      }
+    );
+    const system = buildSystemPrompt(resolveSections(null), ctx);
+    expect(system).not.toContain("Treasury Concentration");
+  });
+
+  it("includes a CONDITIONAL section's rule when its own data qualifies", () => {
+    const ctx = contextWith({
+      transactionsRaw: txPayload([outflow()]),
+    });
+    const system = buildSystemPrompt(resolveSections(null), ctx);
+    expect(system).toContain("### Major Transactions");
+  });
+
+  // No prior snapshot, no balances, no milestones, no anomalies, no GitHub
+  // activity, no income — `wins`, `lows_concerns` and `key_takeaways` all
+  // declare `requires: () => true` (a UI-readiness signal, not a per-report
+  // one), so only their own fragment being empty distinguishes "nothing to
+  // say this period" from "something to say". `total`/`minSignificant` are
+  // zeroed too so `key_takeaways`' headline block has nothing to anchor on.
+  const emptyEvidenceCtx = contextWith({}, null, {
+    total: 0,
+    minSignificant: 0,
+  });
+
+  it("drops the Wins rule when the evidence ledger is empty — a behavior change from before this fix", () => {
+    const system = buildSystemPrompt(resolveSections(null), emptyEvidenceCtx);
+    expect(system).not.toContain("### Wins");
+  });
+
+  it("keeps the Lows/Concerns rule when the evidence ledger is empty — the explicit exception", () => {
+    const system = buildSystemPrompt(resolveSections(null), emptyEvidenceCtx);
+    expect(system).toContain("### Lows / Concerns");
+  });
+
+  it("always includes Executive Summary regardless of data state", () => {
+    const system = buildSystemPrompt(resolveSections(null), emptyEvidenceCtx);
+    expect(system).toContain("### Executive Summary");
+  });
+
+  it("drops Key Takeaways when there is genuinely no headline, positive or negative to anchor a bullet to", () => {
+    const system = buildSystemPrompt(resolveSections(null), emptyEvidenceCtx);
+    expect(system).not.toContain("### Key Takeaways");
   });
 });
 
