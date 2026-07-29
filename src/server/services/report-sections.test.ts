@@ -209,6 +209,7 @@ function contextWith(
     partners: [],
     asks: [],
     qaHighlights: [],
+    anomalies: [],
     total: TREASURY_TOTAL,
     minSignificant: MIN_SIGNIFICANT,
     // Last, so a test can override any of the defaults above — `trailing` and
@@ -861,5 +862,98 @@ describe("treasury_concentration", () => {
     const user = buildUserPrompt(ownTokenHeavyContext(), resolveSections(null));
     expect(user).toContain("## Treasury concentration and liquidity");
     expect(user).toContain("## Financial Metrics");
+  });
+});
+
+// ─── anomalies ─────────────────────────────────────────────────────────────
+//
+// The section used to declare `requires: () => true` and an empty fragment,
+// with report-generator.ts appending the anomaly block to the finished user
+// prompt. Disabling the section therefore stripped its rules — including
+// "Don't fabricate causes" — while the figures still reached the model.
+// These tests pin the data to the same switch as the rules.
+
+const BURN_ANOMALY = {
+  metric: "Burn rate",
+  current: 640_000,
+  baseline: 320_000,
+  changePct: 100,
+  severity: "critical",
+} as const;
+
+const NEW_CATEGORY_ANOMALY = {
+  metric: "Expense: audits",
+  current: 90_000,
+  baseline: 0,
+  changePct: 100,
+  severity: "minor",
+  newCategory: true,
+} as const;
+
+describe("anomalies — gating", () => {
+  const anomalies = section("anomalies");
+
+  it("is not required when no anomaly was detected", () => {
+    expect(anomalies.requires(contextWith({}))).toBe(false);
+  });
+
+  it("is required as soon as one anomaly is detected", () => {
+    const ctx = contextWith({}, null, { anomalies: [BURN_ANOMALY] });
+    expect(anomalies.requires(ctx)).toBe(true);
+  });
+
+  it("emits nothing when there are no anomalies", () => {
+    expect(anomalies.userPromptFragment(contextWith({}))).toBe("");
+  });
+});
+
+describe("anomalies — prompt fragment", () => {
+  const anomalies = section("anomalies");
+
+  it("emits the ## Anomalies header the system rules key off", () => {
+    const out = anomalies.userPromptFragment(
+      contextWith({}, null, { anomalies: [BURN_ANOMALY] })
+    );
+    expect(out).toContain("## Anomalies");
+    expect(out).toContain("Burn rate: $320000 → $640000 (+100%, critical)");
+  });
+
+  it("labels a first-occurrence metric as having no prior history", () => {
+    const out = anomalies.userPromptFragment(
+      contextWith({}, null, { anomalies: [NEW_CATEGORY_ANOMALY] })
+    );
+    expect(out).toContain("no prior history — first occurrence");
+  });
+
+  it("does not claim a trailing-N baseline it cannot know", () => {
+    // The header used to interpolate `anomalies.length` as the number of
+    // baseline months, so one anomaly read "vs trailing-1 avg" regardless of
+    // the real sample. Per-metric baselines differ; the header must not
+    // assert a width.
+    const out = anomalies.userPromptFragment(
+      contextWith({}, null, { anomalies: [BURN_ANOMALY] })
+    );
+    expect(out).toContain("## Anomalies (vs trailing average)");
+    expect(out).not.toMatch(/trailing-\d/);
+  });
+});
+
+describe("anomalies — data and rules share one switch", () => {
+  const withAnomaly = () =>
+    contextWith({}, null, { anomalies: [BURN_ANOMALY] });
+
+  it("puts the block in the user prompt when the section is enabled", () => {
+    const user = buildUserPrompt(withAnomaly(), resolveSections(null));
+    expect(user).toContain("## Anomalies");
+    expect(user).toContain("Burn rate:");
+  });
+
+  it("keeps the block out of the user prompt when the section is disabled", () => {
+    const stored = fullConfig().map((e) =>
+      e.id === "anomalies" ? { ...e, enabled: false } : e
+    );
+    const user = buildUserPrompt(withAnomaly(), resolveSections(stored));
+    expect(user).not.toContain("## Anomalies");
+    expect(user).not.toContain("Burn rate:");
   });
 });

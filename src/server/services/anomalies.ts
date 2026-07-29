@@ -125,5 +125,12 @@ export function formatAnomaliesForPrompt(anomalies: Anomaly[]): string {
     }
     return `- ${a.metric}: $${a.baseline.toFixed(0)} → $${a.current.toFixed(0)} (${dir}${a.changePct.toFixed(0)}%, ${a.severity})`;
   });
-  return `\n## Anomalies (vs trailing-${Math.min(anomalies.length, 3)} avg)\n${lines.join("\n")}`;
+  // No baseline width in the header. It used to read `trailing-N` where N was
+  // `anomalies.length` — the number of anomalies, not the number of baseline
+  // months, so a single anomaly announced "trailing-1 avg" no matter how much
+  // history it was actually compared against. The real width isn't knowable
+  // here either: `compareMetric` drops zero/absent months per metric, so two
+  // rows in the same block can rest on different sample sizes. Each line
+  // already prints its own baseline in dollars, which is the honest figure.
+  return `\n## Anomalies (vs trailing average)\n${lines.join("\n")}`;
 }

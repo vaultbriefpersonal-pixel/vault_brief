@@ -9,6 +9,7 @@ import type {
   QaHighlight,
 } from "@/server/db/schema";
 import { formatUsd } from "@/lib/utils";
+import type { Anomaly } from "./anomalies";
 import {
   buildSystemPrompt,
   buildUserPrompt,
@@ -38,6 +39,12 @@ export interface BuildReportPromptsInput {
   partners?: Partner[];
   asks?: Ask[];
   qaHighlights?: QaHighlight[];
+  /**
+   * Output of `detectAnomalies(snapshot, trailing)`. Optional so existing
+   * callers keep compiling; an omitted list means "no anomalies", which
+   * gates the section off rather than smuggling data past it.
+   */
+  anomalies?: Anomaly[];
   storedSections?: SectionConfigEntry[] | null;
 }
 
@@ -55,6 +62,7 @@ export function buildReportPrompts(
     partners = [],
     asks = [],
     qaHighlights = [],
+    anomalies = [],
     storedSections = null,
   } = input;
   const total = Number(snapshot.totalBalanceUsd ?? 0);
@@ -72,6 +80,7 @@ export function buildReportPrompts(
     partners,
     asks,
     qaHighlights,
+    anomalies,
     period,
     total,
     minSignificant: total > 0 ? total * 0.001 : 0,

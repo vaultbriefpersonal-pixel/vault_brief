@@ -378,5 +378,83 @@ const baseInput = {
   );
 }
 
+// 7) Anomalies ride the section switch — data and rules together.
+//
+// Regression for the bug where report-generator.ts appended the anomaly block
+// to the finished user prompt: turning the section off removed its rules
+// (including "Don't fabricate causes") from the SYSTEM prompt while the
+// figures still reached the model through the USER prompt. Asserting on the
+// system prompt alone would have missed the whole thing.
+{
+  const anomaliesFixture = [
+    {
+      metric: "Burn rate",
+      current: 640000,
+      baseline: 320000,
+      changePct: 100,
+      severity: "critical",
+    },
+    {
+      metric: "Expense: payroll",
+      current: 380000,
+      baseline: 280000,
+      changePct: 36,
+      severity: "minor",
+    },
+  ];
+
+  // Enabled (on by default) + anomalies present → block lands in the user prompt.
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      anomalies: anomaliesFixture,
+    });
+    check(
+      "anomalies enabled: user prompt has the Anomalies block",
+      user.includes("## Anomalies") && user.includes("Burn rate:")
+    );
+    check(
+      "anomalies enabled: system prompt has the anti-fabrication rule",
+      system.includes("### Anomalies") && system.includes("Don't fabricate causes")
+    );
+    check(
+      "anomalies header no longer claims a trailing-N baseline",
+      user.includes("## Anomalies (vs trailing average)") &&
+        !/trailing-\d/.test(user)
+    );
+  }
+
+  // Disabled in the stored config + anomalies present → neither half renders.
+  {
+    const config = SECTION_LIBRARY_META.map((m) => ({
+      id: m.id,
+      enabled: m.id === "anomalies" ? false : m.defaultEnabled,
+    }));
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      anomalies: anomaliesFixture,
+      storedSections: config,
+    });
+    check(
+      "anomalies disabled: NO anomaly data in the user prompt",
+      !user.includes("## Anomalies") && !user.includes("Burn rate:"),
+      "anomaly figures reached the model with its guardrails stripped"
+    );
+    check(
+      "anomalies disabled: NO anomaly rules in the system prompt",
+      !system.includes("### Anomalies")
+    );
+  }
+
+  // Section on, but nothing detected → silence, not an empty header.
+  {
+    const { user } = buildReportPrompts({ ...baseInput, anomalies: [] });
+    check(
+      "no anomalies detected: no Anomalies block in the user prompt",
+      !user.includes("## Anomalies")
+    );
+  }
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
