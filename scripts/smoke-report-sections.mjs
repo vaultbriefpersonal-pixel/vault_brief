@@ -30,6 +30,28 @@ const project = {
   githubOrg: "test-org",
 };
 
+/**
+ * `balances_detail` in the shape wallet-sync.ts stores. The evidence ledger,
+ * the liquidity split and the attribution all derive from this payload rather
+ * than from the aggregate columns, so a fixture without it exercises none of
+ * them.
+ */
+function detail(rows, walletAddress = "0xaaa") {
+  return [
+    {
+      walletAddress,
+      chain: "ethereum",
+      tokens: rows.map(({ symbol, amount, price }) => ({
+        symbol,
+        amount,
+        priceUsd: price,
+        valueUsd: amount * price,
+        contractAddress: null,
+      })),
+    },
+  ];
+}
+
 const snapshot = {
   id: "s1",
   projectId: "p1",
@@ -43,8 +65,9 @@ const snapshot = {
   runwayMonths: "16.3",
   totalInflowsUsd: "120000",
   totalOutflowsUsd: "440000",
+  netFlowUsd: "300000",
   expensesByCategory: { payroll: 280000, infra: 35000, token_sale: 150000 },
-  incomeByCategory: { grants: 120000 },
+  incomeByCategory: { revenue: 150000 },
   balancesByChain: { ethereum: 6800000, optimism: 1200000, base: 500000 },
   githubCommitsCount: 142,
   githubPrsMerged: 38,
@@ -53,6 +76,12 @@ const snapshot = {
   tokenMarketCapUsd: "12500000",
   tokenHoldersCount: 4820,
   tokenCirculatingSupply: "29761904",
+  // 5.3M USDC + 1,000 WETH @ $2,100 + 1.1M TEST @ $1.
+  balancesDetail: detail([
+    { symbol: "USDC", amount: 5_300_000, price: 1 },
+    { symbol: "WETH", amount: 1_000, price: 2_100 },
+    { symbol: "TEST", amount: 1_100_000, price: 1 },
+  ]),
 };
 
 const prevSnapshot = {
@@ -60,7 +89,38 @@ const prevSnapshot = {
   id: "s0",
   snapshotDate: "2026-03-31",
   totalBalanceUsd: "8200000",
+  burnRateUsd: "300000",
+  netFlowUsd: "-150000",
+  incomeByCategory: { revenue: 100000 },
+  tokenHoldersCount: 4200,
+  githubCommitsCount: 90,
+  githubPrsMerged: 24,
+  // Same wallet, same tokens, 300K fewer USDC — a pure flow difference.
+  balancesDetail: detail([
+    { symbol: "USDC", amount: 5_000_000, price: 1 },
+    { symbol: "WETH", amount: 1_000, price: 2_100 },
+    { symbol: "TEST", amount: 1_100_000, price: 1 },
+  ]),
 };
+
+/** Prior snapshots, most-recent-first, EXCLUDING the current one. */
+const trailing = [
+  prevSnapshot,
+  {
+    ...prevSnapshot,
+    id: "s-1",
+    snapshotDate: "2026-02-28",
+    burnRateUsd: "280000",
+    netFlowUsd: "-200000",
+  },
+  {
+    ...prevSnapshot,
+    id: "s-2",
+    snapshotDate: "2026-01-31",
+    burnRateUsd: "290000",
+    netFlowUsd: "-100000",
+  },
+];
 
 const milestones = [
   {
@@ -77,6 +137,24 @@ const milestones = [
     title: "Audit closed",
     status: "completed",
     completedDate: "2026-04-12",
+  },
+  // Completed, but two years ago. The evidence ledger derives its period match
+  // from completedDate's 'YYYY-MM' prefix (milestones carry no period column),
+  // so this one must NOT surface as a win for 2026-04.
+  {
+    id: "m3",
+    projectId: "p1",
+    title: "Testnet launched",
+    status: "completed",
+    completedDate: "2024-04-12",
+  },
+  {
+    id: "m4",
+    projectId: "p1",
+    title: "Bridge integration",
+    status: "delayed",
+    targetDate: "2026-03-01",
+    description: "Slipped a period behind the original target",
   },
 ];
 
@@ -183,6 +261,7 @@ function check(name, cond, hint = "") {
 const baseInput = {
   snapshot,
   prevSnapshot,
+  trailing,
   project,
   milestones,
   grants,
@@ -454,6 +533,233 @@ const baseInput = {
       !user.includes("## Anomalies")
     );
   }
+}
+
+// 8) Evidence pipelines — Wins and Lows now carry DATA, not just rules.
+//
+// Both sections shipped with `userPromptFragment: () => ""`, so the model was
+// told to write wins with nothing to write them from. These assert the ledger
+// actually reaches the prompt, that it rides the same section switch as its
+// rules, and — the load-bearing one — that a price-driven treasury rise cannot
+// enter it.
+{
+  const { system, user } = buildReportPrompts({ ...baseInput });
+
+  check(
+    "wins: user prompt carries the verified positive evidence block",
+    user.includes("## Verified positive evidence"),
+    "wins is back to improvising from whatever else is in the prompt"
+  );
+  check(
+    "wins: evidence includes the in-period completed milestone",
+    user.includes("Milestone completed this period: Audit closed")
+  );
+  check(
+    "wins: evidence quotes a figure alongside every claim",
+    user.includes("Recurring operating income") && user.includes("$100.0K → $150.0K")
+  );
+  check(
+    "wins: system prompt binds the model to the evidence list",
+    system.includes("select ONLY from that list")
+  );
+  check(
+    "lows: user prompt carries the verified concerns block",
+    user.includes("## Verified concerns")
+  );
+  check(
+    "lows: evidence includes the delayed milestone",
+    user.includes("Milestone currently marked delayed: Bridge integration")
+  );
+  check(
+    "wins: a milestone completed in a PRIOR period is not a win for this one",
+    !user.includes("Milestone completed this period: Testnet launched"),
+    "milestones have no period column — the completedDate prefix is the filter"
+  );
+
+  // Flow-driven growth: +300K of USDC actually arrived, and netFlowUsd agrees.
+  check(
+    "wins: flow-driven treasury growth IS offered as evidence",
+    user.includes("The treasury grew on money that actually arrived")
+  );
+}
+
+// 8b) The gate. Same treasury rise, caused by price instead of flow.
+{
+  const priceDriven = {
+    ...snapshot,
+    totalBalanceUsd: "9600000",
+    netFlowUsd: "0",
+    // Identical quantities to prevSnapshot; only TEST's price moved, $1 → $2.
+    balancesDetail: detail([
+      { symbol: "USDC", amount: 5_000_000, price: 1 },
+      { symbol: "WETH", amount: 1_000, price: 2_100 },
+      { symbol: "TEST", amount: 1_100_000, price: 2 },
+    ]),
+  };
+  const { user } = buildReportPrompts({ ...baseInput, snapshot: priceDriven });
+
+  check(
+    "GATE: a price-driven treasury rise is NOT offered as a win",
+    !user.includes("The treasury grew on money that actually arrived"),
+    "a market rally would reach the model labelled as an achievement"
+  );
+  check(
+    "GATE: the price-driven rise still appears in Month-over-Month, attributed",
+    user.includes("Price movement of assets already held"),
+    "the figure must still be reported — just never as a win"
+  );
+}
+
+// 8c) Wins/Lows still ride the section switch: data and rules together.
+{
+  const config = SECTION_LIBRARY_META.map((m) => ({
+    id: m.id,
+    enabled: m.id === "wins" || m.id === "lows_concerns" ? false : m.defaultEnabled,
+  }));
+  const { system, user } = buildReportPrompts({
+    ...baseInput,
+    storedSections: config,
+  });
+  check(
+    "wins disabled: NO positive evidence block in the user prompt",
+    !user.includes("## Verified positive evidence"),
+    "evidence reached the model with its selection rules stripped"
+  );
+  check(
+    "lows disabled: NO concerns block in the user prompt",
+    !user.includes("## Verified concerns")
+  );
+  check(
+    "wins disabled: NO Wins rules in the system prompt",
+    !system.includes("### Wins")
+  );
+}
+
+// 8d) An empty ledger is a correct output — no header, no padding.
+{
+  const bare = {
+    id: "s1",
+    projectId: "p1",
+    snapshotDate: "2026-04-30",
+    totalBalanceUsd: "8500000",
+  };
+  const { user } = buildReportPrompts({
+    snapshot: bare,
+    project,
+    milestones: [],
+  });
+  check(
+    "empty ledger: no positive evidence header is emitted",
+    !user.includes("## Verified positive evidence")
+  );
+  check(
+    "empty ledger: no concerns header is emitted",
+    !user.includes("## Verified concerns")
+  );
+}
+
+// 9) Key Takeaways — new section, library index 1.
+{
+  const { system, user, enabled } = buildReportPrompts({ ...baseInput });
+  const ids = enabled.map((s) => s.id);
+
+  check(
+    "key_takeaways sits between executive_summary and wins",
+    ids[0] === "executive_summary" &&
+      ids[1] === "key_takeaways" &&
+      ids[2] === "wins",
+    `got [${ids.slice(0, 3).join(",")}]`
+  );
+  check(
+    "key_takeaways: user prompt carries the evidence block",
+    user.includes("## Key takeaways evidence")
+  );
+  check(
+    "key_takeaways: block carries the headline treasury total",
+    user.includes("- Total treasury (2026-04-30): $8.5M")
+  );
+  check(
+    "key_takeaways: block carries the liquid runway, not the total-treasury one",
+    user.includes("Runway (liquid reserves") && user.includes("trailing 3-mo avg burn")
+  );
+  check(
+    "key_takeaways: block carries the dominant driver of the treasury change",
+    user.includes("dominant driver: net asset flows")
+  );
+  check(
+    "key_takeaways: system prompt demands a figure per bullet",
+    system.includes("### Key Takeaways") &&
+      system.includes("Every bullet must carry a figure")
+  );
+}
+
+// 9b) Ordering edge case, asserted so it is deliberate rather than accidental.
+// key_takeaways' only library predecessor is executive_summary, so a founder
+// who disabled the exec summary gets takeaways at the very front of the report.
+{
+  const config = SECTION_LIBRARY_META.filter((m) => m.id !== "key_takeaways").map(
+    (m) => ({
+      id: m.id,
+      enabled: m.id === "executive_summary" ? false : m.defaultEnabled,
+    })
+  );
+  const { enabled } = buildReportPrompts({ ...baseInput, storedSections: config });
+  const ids = enabled.map((s) => s.id);
+  check(
+    "executive_summary disabled: key_takeaways opens the report",
+    ids[0] === "key_takeaways" && !ids.includes("executive_summary"),
+    `got [${ids.slice(0, 2).join(",")}]`
+  );
+}
+
+// 10) Next Period Projection — needs >= 2 trailing snapshots, and must be
+// worded as arithmetic rather than as a forecast.
+{
+  const { system, user } = buildReportPrompts({ ...baseInput });
+
+  check(
+    "forecast: user prompt carries the projection block",
+    user.includes("## Mechanical projection for the next period")
+  );
+  check(
+    "forecast: block labels itself arithmetic, not a forecast",
+    user.includes("arithmetic, NOT a forecast") &&
+      user.includes("MECHANICAL PROJECTION")
+  );
+  check(
+    "forecast: assumptions are stated in the block itself",
+    user.includes("ASSUMPTIONS") &&
+      user.includes("Asset prices stay exactly where they were")
+  );
+  check(
+    "forecast: block refuses to project token price",
+    user.includes("NOT PROJECTED, and not to be projected: token price")
+  );
+  check(
+    "forecast: system prompt forbids confident forward language",
+    system.includes("### Next Period Projection") &&
+      system.includes("Forbidden verbs") &&
+      system.includes("Never project, mention, or imply a future token price")
+  );
+}
+
+// 10b) Gated off with too little history — one prior snapshot is not an average.
+{
+  const { user } = buildReportPrompts({ ...baseInput, trailing: [prevSnapshot] });
+  check(
+    "forecast: omitted with only one trailing snapshot",
+    !user.includes("## Mechanical projection for the next period")
+  );
+}
+
+// 11) The shared length budget rose with the section count.
+{
+  const { system } = buildReportPrompts({ ...baseInput });
+  check(
+    "system prompt carries the raised word budget",
+    system.includes("Total length: 800-1600 words"),
+    "two new sections plus data-bearing wins/concerns need the headroom"
+  );
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

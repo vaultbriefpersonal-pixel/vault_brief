@@ -112,6 +112,37 @@ describe("resolveSections — sections missing from the stored config", () => {
     for (const id of DEFAULT_IDS) expect(result).toContain(id);
   });
 
+  it("puts key_takeaways at the very front when executive_summary is disabled", () => {
+    // Documented edge case, asserted so it is deliberate rather than
+    // accidental. key_takeaways sits at library index 1, so its only
+    // predecessor is executive_summary. A founder who disabled the exec
+    // summary leaves `insertionPointFor` with nothing to anchor on; it
+    // returns 0 and takeaways opens the report.
+    //
+    // That is the right outcome for THIS section specifically — a bulleted
+    // list of the period's headline figures is a defensible way to open an
+    // investor report, and it is what the founder is left with once the
+    // prose opener is gone. It would NOT be right for most sections, which
+    // is why the behaviour is pinned here rather than in the general
+    // splice tests above.
+    const stored = fullConfig()
+      .filter((e) => e.id !== "key_takeaways")
+      .map((e) =>
+        e.id === "executive_summary" ? { ...e, enabled: false } : e
+      );
+    const result = ids(stored);
+
+    expect(result).not.toContain("executive_summary");
+    expect(result[0]).toBe("key_takeaways");
+  });
+
+  it("keeps key_takeaways directly under executive_summary when both are present", () => {
+    const stored = fullConfig().filter((e) => e.id !== "key_takeaways");
+    const result = ids(stored);
+    expect(result[0]).toBe("executive_summary");
+    expect(result[1]).toBe("key_takeaways");
+  });
+
   it("anchors a spliced section on its nearest present library predecessor", () => {
     // Library order is [... treasury_overview, treasury_by_chain,
     // previous_month_comparison ...]. With treasury_by_chain unlisted and the
@@ -138,7 +169,15 @@ describe("resolveSections — entries that must not surface", () => {
     ];
     const result = ids(stored);
     expect(result).not.toContain("a_section_removed_in_a_deploy");
-    expect(result.slice(0, 2)).toEqual(["executive_summary", "wins"]);
+    // Asserted as relative order, not as a slice of the head: sections the
+    // stored config never mentioned get spliced in around these two (today
+    // key_takeaways lands between them), and that is the documented
+    // behaviour of resolveSections — not a regression this test should fail
+    // on every time the library grows.
+    expect(result.indexOf("executive_summary")).toBe(0);
+    expect(result.indexOf("executive_summary")).toBeLessThan(
+      result.indexOf("wins")
+    );
   });
 
   it("does not re-add an explicitly disabled section", () => {
