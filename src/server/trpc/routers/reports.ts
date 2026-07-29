@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { eq, asc, desc } from "drizzle-orm";
+import { after } from "next/server";
 import { router, protectedProcedure } from "../trpc";
 import { reports, reportEngagements } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
@@ -195,12 +196,31 @@ export const reportsRouter = router({
         .where(eq(reports.id, input.reportId))
         .returning();
 
-      // Re-render in background — best-effort; UI fallback handles miss.
-      try {
-        await renderAndStorePDF(input.reportId);
-      } catch (err) {
-        console.error("regenerate: PDF render failed:", err);
-      }
+      // Re-render in background, best-effort — UI fallback handles a miss.
+      //
+      // This used to be `await`ed inline, which meant the PDF render +
+      // Vercel Blob upload had to finish inside the same request/response
+      // cycle as the (already slow, several-to-15+s) LLM call above. On
+      // Vercel, the tRPC catch-all route has no explicit `maxDuration`, so
+      // it ran under the platform default rather than the 60s used
+      // elsewhere in this app — combined with the LLM call, that was
+      // enough to get the invocation killed mid-render, silently, before
+      // the blob (and pdfUrl) were ever rewritten; the outer try/catch
+      // never got a chance to run because the process was torn down, not
+      // thrown into. `after()` schedules this to run once the response
+      // has already been sent to the client, which both matches
+      // renderAndStorePDF's documented "best-effort" contract and gets it
+      // out of the request's own timeout budget. The on-demand
+      // /api/reports/[reportId]/pdf route (own maxDuration: 60) remains
+      // the fallback if this background render doesn't finish either.
+      after(async () => {
+        try {
+          await renderAndStorePDF(input.reportId);
+        } catch (err) {
+          console.error("regenerate: PDF render failed:", err);
+        }
+      });
+
       return updated;
     }),
 
