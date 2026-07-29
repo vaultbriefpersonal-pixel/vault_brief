@@ -97,7 +97,7 @@ export function buildReportPrompts(
   };
   const enabled = resolveSections(storedSections);
   return {
-    system: buildSystemPrompt(enabled),
+    system: buildSystemPrompt(enabled, ctx),
     user: buildUserPrompt(ctx, enabled),
     enabled,
   };

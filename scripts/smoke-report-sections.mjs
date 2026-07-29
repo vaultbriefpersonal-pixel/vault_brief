@@ -301,6 +301,17 @@ const baseInput = {
     "user prompt does NOT include Treasury concentration when neither trigger holds",
     !user.includes("## Treasury concentration and liquidity")
   );
+  // The core fix this smoke test locks in: buildSystemPrompt used to include
+  // every enabled section's rule text unconditionally, even when (as here)
+  // the section's own data block is absent from the user prompt above. A
+  // model reading the "(CONDITIONAL)" rule with no block to satisfy it could
+  // reconstruct the section's narrative from figures borrowed out of another,
+  // unconditionally-present section. The rule must now go silent right along
+  // with the data block it describes.
+  check(
+    "system prompt does NOT include the Treasury Concentration rule when neither trigger holds",
+    !system.includes("### Treasury Concentration")
+  );
 
   // Manual sections OFF by default — neither user nor system blocks render
   check(
@@ -809,16 +820,21 @@ const baseInput = {
     enabled: m.defaultEnabled || m.id === "actual_vs_budget",
   }));
 
-  // Enabled but no plan: rules travel, data does not — same shape as every
-  // other conditional section.
+  // Enabled but no plan: neither the rule nor the data block travels.
+  // `actual_vs_budget` is a CONDITIONAL section with no special exception —
+  // its rule is gated by the same fragment-non-empty signal as its data
+  // block, so an absent plan silences both. (Before the
+  // system-prompt-rule-gating fix, the rule travelled unconditionally
+  // regardless of whether a plan existed — exactly the bug class this
+  // section would otherwise still exhibit.)
   {
     const { system, user } = buildReportPrompts({
       ...baseInput,
       storedSections: enableBudget,
     });
     check(
-      "budgets: enabled with no plan renders no data block",
-      system.includes("### Plan vs Actual") &&
+      "budgets: enabled with no plan renders no rule and no data block",
+      !system.includes("### Plan vs Actual") &&
         !user.includes("## Plan vs actual")
     );
   }
@@ -895,10 +911,13 @@ const baseInput = {
     );
   }
 
-  // The rules the section exists to enforce.
+  // The rules the section exists to enforce. A real plan must be present —
+  // now that the rule is gated by the same fragment-non-empty signal as the
+  // data block, an empty plan (as above) would silence this rule too.
   {
     const { system } = buildReportPrompts({
       ...baseInput,
+      budgets: [budgetRow()],
       storedSections: enableBudget,
     });
     check(
