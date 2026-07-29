@@ -16,6 +16,10 @@ import {
   type AttributionDriver,
   type TokenAttribution,
 } from "./treasury-attribution";
+import {
+  extractMajorTransactions,
+  type MajorTransaction,
+} from "./major-transactions";
 
 /**
  * Report section library — single source of truth for every block the
@@ -182,6 +186,99 @@ function tokenMovement(t: TokenAttribution): string {
   if (qtyMoved) return "quantity moved, price unchanged";
   if (priceMoved) return "price moved, quantity unchanged";
   return "neither quantity nor price moved";
+}
+
+// ─── income split ──────────────────────────────────────────────────────────
+//
+// `IncomeCategory` in expense-classifier.ts, partitioned by the only question
+// an investor actually asks of an income figure: will it be there again next
+// period? Revenue and staking rewards recur. A funding round, a token sale, an
+// airdrop do not — they are balance-sheet events wearing an inflow's clothes.
+//
+// The category names are duplicated here rather than imported for the reason
+// counterparty-labels.ts exists: expense-classifier.ts opens with `import
+// OpenAI from "openai"`, and this file reaches the browser through
+// ReportTemplateEditor.tsx. The strings are load-bearing — they must match
+// `IncomeCategory` exactly, and the tests assert that they do.
+
+const RECURRING_INCOME_CATEGORIES = ["revenue", "staking_reward"] as const;
+
+const NON_RECURRING_INCOME_CATEGORIES = [
+  "funding_round",
+  "token_sale_inflow",
+  "airdrop",
+  "other_income",
+] as const;
+
+/** Investor-facing names. `token_sale_inflow` means nothing to a reader. */
+const INCOME_LABELS: Record<string, string> = {
+  revenue: "Protocol revenue (fees, product income)",
+  staking_reward: "Staking and LP rewards",
+  funding_round: "Funding round (capital raised from investors)",
+  token_sale_inflow: "Token sale proceeds (project tokens sold for stables)",
+  airdrop: "Airdrops received",
+  other_income: "Other inflows (unclassified)",
+};
+
+interface IncomeGroup {
+  /** Categories with a positive figure, largest first. */
+  entries: { category: string; label: string; usd: number }[];
+  /** Sum of `entries` — always exactly what the bullets add up to. */
+  totalUsd: number;
+}
+
+interface IncomeSplit {
+  recurring: IncomeGroup;
+  nonRecurring: IncomeGroup;
+  /**
+   * False when the snapshot carries no classified income breakdown at all —
+   * distinct from a breakdown that classified everything as zero. "We ran the
+   * classifier and it found nothing" and "we never ran it" support different
+   * sentences, and only one of them permits a comparison.
+   */
+  classified: boolean;
+}
+
+function buildIncomeGroup(
+  raw: Record<string, unknown>,
+  categories: readonly string[]
+): IncomeGroup {
+  const entries = categories
+    .map((category) => ({
+      category,
+      label: INCOME_LABELS[category] ?? category,
+      usd: Number(raw[category] ?? 0),
+    }))
+    // Positive-only, per house rule: a category with nothing in it is dropped,
+    // never rendered as "$0". No per-line `minSignificant` filter here on
+    // purpose — the group totals below are sums of exactly these lines, and a
+    // filtered-out line would leave the bullets not adding up to their own
+    // total. The significance floor is applied once, to the section as a whole,
+    // in `requires`.
+    .filter((e) => Number.isFinite(e.usd) && e.usd > 0)
+    .sort((a, b) => b.usd - a.usd);
+  return {
+    entries,
+    totalUsd: entries.reduce((sum, e) => sum + e.usd, 0),
+  };
+}
+
+/**
+ * Split a stored `income_by_category` payload into recurring and non-recurring.
+ * Tolerates null, legacy payloads with unknown keys, and non-numeric values —
+ * an unreadable payload is an unclassified period, not an exception.
+ */
+function splitIncome(raw: unknown): IncomeSplit {
+  const empty: IncomeGroup = { entries: [], totalUsd: 0 };
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return { recurring: empty, nonRecurring: empty, classified: false };
+  }
+  const record = raw as Record<string, unknown>;
+  return {
+    recurring: buildIncomeGroup(record, RECURRING_INCOME_CATEGORIES),
+    nonRecurring: buildIncomeGroup(record, NON_RECURRING_INCOME_CATEGORIES),
+    classified: true,
+  };
 }
 
 // ─── individual sections ───────────────────────────────────────────────────
@@ -510,6 +607,98 @@ const expenseBreakdown: ReportSection = {
   notReadyHint: "Needs operating outflows in this period (rebalances don't count).",
 };
 
+const protocolRevenue: ReportSection = {
+  id: "protocol_revenue",
+  title: "Protocol Revenue",
+  description:
+    "What the protocol actually earns (fees, staking rewards) held apart from one-off inflows like funding rounds and token sales.",
+  defaultEnabled: true,
+  // The gate is deliberately narrow: recurring income only. A period whose
+  // entire inflow is a funding round has no revenue to report, and rendering a
+  // "Protocol Revenue" heading over a raise is precisely the category error
+  // this section exists to prevent — the heading alone does the misleading,
+  // before the model writes a word. `minSignificant` (0.1% of treasury) is the
+  // floor: a few hundred dollars of dust yield is not a revenue line.
+  requires: (ctx) =>
+    splitIncome(ctx.snapshot.incomeByCategory).recurring.totalUsd >
+    ctx.minSignificant,
+  userPromptFragment: (ctx) => {
+    const split = splitIncome(ctx.snapshot.incomeByCategory);
+    if (split.recurring.totalUsd <= 0) return "";
+
+    const lines: string[] = [
+      "Recurring operating income — money the protocol earned, expected to recur:",
+      ...split.recurring.entries.map(
+        (e) => `- ${e.label}: ${formatUsd(e.usd)}`
+      ),
+      `- Total recurring operating income: ${formatUsd(split.recurring.totalUsd)}`,
+    ];
+
+    if (split.nonRecurring.entries.length > 0) {
+      lines.push(
+        "",
+        "Non-recurring income — one-off events. NOT revenue, NOT earned, and NOT to be added to the figures above:",
+        ...split.nonRecurring.entries.map(
+          (e) => `- ${e.label}: ${formatUsd(e.usd)}`
+        ),
+        `- Total non-recurring income: ${formatUsd(split.nonRecurring.totalUsd)}`
+      );
+
+      // The single number that stops "the protocol brought in $5.1M" from
+      // being written about a period that earned $138K and raised $5M.
+      const allIncome =
+        split.recurring.totalUsd + split.nonRecurring.totalUsd;
+      if (allIncome > 0) {
+        lines.push(
+          `- Recurring share of all income this period: ${(
+            (split.recurring.totalUsd / allIncome) *
+            100
+          ).toFixed(1)}%`
+        );
+      }
+    }
+
+    // Prior-period recurring income, so a direction can be stated from two
+    // measured figures rather than inferred from one. Absent means absent: the
+    // model is told to say nothing about direction, because "flat" and
+    // "growing" are both claims and neither is supported by one period.
+    const prevSplit = splitIncome(ctx.prevSnapshot?.incomeByCategory);
+    const prevDate = ctx.prevSnapshot?.snapshotDate;
+    lines.push("");
+    if (!ctx.prevSnapshot || !prevSplit.classified) {
+      lines.push(
+        "Prior-period comparison: NOT AVAILABLE — no classified income breakdown exists for an earlier period. Do not state a direction, trend or trajectory for revenue."
+      );
+    } else if (prevSplit.recurring.totalUsd <= 0) {
+      lines.push(
+        `Prior period (${prevDate}): the income classifier recorded no recurring operating income. This period is the first with a recurring figure — state that, and do not express it as a percentage increase from zero.`
+      );
+    } else {
+      const prev = prevSplit.recurring.totalUsd;
+      const delta = split.recurring.totalUsd - prev;
+      const pct = ((delta / prev) * 100).toFixed(1);
+      lines.push(
+        `Prior period (${prevDate}) recurring operating income: ${formatUsd(prev)}`,
+        `Change in recurring operating income: ${signedUsd(delta)} (${
+          delta >= 0 ? "+" : ""
+        }${pct}%)`
+      );
+    }
+
+    return `\n## Income by source (${ctx.snapshot.snapshotDate})\n${lines.join("\n")}`;
+  },
+  systemPromptFragment: `### Protocol Revenue (CONDITIONAL)
+- Only render when the input contains an "## Income by source" block.
+- The block splits income into two groups. **Report them separately and keep them separate.** Recurring operating income is what the protocol earns. Non-recurring income is capital and windfalls that arrived once.
+- **Never add the two groups into a single figure**, and never report a "total income" or "total inflows" number inside this section. A blended figure that is mostly a funding round tells an investor the protocol earns money it does not earn — that is the single worst error this section can make, and it is unrecoverable once the reader has seen the number.
+- **Never call a funding round, token sale proceeds, or an airdrop "revenue", "earnings", "income the protocol generated", "money the protocol brought in", or any synonym.** Name each for what it is: capital raised from investors, proceeds from selling treasury tokens, tokens received.
+- Lead with the recurring figure and identify it as recurring. If non-recurring income is present, give it its own sentence with its own label; when the input reports a recurring share of all income, use that percentage to make the proportion explicit.
+- **One period is not a trend.** Do not write "growing", "accelerating", "ramping", "steady", "consistent", or "on track" off a single period's figure. When the input carries a prior-period recurring figure, state the direction using both numbers. When it says the comparison is NOT AVAILABLE, say nothing about direction at all — not even "flat".
+- Do not explain *why* recurring income moved. The input carries category totals, not causes. Attributing a revenue change to a launch, a partnership, or market conditions is fabrication unless that cause appears verbatim elsewhere in this input.`,
+  notReadyHint:
+    "Needs classified income for this period — recurring revenue or staking rewards above the reporting floor.",
+};
+
 const treasuryOperations: ReportSection = {
   id: "treasury_operations",
   title: "Treasury Operations",
@@ -532,6 +721,88 @@ const treasuryOperations: ReportSection = {
 - Render this section ONLY when the input lists a non-zero "token_sale" line in Treasury operations.
 - token_sale outflows are treasury reallocations (e.g. swapping native token for stablecoins or vice versa), NOT operating expenses. Never include them in the expense breakdown table; show them separately here with a one-sentence explanation of what was rebalanced.`,
   notReadyHint: "Only renders when there's a token_sale rebalance in the period.",
+};
+
+/**
+ * One table row. Pipe-delimited rather than markdown-table syntax: the model
+ * is composing the report's own table, and handing it a finished one invites
+ * a verbatim copy including any formatting that clashes with the rest of the
+ * document. Empty fields get an explicit word — a bare `| |` reads as an
+ * omission the model may feel entitled to fill.
+ */
+function majorTxRow(tx: MajorTransaction): string {
+  const direction = tx.direction === "in" ? "incoming" : "outgoing";
+  return [
+    tx.date || "unknown",
+    direction,
+    formatUsd(tx.valueUsd),
+    tx.token,
+    tx.category || "unclassified",
+    tx.counterparty || "unidentified address",
+  ].join(" | ");
+}
+
+const majorTransactions: ReportSection = {
+  id: "major_transactions",
+  title: "Major Transactions",
+  description:
+    "The period's largest individual transfers, with counterparty and classification. Internal wallet-to-wallet moves excluded.",
+  defaultEnabled: true,
+  requires: (ctx) =>
+    extractMajorTransactions(ctx.snapshot.transactionsRaw, ctx.total).rows
+      .length > 0,
+  userPromptFragment: (ctx) => {
+    const result = extractMajorTransactions(
+      ctx.snapshot.transactionsRaw,
+      ctx.total
+    );
+    if (result.rows.length === 0) return "";
+
+    const lines: string[] = [
+      `Every transaction at or above ${formatUsd(
+        result.thresholdUsd
+      )} (the larger of $25,000 and 0.5% of treasury), largest first. Transfers between the project's own wallets are excluded — they move nothing. Transactions whose USD value could not be priced are excluded — their value is not known.`,
+      "",
+      "Date | Direction | Amount | Asset | Category | Counterparty",
+      ...result.rows.map((tx) => `- ${majorTxRow(tx)}`),
+    ];
+
+    if (result.qualifyingCount > result.rows.length) {
+      lines.push(
+        "",
+        `Showing the ${result.rows.length} largest of ${result.qualifyingCount} transactions that cleared the threshold.`
+      );
+    }
+
+    // The disclosure. data-sync.ts stores the most RECENT transactions, not
+    // the largest, so once that store was capped these rows are "largest among
+    // the recent ones" and a bigger transfer may sit outside the window
+    // entirely. Nothing downstream can detect that, and re-sampling only helps
+    // snapshots not yet taken — so the report says it out loud instead of
+    // quietly presenting a partial ranking as a complete one.
+    if (result.capped) {
+      const of =
+        result.totalCount === null
+          ? ""
+          : ` of ${result.totalCount.toLocaleString()} recorded for the period`;
+      lines.push(
+        "",
+        `SAMPLING NOTE: this snapshot stored only the ${result.sampleSize.toLocaleString()} most recent transactions${of}. The rows above are the largest within that sample, NOT necessarily the largest of the period — a larger transaction may have occurred earlier in the period and fallen outside what was stored. This caveat MUST appear in the section.`
+      );
+    }
+
+    return `\n## Major transactions (${ctx.snapshot.snapshotDate})\n${lines.join("\n")}`;
+  },
+  systemPromptFragment: `### Major Transactions (CONDITIONAL)
+- Only render when the input contains a "## Major transactions" block.
+- Render a table with the columns Date | Direction | Amount | Asset | Category | Counterparty, one row per listed transaction, values copied from the input. A row whose Date reads "unknown" has no usable timestamp in the stored data — leave that cell blank rather than guessing or inferring a date.
+- **Never invent a purpose for a transfer.** The input records what moved, when, and to or from whom. It does not record why. Commentary is allowed only where the category and counterparty in the row already carry it: "a $1.2M USDC transfer to Binance, classified as a token sale" is supportable because every element of it is in the input. "Sold treasury assets to fund operations", "paid down vendor obligations", "deployed capital into the ecosystem", "took profit" are NOT supportable — each asserts an intent the data cannot show.
+- A counterparty shown as a truncated address ("0x1234…abcd") is an address and nothing else. Do not name an entity, a relationship, or a category of business for it. A row marked "unclassified" or "unidentified address" gets stated plainly, with no inference attached.
+- At most two sentences of commentary in total, and only if a row genuinely supports it. A bare table with no commentary is a correct, complete answer here.
+- **If the input carries a SAMPLING NOTE, the rendered section MUST carry that caveat** — one short sentence stating the list is drawn from the period's most recent stored transactions and may not include the period's largest. Do not present the table as the definitive list of the largest transactions. Dropping this caveat misrepresents what the numbers are; it is not a stylistic trim.
+- Never describe this table as complete, exhaustive, or "all transactions". Transfers below the stated threshold, internal transfers, and unpriced transfers are all excluded by construction.`,
+  notReadyHint:
+    "Needs a synced period containing transactions above the reporting threshold.",
 };
 
 const grantsDistributed: ReportSection = {
@@ -840,7 +1111,9 @@ export const SECTION_LIBRARY: readonly ReportSection[] = [
   previousMonthComparison,
   financialHealth,
   expenseBreakdown,
+  protocolRevenue,
   treasuryOperations,
+  majorTransactions,
   grantsDistributed,
   tokenMetrics,
   governanceUpdates,
