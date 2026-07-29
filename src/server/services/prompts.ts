@@ -29,6 +29,8 @@ import {
 export interface BuildReportPromptsInput {
   snapshot: TreasurySnapshot;
   prevSnapshot?: TreasurySnapshot | null;
+  /** Prior snapshots, most-recent-first, excluding `snapshot`. See ReportSectionContext. */
+  trailing?: TreasurySnapshot[];
   project: Project;
   milestones?: Milestone[];
   grants?: Grant[];
@@ -45,6 +47,7 @@ export function buildReportPrompts(
   const {
     snapshot,
     prevSnapshot = null,
+    trailing = [],
     project,
     milestones = [],
     grants = [],
@@ -61,6 +64,7 @@ export function buildReportPrompts(
   const ctx: ReportSectionContext = {
     snapshot,
     prevSnapshot,
+    trailing,
     project,
     milestones,
     grants,

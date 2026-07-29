@@ -465,6 +465,10 @@ export const projectsRouter = router({
       const readiness = evaluateReadiness({
         snapshot,
         prevSnapshot,
+        // Readiness only runs `requires()` gates, none of which look at the
+        // trailing series — so this endpoint skips the extra query rather
+        // than paying for rows nothing reads.
+        trailing: [],
         project,
         milestones: projectMilestones,
         grants: grantsRows,
