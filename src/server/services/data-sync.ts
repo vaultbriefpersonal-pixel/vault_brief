@@ -56,19 +56,41 @@ export async function createMonthlySnapshot(
 
   const snapshotDate = period.end.toISOString().split("T")[0];
 
-  // Cap raw transactions to 200 most recent. Aggregates are computed inside
-  // fetchAndClassify from the full list, so accuracy is preserved; this only
-  // bounds the JSONB blob size on the snapshot row (~60KB instead of 1MB+).
-  const TX_SAMPLE_SIZE = 200;
+  // Cap raw transactions stored on the snapshot row. Aggregates are computed
+  // inside fetchAndClassify from the full list, so accuracy there is
+  // preserved; this only bounds the JSONB blob size (~60KB instead of 1MB+).
+  //
+  // Sampling by recency alone means a genuinely large transaction earlier in
+  // a high-volume period is silently invisible to major-transactions.ts
+  // forever (that section only ever sees this stored sample). So we keep the
+  // union of the 50 largest-by-value and the 150 most recent, deduped by
+  // hash — large transactions survive regardless of when they happened,
+  // while recency coverage for "recent activity" use cases is preserved.
+  const TOP_VALUE_SAMPLE_SIZE = 50;
+  const RECENT_SAMPLE_SIZE = 150;
   const allTx = txResult?.transactions ?? [];
-  const sampledTx = [...allTx]
+  const topByValue = [...allTx]
+    .sort((a, b) => Math.abs(b.valueUsd) - Math.abs(a.valueUsd))
+    .slice(0, TOP_VALUE_SAMPLE_SIZE);
+  const mostRecent = [...allTx]
     .sort((a, b) => b.timestamp - a.timestamp)
-    .slice(0, TX_SAMPLE_SIZE);
+    .slice(0, RECENT_SAMPLE_SIZE);
+  const seenHashes = new Set<string>();
+  const sampledTx = [...topByValue, ...mostRecent].filter((t) => {
+    if (seenHashes.has(t.hash)) return false;
+    seenHashes.add(t.hash);
+    return true;
+  });
   const transactionsRaw = txResult
     ? {
         sample: sampledTx,
         totalCount: allTx.length,
-        capped: allTx.length > TX_SAMPLE_SIZE,
+        // Compare against the actual (post-dedup) sample size, not a fixed
+        // constant — the union can be smaller than
+        // TOP_VALUE_SAMPLE_SIZE + RECENT_SAMPLE_SIZE when the two sets
+        // overlap, and `capped` must still mean "some transactions were left
+        // out of the stored sample."
+        capped: allTx.length > sampledTx.length,
       }
     : null;
 
