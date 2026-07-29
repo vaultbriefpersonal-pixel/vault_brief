@@ -450,32 +450,41 @@ const treasuryByChain: ReportSection = {
   notReadyHint: "Add wallets on ≥2 chains.",
 };
 
+// Two independent triggers, because they describe two different problems: a
+// treasury that is mostly a bet on its own token, and a treasury without
+// enough price-stable cash to pay next quarter's bills. Either alone is
+// worth a paragraph.
+//
+// The `derived` gate comes first and is not optional. Without per-token
+// detail every bucket is zero, which reads as "zero months of stablecoin
+// cover" and would fire this section on every legacy snapshot in the
+// database — asserting a liquidity finding from an absence of data.
+//
+// Shared by `requires()` and `userPromptFragment()` below so the readiness
+// gate and the content it gates can never drift apart again — this predicate
+// used to be duplicated (loosely) between the two, and the copy in
+// `userPromptFragment` had rotted to just the `derived`/`totalUsd` half,
+// which meant the section fired for every treasury with parseable balances
+// regardless of whether either trigger condition actually held.
+function concentrationOrThinCoverTriggered(ctx: ReportSectionContext): boolean {
+  const liq = liquidityOf(ctx);
+  if (!liq.derived || liq.totalUsd <= 0) return false;
+  if (liq.concentrationPct > CONCENTRATION_PCT_FLOOR) return true;
+  const basis = burnBasis(ctx);
+  if (basis.avgUsd <= 0) return false;
+  return liq.liquidStableUsd / basis.avgUsd < STABLE_COVER_FLOOR_MONTHS;
+}
+
 const treasuryConcentration: ReportSection = {
   id: "treasury_concentration",
   title: "Treasury Concentration",
   description:
     "Fires when the treasury leans on the project's own token, or when stablecoins cover under three months of burn. States the split and why own-token holdings don't behave like reserves.",
   defaultEnabled: true,
-  // Two independent triggers, because they describe two different problems:
-  // a treasury that is mostly a bet on its own token, and a treasury without
-  // enough price-stable cash to pay next quarter's bills. Either alone is
-  // worth a paragraph.
-  //
-  // The `derived` gate comes first and is not optional. Without per-token
-  // detail every bucket is zero, which reads as "zero months of stablecoin
-  // cover" and would fire this section on every legacy snapshot in the
-  // database — asserting a liquidity finding from an absence of data.
-  requires: (ctx) => {
-    const liq = liquidityOf(ctx);
-    if (!liq.derived || liq.totalUsd <= 0) return false;
-    if (liq.concentrationPct > CONCENTRATION_PCT_FLOOR) return true;
-    const basis = burnBasis(ctx);
-    if (basis.avgUsd <= 0) return false;
-    return liq.liquidStableUsd / basis.avgUsd < STABLE_COVER_FLOOR_MONTHS;
-  },
+  requires: (ctx) => concentrationOrThinCoverTriggered(ctx),
   userPromptFragment: (ctx) => {
+    if (!concentrationOrThinCoverTriggered(ctx)) return "";
     const liq = liquidityOf(ctx);
-    if (!liq.derived || liq.totalUsd <= 0) return "";
     const basis = burnBasis(ctx);
 
     const lines: string[] = [

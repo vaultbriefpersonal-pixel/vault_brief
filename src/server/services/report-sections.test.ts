@@ -874,6 +874,99 @@ describe("treasury_concentration", () => {
       ],
     });
     expect(concentration.requires(ctx)).toBe(false);
+    expect(concentration.userPromptFragment(ctx)).toBe("");
+  });
+
+  // Regression coverage for the `requires()` / `userPromptFragment()` drift:
+  // `requires()` correctly gates on two independent triggers (own-token
+  // concentration above the floor, or stablecoin cover thinner than the
+  // floor), but `userPromptFragment()` used to only check the weaker
+  // `liq.derived && liq.totalUsd > 0` half of that gate — so it emitted the
+  // block for any treasury with parseable balances, whether or not either
+  // real trigger condition held. These pin `requires()` and
+  // `userPromptFragment()` to agree in all four quadrants.
+  describe("requires() and userPromptFragment() agree on the same trigger", () => {
+    it("does NOT fire when concentration is at the floor and cover is unmeasurable — the exact production bug", () => {
+      // Mirrors the live "Uniswap DAO Treasury" case this bug was found in:
+      // the dominant holding has no contractAddress and the project has no
+      // tokenSymbol, so it lands in the generic "other assets" bucket rather
+      // than `concentratedUsd` (concentrationPct stays 0), and there is zero
+      // burn with no trailing history, so stablecoin cover is legitimately
+      // unmeasurable (avgUsd stays 0). Neither trigger condition is true, so
+      // this section must not fire at all.
+      const ctx = contextWith(
+        {
+          balancesDetail: [
+            {
+              walletAddress: "0xtreasury",
+              chain: "ethereum",
+              tokens: [{ symbol: "UNI", valueUsd: 8_500_000 }],
+            },
+          ],
+          burnRateUsd: "0",
+          totalOutflowsUsd: "0",
+        },
+        null,
+        {
+          project: {} as unknown as ReportSectionContext["project"],
+          trailing: [],
+        }
+      );
+      expect(concentration.requires(ctx)).toBe(false);
+      expect(concentration.userPromptFragment(ctx)).toBe("");
+    });
+
+    it("fires on own-token concentration alone, even with cover unmeasurable", () => {
+      const ctx = ownTokenHeavyContext(
+        { burnRateUsd: "0", totalOutflowsUsd: "0" },
+        { trailing: [] }
+      );
+      expect(concentration.requires(ctx)).toBe(true);
+      expect(concentration.userPromptFragment(ctx)).not.toBe("");
+      expect(concentration.userPromptFragment(ctx)).toContain(
+        "not measurable"
+      );
+    });
+
+    it("fires on thin stablecoin cover alone, with concentration at the floor", () => {
+      // $150K of stables against $260K trailing average burn — 0.6 months,
+      // well under the 3-month floor — and no own-token holding at all.
+      const ctx = ownTokenHeavyContext({
+        balancesDetail: [
+          {
+            chain: "ethereum",
+            tokens: [
+              { symbol: "USDC", valueUsd: 150_000 },
+              { symbol: "WETH", valueUsd: 4_000_000 },
+            ],
+          },
+        ],
+      });
+      expect(concentration.requires(ctx)).toBe(true);
+      expect(concentration.userPromptFragment(ctx)).not.toBe("");
+      expect(concentration.userPromptFragment(ctx)).toContain(
+        "- Stablecoin cover: 0.6 months"
+      );
+    });
+
+    it("does NOT fire when concentration is at the floor and cover is at or above it", () => {
+      // Same diversified treasury as above, but healthy: $5M stables against
+      // $260K trailing average burn is ~19 months of cover, well clear of
+      // the 3-month floor.
+      const ctx = ownTokenHeavyContext({
+        balancesDetail: [
+          {
+            chain: "ethereum",
+            tokens: [
+              { symbol: "USDC", valueUsd: 5_000_000 },
+              { symbol: "WETH", valueUsd: 1_000_000 },
+            ],
+          },
+        ],
+      });
+      expect(concentration.requires(ctx)).toBe(false);
+      expect(concentration.userPromptFragment(ctx)).toBe("");
+    });
   });
 
   it("NEVER fires on a snapshot without per-token balances", () => {
