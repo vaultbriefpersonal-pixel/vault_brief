@@ -1,16 +1,5 @@
-import type {
-  TreasurySnapshot,
-  Project,
-  Milestone,
-  Grant,
-  GovernanceProposal,
-  Partner,
-  Ask,
-  QaHighlight,
-} from "@/server/db/schema";
 import { formatUsd, formatDate } from "@/lib/utils";
 import {
-  attributeTreasuryChange,
   dominantDriver,
   reconcileWithNetFlow,
   type AttributionDriver,
@@ -20,21 +9,40 @@ import {
   extractMajorTransactions,
   type MajorTransaction,
 } from "./major-transactions";
-import {
-  analyzeTreasuryLiquidity,
-  liquidReservesUsd,
-  type TreasuryLiquidity,
-} from "./treasury-liquidity";
-import {
-  burnTrend,
-  liquidRunwayMonths,
-  trailingAverageBurn,
-} from "./burn-metrics";
+import { liquidReservesUsd, type TreasuryLiquidity } from "./treasury-liquidity";
+import { burnTrend, liquidRunwayMonths } from "./burn-metrics";
 // `anomalies.ts` is a pure module — its only import is `import type` on the
 // schema, erased at build — so pulling the formatter in as a value is safe
 // for the client bundle this file ships to (ReportTemplateEditor is
 // "use client"). Keep it that way: no db/env/node imports over there.
-import { formatAnomaliesForPrompt, type Anomaly } from "./anomalies";
+import { formatAnomaliesForPrompt } from "./anomalies";
+// The derived-view layer. Every figure this file prints comes from these
+// accessors rather than being recomputed here, so a `requires()` gate and the
+// fragment it gates can never disagree about a number. `report-evidence.ts`
+// reads the same accessors; see the dependency-graph note at the top of
+// report-derived.ts for why they live in their own module.
+import {
+  attributionOf,
+  burnBasis,
+  burnBasisLabel,
+  liquidityOf,
+  netFlowOf,
+  signedUsd,
+  splitIncome,
+  CONCENTRATION_PCT_FLOOR,
+  STABLE_COVER_FLOOR_MONTHS,
+  TRAILING_BURN_MONTHS,
+  type ReportSectionContext,
+} from "./report-derived";
+import { evidenceOf, formatEvidenceItems } from "./report-evidence";
+
+// `ReportSectionContext` moved to report-derived.ts, which both this module
+// and report-evidence.ts import. Re-exported here so every existing import
+// path — prompts.ts, the tRPC routers, the tests — keeps resolving unchanged.
+// The derived-view helpers are NOT re-exported: they were private to this
+// file before the split and stay private to the layer now, so there is one
+// obvious place to import them from.
+export type { ReportSectionContext } from "./report-derived";
 
 /**
  * Report section library — single source of truth for every block the
@@ -57,41 +65,6 @@ import { formatAnomaliesForPrompt, type Anomaly } from "./anomalies";
  * dangling section title in prompts.ts that the system prompt forgot to
  * reference.
  */
-
-export interface ReportSectionContext {
-  snapshot: TreasurySnapshot;
-  prevSnapshot: TreasurySnapshot | undefined | null;
-  /**
-   * Prior snapshots in chronological order, most-recent-first, EXCLUDING the
-   * current one — so `trailing[0]` is the same row as `prevSnapshot`. Sections
-   * needing a series rather than a single comparison (trailing burn average,
-   * burn trend, a mechanical projection) read this instead of re-querying.
-   * May be shorter than requested, or empty, on a young project.
-   */
-  trailing: TreasurySnapshot[];
-  project: Project;
-  milestones: Milestone[];
-  /** 'YYYY-MM' derived from snapshot.snapshotDate; used for period match. */
-  period: string;
-  grants: Grant[];
-  governanceProposals: GovernanceProposal[];
-  partners: Partner[];
-  asks: Ask[];
-  qaHighlights: QaHighlight[];
-  /**
-   * Detected anomalies for this snapshot, from `detectAnomalies(snapshot,
-   * trailing)`. Travels in the context so the anomalies section owns both
-   * halves of its rendering like every other section: previously the data was
-   * concatenated onto the user prompt in report-generator.ts, which meant
-   * disabling the section stripped its rules (including "Don't fabricate
-   * causes") while the figures still reached the model.
-   */
-  anomalies: Anomaly[];
-  /** Total balance in USD, computed once. */
-  total: number;
-  /** Minimum balance to be worth mentioning (0.1% of total). */
-  minSignificant: number;
-}
 
 export interface ReportSection {
   id: string;
@@ -125,17 +98,6 @@ export interface ReportSection {
 }
 
 // ─── prompt formatters ─────────────────────────────────────────────────────
-
-/**
- * `formatUsd` already carries the minus sign; the explicit plus is what stops
- * a positive figure from reading as a bare magnitude. Signed components are
- * the whole point of an attribution — "$4.9M of price movement" and
- * "-$4.9M of price movement" are opposite stories, and a model that reads
- * one as the other writes a false sentence into an investor update.
- */
-function signedUsd(amount: number): string {
-  return amount > 0 ? `+${formatUsd(amount)}` : formatUsd(amount);
-}
 
 /**
  * Whole days between two snapshot dates. `snapshotDate` is a `date` column
@@ -212,75 +174,7 @@ function tokenMovement(t: TokenAttribution): string {
   return "neither quantity nor price moved";
 }
 
-// ─── liquidity + burn basis ────────────────────────────────────────────────
-//
-// Two sections (Financial Health, Treasury Concentration) read the same two
-// derived views. They go through these helpers rather than each computing
-// their own so a gate and the fragment it gates can never disagree about the
-// figure — a section that fires on "under 3 months of stablecoin cover" and
-// then prints 3.4 months is worse than a section that never fired.
-
-/** Window for the trailing burn average. Matches the dashboard's burn tile. */
-const TRAILING_BURN_MONTHS = 3;
-
-/** Below this many months of stablecoin cover, the concentration section fires. */
-const STABLE_COVER_FLOOR_MONTHS = 3;
-
-/**
- * Own-token share of the treasury, in percent, above which concentration is
- * material enough to name. A fifth of the balance sheet is the point at which
- * the reported total stops being a fair proxy for what the project can spend.
- */
-const CONCENTRATION_PCT_FLOOR = 20;
-
-function liquidityOf(ctx: ReportSectionContext): TreasuryLiquidity {
-  return analyzeTreasuryLiquidity(ctx.snapshot.balancesDetail, ctx.project);
-}
-
-interface BurnBasis {
-  /** The denominator to divide reserves by. 0 when there is no usable burn. */
-  avgUsd: number;
-  /** Prior months that contributed. 0 unless `source` is "trailing". */
-  monthsUsed: number;
-  /**
-   * Which figure `avgUsd` actually is — the label the report must print. A
-   * one-month figure presented as a trailing average is a false statement
-   * about the evidence, even when the number is identical.
-   */
-  source: "trailing" | "current" | "none";
-}
-
-/**
- * The best available burn denominator, in preference order: the trailing
- * average, then this period's burn, then nothing. The fallback exists because
- * a project on its first or second report has no trailing history and would
- * otherwise get no liquid runway figure at all — which is the very number this
- * work exists to surface. The `source` field is what keeps the fallback
- * honest: it is disclosed in the fragment, never silently substituted.
- */
-function burnBasis(ctx: ReportSectionContext): BurnBasis {
-  const trailing = trailingAverageBurn(ctx.trailing, TRAILING_BURN_MONTHS);
-  if (trailing.monthsUsed > 0) {
-    return {
-      avgUsd: trailing.avgUsd,
-      monthsUsed: trailing.monthsUsed,
-      source: "trailing",
-    };
-  }
-  const current = Number(ctx.snapshot.burnRateUsd ?? 0);
-  if (Number.isFinite(current) && current > 0) {
-    return { avgUsd: current, monthsUsed: 0, source: "current" };
-  }
-  return { avgUsd: 0, monthsUsed: 0, source: "none" };
-}
-
-/** Human label for the denominator, used inside the runway bullet itself. */
-function burnBasisLabel(basis: BurnBasis): string {
-  if (basis.source === "trailing") {
-    return `trailing ${basis.monthsUsed}-mo avg burn`;
-  }
-  return "this month's burn (no trailing history yet)";
-}
+// ─── liquidity lines ───────────────────────────────────────────────────────
 
 /**
  * The four buckets, as prompt bullets. Zero buckets are dropped per house rule
@@ -326,99 +220,6 @@ function liquidityLines(
   return lines;
 }
 
-// ─── income split ──────────────────────────────────────────────────────────
-//
-// `IncomeCategory` in expense-classifier.ts, partitioned by the only question
-// an investor actually asks of an income figure: will it be there again next
-// period? Revenue and staking rewards recur. A funding round, a token sale, an
-// airdrop do not — they are balance-sheet events wearing an inflow's clothes.
-//
-// The category names are duplicated here rather than imported for the reason
-// counterparty-labels.ts exists: expense-classifier.ts opens with `import
-// OpenAI from "openai"`, and this file reaches the browser through
-// ReportTemplateEditor.tsx. The strings are load-bearing — they must match
-// `IncomeCategory` exactly, and the tests assert that they do.
-
-const RECURRING_INCOME_CATEGORIES = ["revenue", "staking_reward"] as const;
-
-const NON_RECURRING_INCOME_CATEGORIES = [
-  "funding_round",
-  "token_sale_inflow",
-  "airdrop",
-  "other_income",
-] as const;
-
-/** Investor-facing names. `token_sale_inflow` means nothing to a reader. */
-const INCOME_LABELS: Record<string, string> = {
-  revenue: "Protocol revenue (fees, product income)",
-  staking_reward: "Staking and LP rewards",
-  funding_round: "Funding round (capital raised from investors)",
-  token_sale_inflow: "Token sale proceeds (project tokens sold for stables)",
-  airdrop: "Airdrops received",
-  other_income: "Other inflows (unclassified)",
-};
-
-interface IncomeGroup {
-  /** Categories with a positive figure, largest first. */
-  entries: { category: string; label: string; usd: number }[];
-  /** Sum of `entries` — always exactly what the bullets add up to. */
-  totalUsd: number;
-}
-
-interface IncomeSplit {
-  recurring: IncomeGroup;
-  nonRecurring: IncomeGroup;
-  /**
-   * False when the snapshot carries no classified income breakdown at all —
-   * distinct from a breakdown that classified everything as zero. "We ran the
-   * classifier and it found nothing" and "we never ran it" support different
-   * sentences, and only one of them permits a comparison.
-   */
-  classified: boolean;
-}
-
-function buildIncomeGroup(
-  raw: Record<string, unknown>,
-  categories: readonly string[]
-): IncomeGroup {
-  const entries = categories
-    .map((category) => ({
-      category,
-      label: INCOME_LABELS[category] ?? category,
-      usd: Number(raw[category] ?? 0),
-    }))
-    // Positive-only, per house rule: a category with nothing in it is dropped,
-    // never rendered as "$0". No per-line `minSignificant` filter here on
-    // purpose — the group totals below are sums of exactly these lines, and a
-    // filtered-out line would leave the bullets not adding up to their own
-    // total. The significance floor is applied once, to the section as a whole,
-    // in `requires`.
-    .filter((e) => Number.isFinite(e.usd) && e.usd > 0)
-    .sort((a, b) => b.usd - a.usd);
-  return {
-    entries,
-    totalUsd: entries.reduce((sum, e) => sum + e.usd, 0),
-  };
-}
-
-/**
- * Split a stored `income_by_category` payload into recurring and non-recurring.
- * Tolerates null, legacy payloads with unknown keys, and non-numeric values —
- * an unreadable payload is an unclassified period, not an exception.
- */
-function splitIncome(raw: unknown): IncomeSplit {
-  const empty: IncomeGroup = { entries: [], totalUsd: 0 };
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return { recurring: empty, nonRecurring: empty, classified: false };
-  }
-  const record = raw as Record<string, unknown>;
-  return {
-    recurring: buildIncomeGroup(record, RECURRING_INCOME_CATEGORIES),
-    nonRecurring: buildIncomeGroup(record, NON_RECURRING_INCOME_CATEGORIES),
-    classified: true,
-  };
-}
-
 // ─── individual sections ───────────────────────────────────────────────────
 
 const executiveSummary: ReportSection = {
@@ -433,6 +234,102 @@ const executiveSummary: ReportSection = {
 3-4 sentences. State the treasury position, biggest change vs last month, and one forward-looking statement. Use exact numbers. Never fabricate data.`,
 };
 
+/**
+ * Headline figures the takeaways bullets can anchor to — the two numbers an
+ * investor checks first, stated once so the model does not have to reassemble
+ * them out of three other sections' blocks (and cannot get a different answer
+ * when it does). Every figure routes through the same accessors the sections
+ * themselves use.
+ */
+function headlineLines(ctx: ReportSectionContext): string[] {
+  const lines: string[] = [];
+
+  if (ctx.total > 0) {
+    lines.push(
+      `- Total treasury (${ctx.snapshot.snapshotDate}): ${formatUsd(ctx.total)}`
+    );
+  }
+
+  if (ctx.prevSnapshot) {
+    const attribution = attributionOf(ctx);
+    const driver = dominantDriver(attribution);
+    if (attribution.tokens.length > 0 && driver.driver !== "none") {
+      lines.push(
+        `- Treasury change vs ${ctx.prevSnapshot.snapshotDate}: ${signedUsd(
+          attribution.deltaUsd
+        )} — dominant driver: ${DRIVER_LABELS[driver.driver]} (${signedUsd(
+          driver.usd
+        )}, ${(driver.share * 100).toFixed(0)}% of all movement)`
+      );
+    }
+  }
+
+  const liq = liquidityOf(ctx);
+  const basis = burnBasis(ctx);
+  if (liq.derived && basis.avgUsd > 0) {
+    const months = liquidRunwayMonths(liquidReservesUsd(liq), basis.avgUsd);
+    if (months != null) {
+      lines.push(
+        `- Runway (liquid reserves ${formatUsd(
+          liquidReservesUsd(liq)
+        )} ÷ ${burnBasisLabel(basis)} ${formatUsd(
+          basis.avgUsd
+        )}): ${months.toFixed(1)} months`
+      );
+    }
+  }
+
+  return lines;
+}
+
+const keyTakeaways: ReportSection = {
+  id: "key_takeaways",
+  title: "Key Takeaways",
+  description:
+    "3-5 bullets an investor could read instead of the whole report. Each one anchored to a figure from the period's own data — never a summary of the summary.",
+  defaultEnabled: true,
+  // Always offered, like Wins and Lows: the fragment is what decides whether
+  // there is anything to say, and an empty fragment is a silent skip.
+  requires: () => true,
+  userPromptFragment: (ctx) => {
+    const headline = headlineLines(ctx);
+    const { positives, negatives } = evidenceOf(ctx);
+    if (headline.length === 0 && positives.length === 0 && negatives.length === 0) {
+      return "";
+    }
+
+    const blocks: string[] = [];
+    if (headline.length > 0) {
+      blocks.push(`Headline figures:\n${headline.join("\n")}`);
+    }
+    if (positives.length > 0) {
+      blocks.push(
+        `Verified positives (complete — nothing else qualified):\n${formatEvidenceItems(
+          positives
+        )}`
+      );
+    }
+    if (negatives.length > 0) {
+      blocks.push(
+        `Verified concerns (complete — nothing else qualified):\n${formatEvidenceItems(
+          negatives
+        )}`
+      );
+    }
+
+    return `\n## Key takeaways evidence (${ctx.snapshot.snapshotDate})\n${blocks.join(
+      "\n\n"
+    )}`;
+  },
+  systemPromptFragment: `### Key Takeaways (CONDITIONAL)
+- Only render when the input contains a "## Key takeaways evidence" block. Render it directly under the Executive Summary, as 3-5 bullets — no prose paragraph.
+- **Every bullet must carry a figure copied from that block.** A takeaway without a number is an opinion; this section does not carry opinions. If the block supports only three bullets, write three.
+- Draw from the headline figures and both evidence lists. Do NOT introduce an item that is not in the block, and do NOT restate a figure with a different value, a different denominator, or a different period than the block gives it.
+- **This is not a summary of the sections below.** Do not write "as detailed below", do not preview section names, and do not repeat the Executive Summary's sentences in bullet form. Each bullet states a fact and its number, and stands alone.
+- Give the concerns the same weight as the positives. A takeaways list that quietly drops every negative item from a block that contains them is a misrepresentation of the period, not an editorial choice.
+- No recommendations, no advice, no verdict on how the quarter "went". State what the numbers are.`,
+};
+
 const wins: ReportSection = {
   id: "wins",
   title: "Wins this period",
@@ -440,12 +337,21 @@ const wins: ReportSection = {
     "2-3 bullets calling out positive developments — milestones hit, key partnerships, dev velocity. Treasury increases only count when actual inflows caused them.",
   defaultEnabled: true,
   requires: () => true,
-  userPromptFragment: () => "",
+  userPromptFragment: (ctx) => {
+    const { positives } = evidenceOf(ctx);
+    if (positives.length === 0) return "";
+    return `\n## Verified positive evidence (${ctx.snapshot.snapshotDate})\nEvery item below was computed from this report's input and carries the figure behind it. This is the complete set of positives the data supports.\n${formatEvidenceItems(
+      positives
+    )}`;
+  },
   systemPromptFragment: `### Wins
-2-3 bullet points of positive developments this period. Pull from milestones completed, dev activity spikes, partnerships, or anomaly detector hits flagged as positive.
+2-3 bullet points of positive developments this period.
+- **When the input contains a "## Verified positive evidence" block, select ONLY from that list.** Each bullet must correspond to one listed item and quote its figure. Do NOT introduce a win that is not on the list, and do NOT combine two items into a claim neither one makes. The list is the complete set of positives the data supports; if it holds fewer items than you have bullets, write fewer bullets.
+- If no such block appears in the input, pull from milestones completed, dev activity spikes, or partnerships that the input does state — and if it states none, write nothing rather than assembling a win out of figures that were not offered as one.
 - Be specific: name the thing, the date, the counterparty, the number. "Shipped v2 mainnet on 12 April" beats "strong development progress."
 - Specificity means precise facts, NOT invented explanations. State what happened. Attach a cause only when the input states that cause. Never pair a real number with a reason the input does not contain — a plausible-sounding cause you inferred is a fabrication, and it is indistinguishable from a real one to the investor reading it.
-- Do NOT list a treasury increase as a win unless the input attributes that increase to net asset flows — money that actually arrived. An increase the input attributes to price movement of assets already held, to newly-tracked wallets, or to unattributed change is NOT a win: a token appreciating is a market event, not something the team achieved, and an investor who reads it as an achievement has been misled.`,
+- Do NOT list a treasury increase as a win unless the input attributes that increase to net asset flows — money that actually arrived. An increase the input attributes to price movement of assets already held, to newly-tracked wallets, or to unattributed change is NOT a win: a token appreciating is a market event, not something the team achieved, and an investor who reads it as an achievement has been misled. A treasury rise absent from the evidence block failed that test and must not be reinstated from figures elsewhere in the input.
+- A token price rise is never a win, in any section, under any wording.`,
 };
 
 const lowsConcerns: ReportSection = {
@@ -455,9 +361,18 @@ const lowsConcerns: ReportSection = {
     "1-2 bullets honestly naming risks, missed targets, or unexplained metric movements.",
   defaultEnabled: true,
   requires: () => true,
-  userPromptFragment: () => "",
+  userPromptFragment: (ctx) => {
+    const { negatives } = evidenceOf(ctx);
+    if (negatives.length === 0) return "";
+    return `\n## Verified concerns (${ctx.snapshot.snapshotDate})\nEvery item below was computed from this report's input and carries the figure behind it. This is the complete set of concerns the data supports.\n${formatEvidenceItems(
+      negatives
+    )}`;
+  },
   systemPromptFragment: `### Lows / Concerns
-1-2 bullet points naming real concerns: missed milestones (status='delayed'), runway shrinking, unexplained outflows, anomaly hits with negative direction. If there's nothing material to flag, write a single sentence acknowledging it ("No material concerns this period — burn and runway tracking to plan."). Don't manufacture a concern.`,
+1-2 bullet points naming real concerns: missed milestones (status='delayed'), runway shrinking, unexplained outflows, anomaly hits with negative direction. If there's nothing material to flag, write a single sentence acknowledging it ("No material concerns this period — burn and runway tracking to plan."). Don't manufacture a concern.
+- **When the input contains a "## Verified concerns" block, select ONLY from that list**, quoting each item's figure. Do NOT introduce a concern that is not on the list. The list is the complete set the data supports, so fewer items means fewer bullets — and an absent block means the data supports none, which is the "nothing material to flag" case above, not an invitation to find one elsewhere.
+- Items labelled a data-quality caveat (diverging estimates, unattributed change, a changed wallet set) are exactly that: statements about what could be measured, not about how the business performed. Report them as measurement limits and never as losses, outflows, or mismanagement.
+- **No alarmism and no advice.** State the concern and its figure. Do not write "critical", "dangerous", "urgent", or a survival timeline, and do not recommend a course of action — that is financial advice, and this section does not give it.`,
 };
 
 const treasuryOverview: ReportSection = {
@@ -607,10 +522,7 @@ const previousMonthComparison: ReportSection = {
     const delta = cur - prev;
     const pct = prev > 0 ? ((delta / prev) * 100).toFixed(1) : "N/A";
 
-    const attribution = attributeTreasuryChange(
-      ctx.prevSnapshot.balancesDetail,
-      ctx.snapshot.balancesDetail
-    );
+    const attribution = attributionOf(ctx);
     const driver = dominantDriver(attribution);
 
     // Snapshots predating `balances_detail`, and payloads that no longer
@@ -669,8 +581,7 @@ const previousMonthComparison: ReportSection = {
     // agree is the single best signal for how hard the report may lean on the
     // flow number. Absent means absent — coercing null to 0 would invent a
     // "no money moved" reading and then score it as a divergence.
-    const netFlowUsd =
-      ctx.snapshot.netFlowUsd == null ? null : Number(ctx.snapshot.netFlowUsd);
+    const netFlowUsd = netFlowOf(ctx);
     const reconciliation = reconcileWithNetFlow(attribution, netFlowUsd);
     if (reconciliation.verdict === "unavailable") {
       lines.push(
@@ -1286,6 +1197,122 @@ const anomalies: ReportSection = {
     "Runs at report time against the trailing snapshots — not computed for this preview.",
 };
 
+/**
+ * Trailing average of the transaction-derived net flow, over the same window
+ * as the burn average so the two halves of the projection describe the same
+ * stretch of history.
+ *
+ * Contrast with `trailingAverageBurn`, which drops zero months: a burn of zero
+ * is missing data (see burn-metrics.ts), but a NET FLOW of exactly zero is a
+ * real measurement — money moved both ways and cancelled, or nothing moved at
+ * all. So zeros are kept here and only nulls are dropped. Getting this
+ * backwards would bias the projection toward whichever direction the non-zero
+ * months happened to point.
+ */
+function trailingNetFlow(ctx: ReportSectionContext): {
+  avgUsd: number;
+  monthsUsed: number;
+} {
+  const window = ctx.trailing.slice(0, TRAILING_BURN_MONTHS);
+  const values = window
+    .map((s) => (s?.netFlowUsd == null ? null : Number(s.netFlowUsd)))
+    .filter((n): n is number => n !== null && Number.isFinite(n));
+  if (values.length === 0) return { avgUsd: 0, monthsUsed: 0 };
+  return {
+    avgUsd: values.reduce((a, b) => a + b, 0) / values.length,
+    monthsUsed: values.length,
+  };
+}
+
+const nextPeriodForecast: ReportSection = {
+  id: "next_period_forecast",
+  title: "Next Period Projection",
+  description:
+    "A mechanical roll-forward of the trailing average net flow and burn, one period out. Arithmetic, not a prediction — it assumes prices hold and spending continues unchanged.",
+  defaultEnabled: true,
+  // Two prior periods is the floor at which "trailing average" means anything
+  // at all. One period is not an average, and projecting it forward would
+  // dress a single month up as a trend.
+  requires: (ctx) => ctx.trailing.length >= 2,
+  userPromptFragment: (ctx) => {
+    const liq = liquidityOf(ctx);
+    const basis = burnBasis(ctx);
+    const flow = trailingNetFlow(ctx);
+
+    // Nothing to roll forward without a liquid base AND a trailing burn to
+    // divide by. Silent skip rather than a header with a caveat under it.
+    if (!liq.derived || basis.source !== "trailing" || basis.avgUsd <= 0) {
+      return "";
+    }
+    if (flow.monthsUsed === 0) return "";
+
+    const reserves = liquidReservesUsd(liq);
+    const projectedReserves = reserves + flow.avgUsd;
+    const monthsNow = liquidRunwayMonths(reserves, basis.avgUsd);
+    // Reserves can project negative when the trailing net flow is steeply
+    // negative. Clamped at zero for the runway line only, because a negative
+    // runway is not a shorter runway — it is the projection running past the
+    // point where its own assumptions stop holding.
+    const monthsThen = liquidRunwayMonths(
+      Math.max(projectedReserves, 0),
+      basis.avgUsd
+    );
+
+    const lines: string[] = [
+      `- Trailing average net flow (inflows minus outflows): ${signedUsd(
+        flow.avgUsd
+      )} per period, averaged over the ${flow.monthsUsed} prior period${
+        flow.monthsUsed === 1 ? "" : "s"
+      } that recorded a net flow figure`,
+      `- Burn basis — ${burnBasisLabel(basis)}: ${formatUsd(basis.avgUsd)}`,
+      `- Spendable liquid reserves today (${ctx.snapshot.snapshotDate}): ${formatUsd(
+        reserves
+      )}`,
+      `- MECHANICAL PROJECTION — spendable liquid reserves one period out, IF that same average net flow repeats: ${formatUsd(
+        projectedReserves
+      )}`,
+    ];
+
+    if (monthsNow != null && monthsThen != null) {
+      lines.push(
+        `- MECHANICAL PROJECTION — liquid runway at that point, at the same average burn: ${monthsThen.toFixed(
+          1
+        )} months (today: ${monthsNow.toFixed(1)} months)`
+      );
+    }
+
+    if (projectedReserves < 0) {
+      lines.push(
+        `- The projected reserve figure is negative. That does not mean the project runs out — it means the trailing average cannot be extended this far without something changing. Say the projection breaks down; do not report a negative balance or a date of insolvency.`
+      );
+    }
+
+    lines.push(
+      "",
+      "ASSUMPTIONS — every figure above holds only while ALL of these do, and each fails routinely:",
+      "- Asset prices stay exactly where they were on the snapshot date. No price movement is modelled in either direction.",
+      "- Spending continues at the trailing average, with no new hires, no annual invoices, no one-off costs.",
+      "- Inflows repeat at the trailing average, with no funding round, no token sale, and no revenue change.",
+      "- The wallet set stays the same, and the classifier keeps categorising the same way.",
+      "",
+      "NOT PROJECTED, and not to be projected: token price, market cap, holder count, treasury total, or any figure that depends on where a market goes. This block extends two averages forward by one period and does nothing else."
+    );
+
+    return `\n## Mechanical projection for the next period (arithmetic, NOT a forecast)\n${lines.join(
+      "\n"
+    )}`;
+  },
+  systemPromptFragment: `### Next Period Projection (CONDITIONAL)
+- Only render when the input contains a "## Mechanical projection for the next period" block. Three sentences, maximum, plus at most two figures.
+- **Open by naming what this is: a mechanical projection, not a prediction.** The first sentence must carry both the label and the assumptions — prices flat and spending continuing at the trailing average — in the same breath as the number. A projected figure quoted before its assumptions has already misled the reader; a caveat in a later sentence does not undo that.
+- **Forbidden verbs and phrasings, without exception:** "will", "expects to", "is on track to", "is projected to reach", "should", "anticipates", "forecasts", "by year end". Use conditional framing only: "if the trailing average net flow repeats and prices hold, reserves would sit near $X". "Would", "if", and "at this rate" are the register.
+- **Never project, mention, or imply a future token price, market cap, or valuation** — not as a number, not as a direction, not as a range. The input contains no price projection because a price projection cannot be made honestly, and inventing one is the single worst error available in this section.
+- Do not attach a probability, a confidence level, or a word like "likely", "conservative", "comfortable" or "healthy" to the projection. It is arithmetic with no error bars.
+- If the input says the projection breaks down or the projected figure is negative, say that the trailing average cannot be extended this far — never report a negative balance, a runway of zero, or a date the project runs out of money.
+- No advice. Do not suggest raising, cutting, extending, or diversifying anything.`,
+  notReadyHint: "Needs at least two prior snapshots to average.",
+};
+
 const lookingAhead: ReportSection = {
   id: "looking_ahead",
   title: "Looking Ahead",
@@ -1384,6 +1411,7 @@ const qaHighlights: ReportSection = {
  */
 export const SECTION_LIBRARY: readonly ReportSection[] = [
   executiveSummary,
+  keyTakeaways,
   wins,
   lowsConcerns,
   treasuryOverview,
@@ -1402,6 +1430,7 @@ export const SECTION_LIBRARY: readonly ReportSection[] = [
   milestonesCompleted,
   partnersIntegrations,
   anomalies,
+  nextPeriodForecast,
   lookingAhead,
   asks,
   qaHighlights,
@@ -1569,7 +1598,8 @@ ${sectionRules}
   Inputs in this prompt are already pre-formatted — copy that style verbatim.
 - Compare to previous month whenever data is available.
 - Do not use excessive formatting. Clean, readable paragraphs.
-- Total length: 600-1200 words.`;
+- Total length: 800-1600 words.
+- **The budget is shared across every section above, and it is not a target to fill.** If the input is thin, write a short report — padding is the failure mode this whole prompt is built to avoid. But the ceiling is not permission to drop a section either: when the word count is under pressure, tighten prose everywhere before removing anything the input supports. A section silently omitted because the budget ran out is indistinguishable, to the reader, from a section the data could not support.`;
 }
 
 export function buildUserPrompt(

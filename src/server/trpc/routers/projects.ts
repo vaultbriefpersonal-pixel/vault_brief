@@ -411,15 +411,23 @@ export const projectsRouter = router({
         where: eq(treasurySnapshots.projectId, input.projectId),
         orderBy: [desc(treasurySnapshots.snapshotDate)],
       });
-      const prevSnapshot = snapshot
-        ? await ctx.db.query.treasurySnapshots.findFirst({
+      // Prior snapshots, most-recent-first, EXCLUDING the current one — the
+      // ordering `ReportSectionContext.trailing` documents. Fetched as a
+      // series rather than a single row because `requires()` gates now read
+      // it: the Next Period Projection needs two prior periods before a
+      // "trailing average" means anything, and readiness answers that gate
+      // with the same data report generation will.
+      const trailing = snapshot
+        ? await ctx.db.query.treasurySnapshots.findMany({
             where: and(
               eq(treasurySnapshots.projectId, input.projectId),
               lt(treasurySnapshots.snapshotDate, snapshot.snapshotDate)
             ),
             orderBy: [desc(treasurySnapshots.snapshotDate)],
+            limit: 3,
           })
-        : undefined;
+        : [];
+      const prevSnapshot = trailing[0];
       const [
         projectMilestones,
         grantsRows,
@@ -465,10 +473,7 @@ export const projectsRouter = router({
       const readiness = evaluateReadiness({
         snapshot,
         prevSnapshot,
-        // Readiness only runs `requires()` gates, none of which look at the
-        // trailing series — so this endpoint skips the extra query rather
-        // than paying for rows nothing reads.
-        trailing: [],
+        trailing,
         project,
         milestones: projectMilestones,
         grants: grantsRows,
