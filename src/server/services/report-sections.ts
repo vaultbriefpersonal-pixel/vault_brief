@@ -9,6 +9,13 @@ import type {
   QaHighlight,
 } from "@/server/db/schema";
 import { formatUsd, formatDate } from "@/lib/utils";
+import {
+  attributeTreasuryChange,
+  dominantDriver,
+  reconcileWithNetFlow,
+  type AttributionDriver,
+  type TokenAttribution,
+} from "./treasury-attribution";
 
 /**
  * Report section library — single source of truth for every block the
@@ -81,6 +88,94 @@ export interface ReportSection {
   notReadyHint?: string;
 }
 
+// ─── prompt formatters ─────────────────────────────────────────────────────
+
+/**
+ * `formatUsd` already carries the minus sign; the explicit plus is what stops
+ * a positive figure from reading as a bare magnitude. Signed components are
+ * the whole point of an attribution — "$4.9M of price movement" and
+ * "-$4.9M of price movement" are opposite stories, and a model that reads
+ * one as the other writes a false sentence into an investor update.
+ */
+function signedUsd(amount: number): string {
+  return amount > 0 ? `+${formatUsd(amount)}` : formatUsd(amount);
+}
+
+/**
+ * Whole days between two snapshot dates. `snapshotDate` is a `date` column
+ * ("2026-06-30"), which parses as UTC midnight, so the subtraction is exact
+ * and immune to the local timezone the report happens to be generated in.
+ * Returns null for anything unparseable rather than emitting "NaN days".
+ */
+function gapInDays(
+  prevDate: string | Date,
+  currDate: string | Date
+): number | null {
+  const prev = new Date(prevDate).getTime();
+  const curr = new Date(currDate).getTime();
+  if (!Number.isFinite(prev) || !Number.isFinite(curr)) return null;
+  return Math.round((curr - prev) / 86_400_000);
+}
+
+/**
+ * Beyond this the balance-derived flow and the period's transaction totals
+ * cover visibly different windows, so cross-comparing them is a mistake the
+ * prompt has to name out loud. 45 days clears a normal monthly cadence
+ * (28-31 days) plus a late sync, without excusing a skipped period.
+ */
+const LONG_GAP_DAYS = 45;
+
+/** Investor-facing names. Field names like `walletSetUsd` mean nothing to a reader. */
+const DRIVER_LABELS: Record<AttributionDriver, string> = {
+  flow: "net asset flows — money that actually moved",
+  price: "price movement of assets already held",
+  cross: "quantity and price moving at the same time",
+  walletSet: "wallets newly tracked or dropped — a coverage change, not a treasury movement",
+  unpriced: "change that cannot be attributed because price data is missing",
+  none: "no measurable movement",
+};
+
+/**
+ * Prices are inputs to a check, not report figures, so precision beats
+ * brevity — the reader has to be able to multiply quantity by price and land
+ * on the stated delta. Digits scale with magnitude so a long-tail token
+ * doesn't round to "$0.0000" and read as unpriced.
+ */
+function formatPrice(price: number): string {
+  if (price === 0) return "unpriced";
+  if (price >= 1) return `$${price.toFixed(2)}`;
+  if (price >= 0.0001) return `$${price.toFixed(4)}`;
+  return `$${price.toFixed(8)}`;
+}
+
+function formatQty(qty: number): string {
+  const abs = Math.abs(qty);
+  const digits = abs >= 1_000 ? 0 : abs >= 1 ? 2 : 6;
+  return qty.toLocaleString("en-US", { maximumFractionDigits: digits });
+}
+
+/**
+ * What actually changed for one token, so the model can attribute the line
+ * instead of guessing. The coverage check comes first: a token appearing in a
+ * newly-tracked wallet has `qtyPrev = 0`, which reads as a quantity move — and
+ * "the treasury received X" is exactly the claim that must not be made about
+ * a wallet we merely started watching.
+ */
+function tokenMovement(t: TokenAttribution): string {
+  if (!t.priced) return "no usable price — change left unattributed";
+  const attributed =
+    Math.abs(t.flowUsd) + Math.abs(t.priceEffectUsd) + Math.abs(t.crossUsd);
+  if (Math.abs(t.walletSetUsd) > attributed) {
+    return "wallet coverage changed — not a treasury movement";
+  }
+  const qtyMoved = t.qtyCurr !== t.qtyPrev;
+  const priceMoved = t.priceCurr !== t.pricePrev;
+  if (qtyMoved && priceMoved) return "quantity and price both moved";
+  if (qtyMoved) return "quantity moved, price unchanged";
+  if (priceMoved) return "price moved, quantity unchanged";
+  return "neither quantity nor price moved";
+}
+
 // ─── individual sections ───────────────────────────────────────────────────
 
 const executiveSummary: ReportSection = {
@@ -99,12 +194,15 @@ const wins: ReportSection = {
   id: "wins",
   title: "Wins this period",
   description:
-    "2-3 bullets calling out positive developments — milestones hit, key partnerships, treasury growth, dev velocity.",
+    "2-3 bullets calling out positive developments — milestones hit, key partnerships, dev velocity. Treasury increases only count when actual inflows caused them.",
   defaultEnabled: true,
   requires: () => true,
   userPromptFragment: () => "",
   systemPromptFragment: `### Wins
-2-3 bullet points of positive developments this period. Pull from milestones completed, treasury growth, dev activity spikes, partnerships, or anomaly detector hits flagged as positive. Be specific — "treasury grew 8% on a $4.9M funding inflow" beats "treasury growth was strong."`,
+2-3 bullet points of positive developments this period. Pull from milestones completed, dev activity spikes, partnerships, or anomaly detector hits flagged as positive.
+- Be specific: name the thing, the date, the counterparty, the number. "Shipped v2 mainnet on 12 April" beats "strong development progress."
+- Specificity means precise facts, NOT invented explanations. State what happened. Attach a cause only when the input states that cause. Never pair a real number with a reason the input does not contain — a plausible-sounding cause you inferred is a fabrication, and it is indistinguishable from a real one to the investor reading it.
+- Do NOT list a treasury increase as a win unless the input attributes that increase to net asset flows — money that actually arrived. An increase the input attributes to price movement of assets already held, to newly-tracked wallets, or to unattributed change is NOT a win: a token appreciating is a market event, not something the team achieved, and an investor who reads it as an achievement has been misled.`,
 };
 
 const lowsConcerns: ReportSection = {
@@ -194,7 +292,7 @@ const previousMonthComparison: ReportSection = {
   id: "previous_month_comparison",
   title: "Month-over-Month",
   description:
-    "Direct comparison: total treasury delta + percentage change vs. last snapshot.",
+    "Treasury delta vs. last snapshot, split into what actually moved in or out versus what was just re-priced by the market.",
   defaultEnabled: true,
   requires: (ctx) => Boolean(ctx.prevSnapshot),
   userPromptFragment: (ctx) => {
@@ -203,11 +301,129 @@ const previousMonthComparison: ReportSection = {
     const prev = Number(ctx.prevSnapshot.totalBalanceUsd ?? 0);
     const delta = cur - prev;
     const pct = prev > 0 ? ((delta / prev) * 100).toFixed(1) : "N/A";
-    return `\n## Previous Month Treasury\n- Total balance: ${formatUsd(prev)}\n- Change: ${formatUsd(delta)} (${pct}%)`;
+
+    const attribution = attributeTreasuryChange(
+      ctx.prevSnapshot.balancesDetail,
+      ctx.snapshot.balancesDetail
+    );
+    const driver = dominantDriver(attribution);
+
+    // Snapshots predating `balances_detail`, and payloads that no longer
+    // parse, both aggregate to nothing rather than throwing — no token rows
+    // and no movement to name. There is genuinely nothing to attribute, so
+    // fall back to the total-balance block this section emitted before
+    // attribution existed. A header promising a breakdown with no breakdown
+    // under it invites the model to fill the gap itself.
+    if (attribution.tokens.length === 0 || driver.driver === "none") {
+      return `\n## Previous Month Treasury\n- Total balance: ${formatUsd(prev)}\n- Change: ${formatUsd(delta)} (${pct}%)`;
+    }
+
+    const gapDays = gapInDays(
+      ctx.prevSnapshot.snapshotDate,
+      ctx.snapshot.snapshotDate
+    );
+    const gapLabel = gapDays === null ? "" : `, ${gapDays} days`;
+
+    const lines: string[] = [
+      `- Previous total balance (${ctx.prevSnapshot.snapshotDate}): ${formatUsd(prev)}`,
+      `- Current total balance (${ctx.snapshot.snapshotDate}): ${formatUsd(cur)}`,
+      // Percent is dropped rather than printed as "N/A" when the prior total
+      // is zero — house rule is silence over placeholders.
+      `- Total change: ${signedUsd(delta)}${prev > 0 ? ` (${pct}%)` : ""}`,
+      "",
+      "Where that change came from (these components sum to the change):",
+    ];
+
+    // House style: drop the bullet rather than print a $0 line. A component
+    // below the significance floor is noise the model would otherwise feel
+    // obliged to narrate.
+    const components: [number, string][] = [
+      [attribution.flowUsd, "Net asset flows (deposits minus withdrawals)"],
+      [attribution.priceEffectUsd, "Price movement of assets already held"],
+      [attribution.crossUsd, "Quantity and price moving at the same time"],
+      [
+        attribution.walletSetUsd,
+        "Newly-tracked or dropped wallets (coverage change — NOT an inflow or outflow)",
+      ],
+      [attribution.unpricedUsd, "Unattributed (price data missing)"],
+    ];
+    for (const [usd, label] of components) {
+      if (Math.abs(usd) > ctx.minSignificant) {
+        lines.push(`- ${label}: ${signedUsd(usd)}`);
+      }
+    }
+
+    lines.push(
+      `- Dominant driver: ${DRIVER_LABELS[driver.driver]} (${signedUsd(
+        driver.usd
+      )}, ${(driver.share * 100).toFixed(0)}% of all movement)`
+    );
+
+    // Two independent estimates of "money moved": this one derived from
+    // balances, `netFlowUsd` derived from parsed transactions. Whether they
+    // agree is the single best signal for how hard the report may lean on the
+    // flow number. Absent means absent — coercing null to 0 would invent a
+    // "no money moved" reading and then score it as a divergence.
+    const netFlowUsd =
+      ctx.snapshot.netFlowUsd == null ? null : Number(ctx.snapshot.netFlowUsd);
+    const reconciliation = reconcileWithNetFlow(attribution, netFlowUsd);
+    if (reconciliation.verdict === "unavailable") {
+      lines.push(
+        `- Cross-check vs transaction-derived net flow: UNAVAILABLE — the two estimates are not comparable this period. Treat the flow figure above as a single unconfirmed estimate.`
+      );
+    } else {
+      const pctApart =
+        reconciliation.divergencePct === null
+          ? ""
+          : `, ${(reconciliation.divergencePct * 100).toFixed(0)}% apart`;
+      lines.push(
+        `- Cross-check vs transaction-derived net flow: ${reconciliation.verdict.toUpperCase()} — balance-derived flow ${signedUsd(
+          attribution.flowUsd
+        )} vs transaction-derived net flow ${signedUsd(
+          netFlowUsd ?? 0
+        )} (gap ${signedUsd(reconciliation.divergenceUsd)}${pctApart}).`
+      );
+    }
+
+    // Sorted by absolute impact upstream. Three is enough to show the model
+    // which position drove the number without letting a long tail of dust
+    // positions into the prompt.
+    const topTokens = attribution.tokens
+      .filter((t) => Math.abs(t.deltaUsd) > ctx.minSignificant)
+      .slice(0, 3);
+    if (topTokens.length > 0) {
+      lines.push("", "Largest per-token contributors:");
+      for (const t of topTokens) {
+        lines.push(
+          `- ${t.symbol || "unknown"} on ${t.chain}: ${signedUsd(
+            t.deltaUsd
+          )} — quantity ${formatQty(t.qtyPrev)} → ${formatQty(
+            t.qtyCurr
+          )}, price ${formatPrice(t.pricePrev)} → ${formatPrice(
+            t.priceCurr
+          )} (${tokenMovement(t)})`
+        );
+      }
+    }
+
+    if (gapDays !== null && gapDays > LONG_GAP_DAYS) {
+      lines.push(
+        "",
+        `NOTE: these snapshots are ${gapDays} days apart, far longer than one reporting period. The flow figure above covers that entire ${gapDays}-day window, while the inflow, outflow and net flow totals elsewhere in this input cover only the reporting period. Do NOT compare, reconcile or add the two. Do NOT present the flow figure as this period's movement — say explicitly that it spans ${gapDays} days.`
+      );
+    }
+
+    return `\n## Treasury change (${ctx.snapshot.snapshotDate} vs ${ctx.prevSnapshot.snapshotDate}${gapLabel})\n${lines.join("\n")}`;
   },
   systemPromptFragment: `### Month-over-Month (CONDITIONAL)
-- Only render if a "## Previous Month Treasury" block appears in the input.
-- Single sentence summarising the delta with a directional verb ("grew", "shrank by", "held steady at"). Don't dramatize a 0.5% move.`,
+- Only render if a "## Treasury change" block (or the legacy "## Previous Month Treasury" block) appears in the input.
+- Open with a single sentence summarising the delta with a directional verb ("grew", "shrank by", "held steady at"). Don't dramatize a 0.5% move.
+- **When the input carries a "Where that change came from" breakdown, naming the driver is MANDATORY, not optional.** The delta never stands alone: the very next sentence states which component moved it, quoting the input's own figures. A total change reported without its attribution is an incomplete answer, not a shorter one.
+- **If price movement of assets already held is the dominant driver, say so plainly and do not call it growth.** The treasury was re-priced; the team did not bring money in. Do not use "grew", "gained", "raised", "inflow", "added", or any verb implying the project earned or received value. The shape to use: "Treasury value rose $4.9M, driven almost entirely by the price of assets already held; net asset flows were roughly flat."
+- **"Newly-tracked or dropped wallets" is NEVER an inflow or an outflow.** It is a change in what is being measured — wallets added to or removed from coverage. Report it as coverage expanding or contracting, with its figure stated separately. Describing it as a deposit, a raise, a withdrawal, or growth is a false statement about the treasury.
+- "Unattributed" means a price feed was missing for part of the treasury, not that value appeared or vanished. Report it as unattributed and, when it is large relative to the total change, say the change is only partly explained.
+- Report the cross-check line as given. CONSISTENT means the two independent estimates agree and the flow figure can be stated directly. DIVERGING means they disagree — say the balance-derived flow is not confirmed by the recorded transactions and hedge accordingly. UNAVAILABLE means no comparison was possible — never present the flow figure as verified.
+- **Never assert a cause the input does not support.** The input names components, not reasons. "Driven by price movement" is supported — it is a component the data measures. "Driven by the funding round", "on the back of revenue", "following the partnership announcement" are NOT, unless that cause appears verbatim elsewhere in this input. When no cause is available, name the component and stop.`,
   notReadyHint: "Needs at least one prior monthly snapshot.",
 };
 
@@ -236,6 +452,16 @@ const financialHealth: ReportSection = {
     if (snapshot.totalOutflowsUsd) {
       lines.push(`- Total outflows: ${formatUsd(Number(snapshot.totalOutflowsUsd))}`);
     }
+    // Presence check, not truthiness, unlike the lines above: a net flow of
+    // exactly zero is a real finding (money moved both ways and cancelled),
+    // and only null means the transaction sync produced no figure. The sign
+    // is spelled out because "$4.9M" and "-$4.9M" are opposite stories and a
+    // dropped minus turns a drawdown into a raise.
+    if (snapshot.netFlowUsd != null) {
+      lines.push(
+        `- Net flow (inflows minus outflows): ${signedUsd(Number(snapshot.netFlowUsd))}`
+      );
+    }
     if (lines.length === 0) return "";
     return `\n## Financial Metrics\n${lines.join("\n")}`;
   },
@@ -243,6 +469,7 @@ const financialHealth: ReportSection = {
 - Monthly burn rate (only if available).
 - Runway in months (only if available).
 - Inflows and outflows totals — only the ones the input provides.
+- When the input gives a net flow, report it alongside inflows and outflows — it is what reconciles them, and omitting it leaves the reader unable to tell whether the treasury took in more than it paid out. Preserve its sign: a negative net flow means the project paid out more than it received, and must read that way. Never state it as a bare positive figure.
 - Do NOT echo "Not available" for missing fields. Drop the bullet.`,
   notReadyHint: "Needs at least one period with inflows or outflows.",
 };
