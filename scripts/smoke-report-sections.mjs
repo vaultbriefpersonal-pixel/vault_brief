@@ -291,6 +291,16 @@ const baseInput = {
   check("user prompt has Token Metrics", user.includes("## Token Metrics"));
   check("user prompt has Development Activity", user.includes("## Development Activity"));
   check("user prompt has Treasury operations block", user.includes("Treasury operations"));
+  // The default fixture is parseable (balancesDetail present) but neither
+  // trigger holds: TEST is ~12.9% of the treasury (below the 20% floor) and
+  // stablecoins cover ~18 months of trailing burn (above the 3-month floor).
+  // This is the exact class of false positive the treasury_concentration
+  // bug produced — the section firing for any parseable-but-not-actually-
+  // concentrated treasury — so its absence here is load-bearing.
+  check(
+    "user prompt does NOT include Treasury concentration when neither trigger holds",
+    !user.includes("## Treasury concentration and liquidity")
+  );
 
   // Manual sections OFF by default — neither user nor system blocks render
   check(
