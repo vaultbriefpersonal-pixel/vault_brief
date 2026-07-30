@@ -5,6 +5,7 @@ import {
   classifyHolding,
   composeTreasury,
   compositionSlices,
+  isDustHolding,
   isOwnToken,
   DUST_FLOOR_USD,
   type ProjectTokenIdentity,
@@ -19,6 +20,23 @@ const STETH = "0xae7ab96520de3a18e5e111b5eaab095312d7fe84";
 function wallet(chain: string, tokens: unknown[]) {
   return { walletAddress: "0xwallet", chain, tokens };
 }
+
+// ─── isDustHolding — the exported, single-source-of-truth predicate ────────
+
+describe("isDustHolding", () => {
+  it("is true for a $50 holding — below the floor", () => {
+    expect(isDustHolding({ valueUsd: 50 })).toBe(true);
+  });
+
+  it("is false for exactly $100 — the floor is exclusive-below", () => {
+    expect(isDustHolding({ valueUsd: DUST_FLOOR_USD })).toBe(false);
+    expect(isDustHolding({ valueUsd: 100 })).toBe(false);
+  });
+
+  it("is false for a $1000 holding", () => {
+    expect(isDustHolding({ valueUsd: 1000 })).toBe(false);
+  });
+});
 
 // ─── classifyHolding — the single predicate ────────────────────────────────
 

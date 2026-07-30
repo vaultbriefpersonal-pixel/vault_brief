@@ -96,6 +96,8 @@ export interface RawTransaction {
 export interface ClassifiedTransaction extends RawTransaction {
   category: AnyCategory;
   confidence: number;
+  /** True when a rule identified this as likely spam rather than genuine income. Absent (not false) everywhere else. */
+  spamSuspect?: boolean;
 }
 
 // The known-address sets live in ./counterparty-labels — a deliberately
@@ -230,7 +232,19 @@ async function classifyByDirection(
       continue;
     }
 
-    // 2) Recurring-transfer signal. Outflows only — investors don't tend
+    // 2) Inbound, unpriceable, and recorded at exactly zero — an unsolicited
+    //    spam airdrop, not a judgment call. Never sent to the LLM: that call
+    //    previously came back with a fabricated 0.95 confidence for "airdrop",
+    //    which is both wrong (it's a guess, not a fact) and wasted tokens on an
+    //    unambiguous case. 0.3 confidence is deliberately low — high enough to
+    //    still slot into `airdrop`'s existing category handling, low enough
+    //    that nothing downstream mistakes this for a confident classification.
+    if (direction === "in" && tx.priceUnknown === true && tx.valueUsd === 0) {
+      results.push({ ...tx, category: "airdrop", confidence: 0.3, spamSuspect: true });
+      continue;
+    }
+
+    // 3) Recurring-transfer signal. Outflows only — investors don't tend
     //    to pay the project the same amount three months in a row, but
     //    contributors do. Bypasses the LLM with high confidence when
     //    confirmed.
@@ -242,7 +256,7 @@ async function classifyByDirection(
       }
     }
 
-    // 3) Fall through to the LLM batch.
+    // 4) Fall through to the LLM batch.
     needsAI.push(tx);
   }
 
