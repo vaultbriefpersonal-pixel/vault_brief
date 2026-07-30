@@ -11,6 +11,7 @@ import type {
 } from "@/server/db/schema";
 import { formatUsd } from "@/lib/utils";
 import type { Anomaly } from "./anomalies";
+import { changeSignificanceFloor } from "./report-derived";
 import {
   buildSystemPrompt,
   buildUserPrompt,
@@ -93,7 +94,12 @@ export function buildReportPrompts(
     anomalies,
     period,
     total,
-    minSignificant: total > 0 ? total * 0.001 : 0,
+    // The floor for CHANGE components only — see the field's doc comment in
+    // report-derived.ts. 0.1% of a $1.06B treasury is ~$1.06M, which is the
+    // right bar for "is this delta worth a sentence?" and the wrong bar for
+    // everything else, so composition reads DUST_FLOOR_USD and revenue reads
+    // RECURRING_INCOME_FLOOR_USD instead.
+    minSignificant: changeSignificanceFloor(total),
   };
   const enabled = resolveSections(storedSections);
   return {

@@ -50,9 +50,13 @@ import {
   type TreasuryAttribution,
 } from "./treasury-attribution";
 import {
-  analyzeTreasuryLiquidity,
+  liquidityFromBuckets,
   type TreasuryLiquidity,
 } from "./treasury-liquidity";
+import {
+  composeTreasury,
+  type TreasuryComposition,
+} from "./treasury-composition";
 import { trailingAverageBurn } from "./burn-metrics";
 import type { Anomaly } from "./anomalies";
 
@@ -105,8 +109,78 @@ export interface ReportSectionContext {
   anomalies: Anomaly[];
   /** Total balance in USD, computed once. */
   total: number;
-  /** Minimum balance to be worth mentioning (0.1% of total). */
+  /**
+   * The floor for "is this component of a CHANGE worth narrating?" —
+   * `max(total * 0.001, $1_000)`, set in prompts.ts.
+   *
+   * Proportional is the right shape for a delta: a $900K move inside a $1.06B
+   * treasury genuinely is noise, and narrating it costs the reader the
+   * attention the real driver needed. The absolute $1K arm stops a tiny
+   * treasury from having every rounding difference promoted to a finding.
+   *
+   * It is emphatically NOT the floor for composition or for revenue — see
+   * `DUST_FLOOR_USD` and `RECURRING_INCOME_FLOOR_USD` below. One floor was
+   * serving all three questions, and on the fixture treasury it evaluated to
+   * ~$1.06M, which suppressed the entire stablecoin and ETH position from the
+   * Treasury Overview and would suppress a real $500K/month revenue line.
+   */
   minSignificant: number;
+}
+
+// ─── the three floors ──────────────────────────────────────────────────────
+//
+// `ctx.minSignificant` (above) answers "is this component of a change worth
+// narrating?" and is proportional. These two answer different questions and are
+// deliberately absolute, because proportional is not merely imprecise for them
+// — it is backwards.
+
+/**
+ * "Does this holding exist?" — the floor for COMPOSITION: the Treasury Overview
+ * buckets, its per-asset rows, and the `treasury_by_chain` gate and lines.
+ *
+ * Proportional is flatly wrong here. "$1,136 of stablecoins against a $1.06B
+ * total" is not an immaterial figure to be dropped; it IS the finding, because
+ * it says the treasury holds essentially no spendable cash. A 0.1%-of-total
+ * floor deletes exactly the sentence an investor most needs.
+ *
+ * Re-exported from treasury-composition.ts, which owns it because the same
+ * constant also decides which holdings get named individually versus rolled
+ * into the dust line.
+ */
+export { DUST_FLOOR_USD } from "./treasury-composition";
+
+/**
+ * "Is there a revenue line here?" — the floor for `protocol_revenue.requires`.
+ *
+ * Revenue is measured against BURN, not against the balance sheet. A protocol
+ * earning a real $500K/month must not have its revenue section suppressed
+ * because it also happens to sit on a $1.06B treasury, which is precisely what
+ * a 0.1%-of-total floor did. $5K/month is the point below which recurring
+ * income is dust yield rather than a business line.
+ */
+export const RECURRING_INCOME_FLOOR_USD = 5_000;
+
+/**
+ * `ctx.minSignificant` from a treasury total: proportional at 0.1%, with an
+ * absolute $1K arm so a small treasury does not promote every rounding
+ * difference to a finding.
+ *
+ * A function rather than an inline expression because TWO places build a
+ * `ReportSectionContext` — `buildReportPrompts` in prompts.ts and
+ * `getSectionReadiness` in the projects router — and they had already
+ * duplicated the formula. Duplicated, they can disagree, and then the
+ * constructor UI's readiness chip says a section will render while the report
+ * that actually runs decides it will not.
+ *
+ * `Number.isFinite` guards a snapshot whose stored total does not parse: NaN
+ * would poison every `>` comparison into `false` and silently suppress
+ * everything gated on this.
+ */
+export function changeSignificanceFloor(total: number): number {
+  return Math.max(
+    Number.isFinite(total) && total > 0 ? total * 0.001 : 0,
+    1_000
+  );
 }
 
 // ─── shared formatter ──────────────────────────────────────────────────────
@@ -137,8 +211,49 @@ export const STABLE_COVER_FLOOR_MONTHS = 3;
  */
 export const CONCENTRATION_PCT_FLOOR = 20;
 
+/**
+ * The full per-token composition of the current snapshot — buckets, sorted
+ * per-asset rows, the dust rollup and the unpriced count — memoized per context
+ * object on the same `WeakMap` pattern `attributionOf` and `budgetComparison`
+ * use, and for the same two reasons.
+ *
+ * Cost: it walks every token in `balances_detail`, and it now has several
+ * callers on identical inputs (the Treasury Overview buckets, that section's
+ * `requires` gate, its per-asset table, `liquidityOf` below and therefore the
+ * runway figure, the concentration gate, and the evidence ledger through them).
+ *
+ * Correctness, which matters more: the gate that decides whether the Treasury
+ * Overview renders and the table that prints its rows must read the identical
+ * composition. Two independent calls could not disagree today, but a section
+ * that fires on "there is a stablecoin position" and then prints no stablecoin
+ * row would be a defect that only shows up in a shipped report — and routing
+ * both through one accessor makes it unreachable rather than merely unlikely.
+ */
+const COMPOSITION_MEMO = new WeakMap<
+  ReportSectionContext,
+  TreasuryComposition
+>();
+
+export function compositionOf(
+  ctx: ReportSectionContext
+): TreasuryComposition {
+  const cached = COMPOSITION_MEMO.get(ctx);
+  if (cached) return cached;
+  const composition = composeTreasury(
+    ctx.snapshot.balancesDetail,
+    ctx.project
+  );
+  COMPOSITION_MEMO.set(ctx, composition);
+  return composition;
+}
+
+/**
+ * The liquidity/runway view of the same composition. Projected rather than
+ * recomputed, so the runway denominator and the Treasury Overview table can
+ * never be derived from two different reads of the same JSONB.
+ */
 export function liquidityOf(ctx: ReportSectionContext): TreasuryLiquidity {
-  return analyzeTreasuryLiquidity(ctx.snapshot.balancesDetail, ctx.project);
+  return liquidityFromBuckets(compositionOf(ctx));
 }
 
 export interface BurnBasis {

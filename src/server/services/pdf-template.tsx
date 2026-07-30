@@ -22,10 +22,20 @@ interface PDFTemplateProps {
   period: string;
   content: ParsedReportContent;
   primaryColor?: string;
-  /** Latest snapshot — drives the composition pie + chain split charts. */
+  /** Latest snapshot — drives the chain split + trend charts. */
   snapshot?: TreasurySnapshot | null;
   /** Oldest → newest, up to 6 entries. Drives the trend bars + sparkline. */
   trendSnapshots?: TreasurySnapshot[];
+  /**
+   * Composition donut slices, already derived by the caller from the
+   * snapshot's per-token `balances_detail` through the shared classifier in
+   * treasury-composition.ts. Passed in rather than computed here because this
+   * template must not carry data policy: it used to read the four frozen
+   * snapshot columns directly, which is how the donut came to read "Other
+   * 100.0%" on a treasury the report's own prose described correctly.
+   * See pdf-generator.ts for the derivation and the full account.
+   */
+  compositionSlices?: { label: string; value: number }[];
 }
 
 interface ParsedReportContent {
@@ -393,6 +403,7 @@ export function VaultBriefPDF({
   primaryColor = NAVY,
   snapshot,
   trendSnapshots = [],
+  compositionSlices: compositionSlicesProp = [],
 }: PDFTemplateProps) {
   // The accent palette flows through three places: project name (header),
   // bullet dots, and the footer link. Compute once for consistency.
@@ -401,14 +412,12 @@ export function VaultBriefPDF({
   // Derive chart inputs once. All chart components null-out internally
   // when the data isn't sufficient (e.g. fewer than 2 trend points), so
   // we can pass them unconditionally.
-  const compositionSlices = snapshot
-    ? [
-        { label: "Stables", value: Number(snapshot.stablecoinsUsd ?? 0) },
-        { label: "ETH/WETH", value: Number(snapshot.ethUsd ?? 0) },
-        { label: "Native token", value: Number(snapshot.nativeTokenUsd ?? 0) },
-        { label: "Other", value: Number(snapshot.otherAssetsUsd ?? 0) },
-      ].filter((s) => s.value > 0)
-    : [];
+  // Zero-value slices are dropped, and that stays deliberate: a bucket the
+  // treasury holds nothing in should not render a 0% wedge with a legend entry,
+  // because a wedge is a claim that there is something there. The slices
+  // themselves now arrive already derived from per-token balances (see the prop
+  // doc above) — the ONLY thing this line still decides is what to draw.
+  const compositionSlices = compositionSlicesProp.filter((s) => s.value > 0);
   const chainEntries = snapshot?.balancesByChain
     ? Object.entries(snapshot.balancesByChain as Record<string, number>).map(
         ([chain, value]) => ({ chain, value: Number(value) })

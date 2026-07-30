@@ -279,6 +279,17 @@ export default function ReportEditorPage({ params }: Props) {
           safes={safes ?? []}
           trend={trend}
           milestones={milestoneList ?? []}
+          // The own-token identity the composition classifier needs. Without
+          // it the project's own holdings fall into "Other assets".
+          // `reports.getById` already joins the project row (`with: { project:
+          // true }`), so this is threaded from data the query returns, not
+          // fetched again.
+          project={
+            (report.project as {
+              tokenSymbol?: string | null;
+              tokenContract?: string | null;
+            } | null) ?? null
+          }
         />
         <ReportEditor
           initialContent={report.contentMd ?? ""}

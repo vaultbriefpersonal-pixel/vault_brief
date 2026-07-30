@@ -171,6 +171,9 @@ export default async function PublicReportPage({ params }: Props) {
           safes={safes}
           trend={trend}
           milestones={milestoneList}
+          // The own-token identity the composition classifier needs. Without
+          // it the project's own holdings fall into "Other assets".
+          project={project}
         />
         <ReportPreview content={report.contentMd ?? ""} />
       </article>

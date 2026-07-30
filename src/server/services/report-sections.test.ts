@@ -11,8 +11,11 @@ import {
 } from "./report-sections";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "./expense-classifier";
 import {
+  changeSignificanceFloor,
+  DUST_FLOOR_USD,
   EXPENSE_CATEGORY_NAMES,
   INCOME_CATEGORY_NAMES,
+  RECURRING_INCOME_FLOOR_USD,
 } from "./report-derived";
 import type { TreasurySnapshot } from "@/server/db/schema";
 
@@ -342,12 +345,39 @@ describe("protocol_revenue — requires", () => {
     }
   });
 
-  it("does NOT trigger on recurring income below the significance floor", () => {
+  it("does NOT trigger on recurring income below the revenue floor", () => {
+    // The floor is RECURRING_INCOME_FLOOR_USD ($5K absolute), not the
+    // proportional `ctx.minSignificant`. Below it, recurring income is dust
+    // yield rather than a business line.
     expect(
       revenue.requires(
-        contextWith({ incomeByCategory: { revenue: MIN_SIGNIFICANT - 1 } })
+        contextWith({
+          incomeByCategory: { revenue: RECURRING_INCOME_FLOOR_USD - 1 },
+        })
       )
     ).toBe(false);
+    expect(
+      revenue.requires(
+        contextWith({
+          incomeByCategory: { revenue: RECURRING_INCOME_FLOOR_USD + 1 },
+        })
+      )
+    ).toBe(true);
+  });
+
+  it("fires on real revenue that a proportional floor would have suppressed", () => {
+    // The reason the floors were split. Revenue is measured against burn, not
+    // against the balance sheet: a protocol earning $500K/month has a revenue
+    // line whether it holds $8.5M or $1.06B, and gating on 0.1% of the treasury
+    // deleted the whole section for the large one. Here the treasury is $1.06B,
+    // so `minSignificant` is ~$1.06M and the old gate would have said false.
+    const ctx = contextWith(
+      { incomeByCategory: { revenue: 500_000 } },
+      null,
+      { total: 1_055_781_357.29, minSignificant: 1_055_781.36 }
+    );
+    expect(ctx.minSignificant).toBeGreaterThan(500_000);
+    expect(revenue.requires(ctx)).toBe(true);
   });
 
   it("does NOT trigger without a classified income breakdown", () => {
@@ -1009,6 +1039,295 @@ describe("treasury_concentration", () => {
     const user = buildUserPrompt(ownTokenHeavyContext(), resolveSections(null));
     expect(user).toContain("## Treasury concentration and liquidity");
     expect(user).toContain("## Financial Metrics");
+  });
+});
+
+// ─── the three floors ──────────────────────────────────────────────────────
+//
+// One floor used to serve three incompatible questions. On the fixture
+// treasury it evaluated to ~$1.06M, which was simultaneously the right bar for
+// "is this delta worth a sentence?" and catastrophically wrong for "does this
+// holding exist?" and "is there a revenue line?".
+
+describe("the three significance floors are distinct and correctly shaped", () => {
+  it("keeps the change floor proportional, with an absolute $1K arm", () => {
+    expect(changeSignificanceFloor(1_055_781_357.29)).toBeCloseTo(1_055_781.36, 2);
+    // Below $1M of treasury the proportional arm is under $1K, so the absolute
+    // arm takes over — a $9 move in a $9K treasury is still not a finding.
+    expect(changeSignificanceFloor(9_000)).toBe(1_000);
+    expect(changeSignificanceFloor(0)).toBe(1_000);
+    expect(changeSignificanceFloor(Number.NaN)).toBe(1_000);
+    expect(changeSignificanceFloor(-5)).toBe(1_000);
+  });
+
+  it("keeps the composition and revenue floors absolute", () => {
+    expect(DUST_FLOOR_USD).toBe(100);
+    expect(RECURRING_INCOME_FLOOR_USD).toBe(5_000);
+  });
+
+  it("makes the composition floor independent of treasury size — the point of the split", () => {
+    // The regression this encodes: at $1.06B the proportional floor is four
+    // orders of magnitude above the dust floor, so composition gated on it
+    // deleted every liquidity figure the treasury had.
+    expect(changeSignificanceFloor(1_055_781_357.29)).toBeGreaterThan(
+      DUST_FLOOR_USD * 10_000
+    );
+    expect(changeSignificanceFloor(1_055_781_357.29)).toBeGreaterThan(
+      RECURRING_INCOME_FLOOR_USD * 100
+    );
+  });
+});
+
+// ─── treasury_overview: composition derived at read time ───────────────────
+//
+// The section used to read the four FROZEN snapshot columns
+// (`stablecoins_usd` / `eth_usd` / `native_token_usd` / `other_assets_usd`),
+// computed once at sync time against whatever the project had entered then, and
+// gate each bucket on `ctx.minSignificant` = 0.1% of the treasury.
+//
+// On the real fixture — the Uniswap DAO Treasury, snapshot
+// 306f5550-ac28-4beb-aacd-cdc79b96e757 — those two facts combined to produce a
+// Treasury Overview table with exactly ONE row, "Other assets $1.06B 100%":
+// `projects.token_symbol` was NULL at sync so `native_token_usd` froze at
+// $0.00, and the proportional floor evaluated to ~$1.06M so the $1,136 of
+// stablecoins and the $440 of ETH were both suppressed. There was also no
+// per-individual-token row source anywhere in the product, though
+// `balances_detail` held all 53 holdings.
+
+/** The fixture's stored per-token shape: NO `contractAddress` key on any row. */
+const B5_TOTAL = 1_055_781_357.29;
+const B5_BALANCES = [
+  {
+    walletAddress: "0x1a9c8182c09f50c8318d769245bea52c32be35bc",
+    chain: "ethereum",
+    tokens: [
+      {
+        name: "Uniswap",
+        amount: 267_134_858.4790704,
+        symbol: "UNI",
+        priceUsd: 3.952232120812,
+        valueUsd: 1_055_778_968.2695498,
+      },
+      { name: "Tether USD", amount: 1_000.96, symbol: "USDT", priceUsd: 1, valueUsd: 1_000.96 },
+      { name: "henlo", amount: 2.1e12, symbol: "henlo", priceUsd: 3.3767e-10, valueUsd: 709.12 },
+      { name: "Ethereum", amount: 0.1, symbol: "ETH", priceUsd: 4_395.7, valueUsd: 439.57 },
+      { name: "USD Coin", amount: 135.38, symbol: "USDC", priceUsd: 1, valueUsd: 135.38 },
+      { name: "Alethea", amount: 931_800, symbol: "ALI", priceUsd: 0.0001, valueUsd: 93.18 },
+      { name: "Spam", amount: 5_000, symbol: "ZIK", priceUsd: 0.001, valueUsd: 5 },
+      { name: "Unpriceable", amount: 146_000_000, symbol: "AQ0", priceUsd: 0, valueUsd: 0 },
+    ],
+  },
+];
+
+/** The fixture as it is TODAY: token symbol set, no contract, no re-sync. */
+const B5_PROJECT = {
+  name: "Uniswap DAO Treasury",
+  tokenSymbol: "UNI",
+  tokenContract: null,
+} as unknown as ReportSectionContext["project"];
+
+function b5Context(
+  extra: Partial<ReportSectionContext> = {}
+): ReportSectionContext {
+  return contextWith(
+    {
+      balancesDetail: B5_BALANCES,
+      totalBalanceUsd: String(B5_TOTAL),
+      // The frozen columns, exactly as stored — deliberately wrong, and
+      // deliberately still present, so a regression that reads them again is
+      // visible as "Other assets $1.06B" reappearing.
+      stablecoinsUsd: "1136.34",
+      ethUsd: "439.57",
+      nativeTokenUsd: "0.00",
+      otherAssetsUsd: "1055779781.38",
+    },
+    null,
+    {
+      project: B5_PROJECT,
+      total: B5_TOTAL,
+      // ~$1.06M — the floor that suppressed both liquidity figures.
+      minSignificant: Math.max(B5_TOTAL * 0.001, 1_000),
+      ...extra,
+    }
+  );
+}
+
+describe("treasury_overview — the literal B5 regression", () => {
+  const overview = section("treasury_overview");
+
+  it("emits the $1,136 stablecoin bullet against a $1.06B total", () => {
+    const ctx = b5Context();
+    // The proportional floor is three orders of magnitude above the figure.
+    expect(ctx.minSignificant).toBeGreaterThan(1_000_000);
+    const fragment = overview.userPromptFragment(ctx);
+    // `formatUsd` compacts at $1K, so $1,136.34 prints as "$1.1K" — the shared
+    // formatter every section uses, and the figure it conveys is the finding:
+    // roughly a thousand dollars of spendable cash against $1.06B of assets.
+    expect(fragment).toContain("- Stablecoins: $1.1K");
+    expect(fragment).toContain("- Total balance: $1.06B");
+  });
+
+  it("emits the ETH bullet the proportional floor suppressed", () => {
+    expect(overview.userPromptFragment(b5Context())).toContain("$439.57");
+  });
+
+  it("attributes the $1.06B to the project's own token, not to Other assets", () => {
+    const fragment = overview.userPromptFragment(b5Context());
+    expect(fragment).toContain("UNI, the project's own token");
+    // The one-row table that shipped. `other` is genuinely near-zero here —
+    // henlo + ALI — so an "Other assets" line at a billion means the frozen
+    // column is being read again.
+    expect(fragment).not.toContain("- Other assets, unrecognised and treated as illiquid: $1.06B");
+  });
+
+  it("emits per-asset rows — a source that did not exist anywhere before", () => {
+    const fragment = overview.userPromptFragment(b5Context());
+    expect(fragment).toContain("Individual holdings, largest first");
+    expect(fragment).toContain("UNI on ethereum: $1.06B");
+    expect(fragment).toContain("USDT on ethereum: $1.0K");
+    expect(fragment).toContain("USDC on ethereum: $135.38");
+    // At least one row beyond the headline position.
+    const rows = fragment
+      .split("\n")
+      .filter((l) => /^- \w+ on \w+: /.test(l));
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("rolls dust up instead of naming it, and never names an unpriced holding", () => {
+    const fragment = overview.userPromptFragment(b5Context());
+    // ZIK is $5 — below DUST_FLOOR_USD, so it is counted and never named.
+    expect(fragment).not.toContain("ZIK");
+    expect(fragment).toContain("smaller holding");
+    // AQ0 holds 146M units at no price: reported as a count, in no total.
+    expect(fragment).not.toContain("AQ0");
+    expect(fragment).toContain("1 holding with no price feed");
+  });
+
+  it("keeps the named rows and the rollup adding up to the per-token total", () => {
+    const fragment = overview.userPromptFragment(b5Context());
+    expect(fragment).toContain("- Total across priced holdings:");
+    expect(fragment).toContain("- Total balance: $1.06B");
+  });
+
+  it("gates buckets on DUST_FLOOR_USD, not on the proportional floor", () => {
+    // A stablecoin position below the absolute floor genuinely is not a
+    // holding worth a bullet — the floor still exists, it is just the right one.
+    const ctx = contextWith(
+      {
+        balancesDetail: [
+          {
+            walletAddress: "0xw",
+            chain: "ethereum",
+            tokens: [
+              { symbol: "USDC", valueUsd: DUST_FLOOR_USD - 1 },
+              { symbol: "MYSTERY", valueUsd: 5_000_000 },
+            ],
+          },
+        ],
+      },
+      null,
+      { minSignificant: 5_000 }
+    );
+    const fragment = overview.userPromptFragment(ctx);
+    expect(fragment).not.toContain("- Stablecoins:");
+    expect(fragment).toContain("Other assets, unrecognised");
+  });
+
+  it("carries the rules that keep dust and unpriced holdings honest", () => {
+    expect(overview.systemPromptFragment).toContain("derived at read time");
+    expect(overview.systemPromptFragment).toContain("must never be named");
+    expect(overview.systemPromptFragment).toContain("no price feed");
+  });
+
+  it("renders end-to-end in the default section set", () => {
+    const user = buildUserPrompt(b5Context(), resolveSections(null));
+    expect(user).toContain("## Current Treasury");
+    expect(user).toContain("- Stablecoins: $1.1K");
+    expect(user).toContain("Individual holdings, largest first");
+    const system = buildSystemPrompt(resolveSections(null), b5Context());
+    expect(system).toContain("### Treasury Overview");
+  });
+});
+
+describe("treasury_overview — underived, legacy and malformed payloads", () => {
+  const overview = section("treasury_overview");
+
+  it("still renders the total when the snapshot carries no per-token detail", () => {
+    // Every snapshot predating `balances_detail`. `derived` is false, so no
+    // bucket line and no asset row may be printed — but the headline total is
+    // real and must not disappear with them.
+    for (const balancesDetail of [null, undefined, [], "garbage", 7, [{}]]) {
+      const ctx = contextWith({ balancesDetail }, null, { project: B5_PROJECT });
+      expect(overview.requires(ctx)).toBe(true);
+      const fragment = overview.userPromptFragment(ctx);
+      expect(fragment).toContain("- Total balance:");
+      expect(fragment).not.toContain("- Stablecoins:");
+      expect(fragment).not.toContain("Individual holdings");
+      expect(fragment).not.toContain("no price feed");
+    }
+  });
+
+  it("produces no findings and does not throw when there is no data at all", () => {
+    const ctx = contextWith({ balancesDetail: null }, null, {
+      total: 0,
+      minSignificant: 0,
+    });
+    expect(() => overview.requires(ctx)).not.toThrow();
+    expect(overview.requires(ctx)).toBe(false);
+    expect(overview.userPromptFragment(ctx)).toBe("");
+  });
+
+  it("gates and renders off ONE memoized composition — requires and fragment agree", () => {
+    // The shared-predicate rule: a gate that fires while the fragment is empty
+    // puts a heading with nothing under it into the prompt, which is an
+    // invitation for the model to fill the gap itself.
+    for (const ctx of [
+      b5Context(),
+      contextWith({ balancesDetail: null }, null, { total: 0, minSignificant: 0 }),
+      contextWith({ balancesDetail: B5_BALANCES }, null, {
+        project: B5_PROJECT,
+        total: 0,
+      }),
+    ]) {
+      expect(overview.requires(ctx)).toBe(overview.userPromptFragment(ctx) !== "");
+    }
+  });
+});
+
+describe("treasury_by_chain — gated on the absolute floor", () => {
+  const byChain = section("treasury_by_chain");
+
+  it("keeps a real six-figure chain in the split on a billion-dollar treasury", () => {
+    // At 0.1% of $1.06B the old proportional gate was ~$1.06M, so a chain
+    // holding $250K vanished — and if that left fewer than two chains, the
+    // whole section vanished with it.
+    const ctx = b5Context({
+      snapshot: undefined,
+    });
+    const withChains = contextWith(
+      {
+        balancesDetail: B5_BALANCES,
+        totalBalanceUsd: String(B5_TOTAL),
+        balancesByChain: { ethereum: B5_TOTAL - 250_000, arbitrum: 250_000 },
+      },
+      null,
+      { project: B5_PROJECT, total: ctx.total, minSignificant: ctx.minSignificant }
+    );
+    expect(byChain.requires(withChains)).toBe(true);
+    expect(byChain.userPromptFragment(withChains)).toContain("arbitrum");
+  });
+
+  it("still drops a chain holding actual dust", () => {
+    const ctx = contextWith(
+      {
+        totalBalanceUsd: "1000000",
+        balancesByChain: { ethereum: 1_000_000, base: DUST_FLOOR_USD - 1 },
+      },
+      null,
+      { total: 1_000_000, minSignificant: 1_000 }
+    );
+    expect(byChain.requires(ctx)).toBe(false);
+    expect(byChain.userPromptFragment(ctx)).toBe("");
   });
 });
 

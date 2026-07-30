@@ -1,6 +1,11 @@
-import { CHAINS, STABLECOIN_SYMBOLS } from "@/lib/chains";
+import { CHAINS } from "@/lib/chains";
 import type { Wallet } from "@/server/db/schema";
 import { fetchSolanaBalance } from "./solana-sync";
+import {
+  bucketsToLegacyColumns,
+  composeTreasury,
+  type LegacySnapshotColumns,
+} from "./treasury-composition";
 
 const DUNE_API_BASE = "https://api.sim.dune.com/v1/evm";
 const DUNE_API_KEY = process.env.DUNE_API_KEY!;
@@ -115,34 +120,39 @@ async function fetchDuneBalances(
   return data;
 }
 
+/**
+ * The four frozen snapshot columns, computed through the ONE shared classifier
+ * in treasury-composition.ts.
+ *
+ * This used to be a second, independent, symbol-only implementation of "what
+ * kind of asset is this?", and the report read its output (the frozen columns)
+ * for the donut and the Treasury Overview table while reading
+ * `analyzeTreasuryLiquidity`'s output for every sentence of prose. When
+ * `projects.token_symbol` was NULL at sync time, this function froze
+ * `native_token_usd` at $0.00 and swept a $1.06B own-token position into
+ * `other_assets_usd` — so the donut said "Other 100.0%" underneath prose that
+ * had the split right. One predicate, one answer, forever.
+ *
+ * THESE COLUMNS ARE NOW A WRITE-ONLY CACHE. Nothing report-facing reads them:
+ * the PDF donut, the email donut, the report widget strip and the Treasury
+ * Overview section all call `composeTreasury` at read time, which means a plain
+ * regenerate repairs every snapshot already in the database. The columns are
+ * still written because the project dashboard tiles, `anomalies.ts` and the
+ * historical treasury charts read them straight off the row.
+ *
+ * Takes the already-mapped `TokenBalance[]` rather than the raw
+ * `DuneTokenBalance[]`, because that is the shape `composeTreasury` consumes
+ * everywhere else (it is what gets stored in `balances_detail`). Adapting at
+ * the one call site beats teaching the shared classifier a second input shape.
+ */
 function classifyTokens(
-  tokens: DuneTokenBalance[],
+  chain: string,
+  tokens: TokenBalance[],
   projectTokenSymbol?: string | null
-): { stablecoinsUsd: number; ethUsd: number; nativeTokenUsd: number; otherAssetsUsd: number } {
-  let stablecoinsUsd = 0;
-  let ethUsd = 0;
-  let nativeTokenUsd = 0;
-  let otherAssetsUsd = 0;
-
-  for (const t of tokens) {
-    const value = t.value_usd ?? 0;
-    const symbol = t.symbol?.toUpperCase() ?? "";
-
-    if (STABLECOIN_SYMBOLS.has(symbol)) {
-      stablecoinsUsd += value;
-    } else if (symbol === "ETH" || symbol === "WETH") {
-      ethUsd += value;
-    } else if (
-      projectTokenSymbol &&
-      symbol === projectTokenSymbol.toUpperCase()
-    ) {
-      nativeTokenUsd += value;
-    } else {
-      otherAssetsUsd += value;
-    }
-  }
-
-  return { stablecoinsUsd, ethUsd, nativeTokenUsd, otherAssetsUsd };
+): LegacySnapshotColumns {
+  return bucketsToLegacyColumns(
+    composeTreasury([{ chain, tokens }], { tokenSymbol: projectTokenSymbol })
+  );
 }
 
 export async function fetchWalletBalance(
@@ -165,9 +175,15 @@ export async function fetchWalletBalance(
   const totalUsd = tokens.reduce((sum, t) => sum + t.valueUsd, 0);
   // fetchWalletBalance is only ever called for EVM wallets — Solana routes
   // through fetchSolanaBalance in solana-sync.ts, which classifies natively
-  // and never calls classifyTokens. So there is no native symbol to branch on
-  // here beyond ETH/WETH.
-  const classified = classifyTokens(duneData.balances, projectTokenSymbol);
+  // and never calls classifyTokens.
+  //
+  // The wallet's chain is passed through now: the shared classifier recognises
+  // `CHAINS[chain].nativeToken`, which is what stops a Polygon treasury's MATIC
+  // gas reserve reading as an unrecognised illiquid asset. `totalUsd` above
+  // still sums every holding, while the four columns below sum only priced,
+  // positive ones — so a corrupt negative value would show up as a gap between
+  // them rather than being quietly absorbed into a bucket.
+  const classified = classifyTokens(wallet.chain, tokens, projectTokenSymbol);
 
   return {
     walletAddress: wallet.address,

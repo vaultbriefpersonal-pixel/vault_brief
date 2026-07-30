@@ -31,6 +31,7 @@ import { assertTrialActive } from "@/server/lib/plan-limits";
 import { createMonthlySnapshot } from "@/server/services/data-sync";
 import { generateAndSaveReport } from "@/server/services/report-generator";
 import { evaluateReadiness } from "@/server/services/report-sections";
+import { changeSignificanceFloor } from "@/server/services/report-derived";
 
 // Mirror of validation in walletsRouter — keep in sync. Inlined here so the
 // create-project mutation can validate wallets before any DB writes (one
@@ -498,7 +499,10 @@ export const projectsRouter = router({
         anomalies: [],
         period,
         total,
-        minSignificant: total > 0 ? total * 0.001 : 0,
+        // Shared with `buildReportPrompts` so the readiness chip in the
+        // constructor UI and the report that actually runs cannot use two
+        // different floors for the same named field.
+        minSignificant: changeSignificanceFloor(total),
       });
 
       return { hasSnapshot: true as const, readiness };

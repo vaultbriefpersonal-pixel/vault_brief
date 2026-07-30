@@ -3,6 +3,10 @@ import { formatUsd } from "@/lib/utils";
 import { TreasuryChart } from "@/components/charts/TreasuryChart";
 import { BurnRateChart } from "@/components/charts/BurnRateChart";
 import { extractDefiPositions } from "@/server/services/defi-positions";
+import {
+  composeTreasury,
+  compositionSlices,
+} from "@/server/services/treasury-composition";
 
 /**
  * Investor-report widget strip.
@@ -79,6 +83,20 @@ interface ReportWidgetsProps {
    * same data, not a separate report "mode". Milestones with no
    * targetDate are omitted (nothing to compare against). */
   milestones?: MilestoneInfo[];
+  /**
+   * The project's own-token identity — `projects.tokenSymbol` and
+   * `projects.tokenContract`. Required by the shared treasury classifier to
+   * tell the project's own holdings apart from everything else, and threaded in
+   * rather than defaulted because getting it wrong is not a cosmetic error: an
+   * absent identity silently reclassifies the own-token position as
+   * "Other assets", which is exactly the bug this composition strip used to
+   * render off the frozen snapshot columns.
+   *
+   * Both parents already have the project row in scope. Optional in the type
+   * only so a caller that genuinely tracks no token can omit it — a project
+   * with no `tokenSymbol` is a real, valid state, not a missing prop.
+   */
+  project?: { tokenSymbol?: string | null; tokenContract?: string | null } | null;
 }
 
 export function ReportWidgets({
@@ -87,6 +105,7 @@ export function ReportWidgets({
   safes = [],
   trend,
   milestones = [],
+  project = null,
 }: ReportWidgetsProps) {
   if (!snapshot) return null;
 
@@ -98,13 +117,27 @@ export function ReportWidgets({
   const netFlow = num(snapshot.netFlowUsd) || inflows - outflows;
   const tokenPrice = num(snapshot.tokenPriceUsd);
 
-  // Composition slices — drop zero-value to avoid rendering empty bars.
-  const composition: Slice[] = [
-    { label: "Stablecoins", usd: num(snapshot.stablecoinsUsd), color: accent },
-    { label: "ETH / WETH", usd: num(snapshot.ethUsd), color: "#4f9cf9" },
-    { label: "Native token", usd: num(snapshot.nativeTokenUsd), color: "#a78bfa" },
-    { label: "Other assets", usd: num(snapshot.otherAssetsUsd), color: "var(--vb-dim)" },
-  ].filter((s) => s.usd > 0);
+  // Composition slices — derived at read time from the snapshot's per-token
+  // `balances_detail` through the shared classifier, NOT from the four frozen
+  // `stablecoins_usd` / `eth_usd` / `native_token_usd` / `other_assets_usd`
+  // columns this block used to read. Those are computed once at sync time
+  // against whatever the project had entered then, so a treasury synced before
+  // its token symbol was filled in rendered as 100% "Other assets" forever.
+  // Deriving here repairs every snapshot already in the database on the next
+  // page load, with no re-sync.
+  //
+  // Importing the service directly from a client component is the precedent
+  // `extractDefiPositions` below already sets: treasury-composition.ts is pure
+  // (its only imports are `@/lib/chains` and `./defi-positions`) and safe in the
+  // browser bundle. Zero-value slices are dropped so an empty bucket doesn't
+  // render an empty bar.
+  const compositionColors = [accent, "#4f9cf9", "#a78bfa", "var(--vb-dim)"];
+  const composition: Slice[] = compositionSlices(
+    composeTreasury(snapshot.balancesDetail, project),
+    project
+  )
+    .map((s, i) => ({ label: s.label, usd: s.value, color: compositionColors[i] }))
+    .filter((s) => s.usd > 0);
 
   // Expenses — pull from JSONB, sort desc, collapse long tail into "Other".
   const expenses = expenseSlices(snapshot.expensesByCategory, accent);
