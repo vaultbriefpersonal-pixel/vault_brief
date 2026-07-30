@@ -100,6 +100,18 @@ export async function fetchSolanaBalance(
   }
 
   let stablecoinsUsd = 0;
+  // NOTE the semantic collision, deliberately left in place: this writes the
+  // CHAIN's gas asset into `native_token_usd`, while wallet-sync.ts writes the
+  // PROJECT's own token into the same column. Two incompatible meanings, one
+  // column — and until P0.1 the PDF donut labelled both "Native token".
+  //
+  // It is now harmless rather than fixed, because those four columns are a
+  // WRITE-ONLY CACHE: every report-facing surface derives its own composition
+  // from `balances_detail` through `composeTreasury`, which classifies SOL as
+  // liquid crypto (`CHAINS.solana.nativeToken`) and the project's own token as
+  // concentrated, separately and correctly. Reconciling the column itself would
+  // change what the dashboard tiles and historical charts show for every
+  // existing Solana snapshot, which is a migration-shaped change, not this one.
   const nativeTokenUsd = solUsd;
   let otherAssetsUsd = 0;
 

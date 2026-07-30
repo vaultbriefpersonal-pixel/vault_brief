@@ -208,8 +208,17 @@ export const treasurySnapshots = pgTable(
 
     // Balances (USD at snapshot time)
     totalBalanceUsd: numeric("total_balance_usd", { precision: 20, scale: 2 }),
+    // The next four are a WRITE-ONLY CACHE. Read `balances_detail` through
+    // `composeTreasury` (treasury-composition.ts) instead — every
+    // report-facing surface does, which is what lets a plain regenerate repair
+    // a snapshot whose columns were computed before the project had entered its
+    // token symbol. Frozen at sync time, they cannot be repaired at all.
+    // Still written, and still read by the project dashboard tiles,
+    // anomalies.ts and the historical treasury charts. Do not add a new reader.
     stablecoinsUsd: numeric("stablecoins_usd", { precision: 20, scale: 2 }),
     ethUsd: numeric("eth_usd", { precision: 20, scale: 2 }),
+    /** wallet-sync writes the PROJECT's own token here; solana-sync writes the
+     * CHAIN's gas asset. Two meanings, one column — see solana-sync.ts:103. */
     nativeTokenUsd: numeric("native_token_usd", { precision: 20, scale: 2 }),
     otherAssetsUsd: numeric("other_assets_usd", { precision: 20, scale: 2 }),
     balancesDetail: jsonb("balances_detail"),

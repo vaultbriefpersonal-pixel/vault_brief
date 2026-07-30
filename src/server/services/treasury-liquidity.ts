@@ -28,9 +28,35 @@
 // no `process.env`. report-sections.ts imports this, and report-sections.ts
 // reaches the browser through ReportTemplateEditor.tsx ("use client"), so a
 // server-only import here breaks the build. `@/lib/chains` is pure and safe.
+//
+// SINCE P0.1, THE CLASSIFICATION ITSELF LIVES IN treasury-composition.ts.
+// This module is a projection: `analyzeTreasuryLiquidity` calls
+// `composeTreasury` and picks the eight fields below off the result. The split
+// exists because the same predicate now has to serve the liquidity/runway
+// question AND the per-asset composition table AND the four sync-time snapshot
+// columns, and three independent implementations of "is this a stablecoin?" is
+// how the donut ended up reading "Other 100.0%" under prose that had it right.
+//
+// The exported name, signature and return shape here are unchanged and must
+// stay unchanged — report-derived.ts, report-evidence.ts and
+// treasury-liquidity.test.ts all depend on them, and that test file passing
+// UNMODIFIED is the proof the projection is shape-compatible.
 
-import { STABLECOIN_SYMBOLS } from "@/lib/chains";
-import { isLiquidStakingToken } from "./defi-positions";
+import {
+  composeTreasury,
+  type ProjectTokenIdentity,
+  type TreasuryBuckets,
+} from "./treasury-composition";
+
+// Re-exported so every existing importer of these keeps resolving. They moved
+// to treasury-composition.ts because the single predicate needs to own them;
+// nothing about their meaning changed.
+export {
+  BTC_SYMBOLS,
+  ETH_SYMBOLS,
+  isOwnToken,
+  type ProjectTokenIdentity,
+} from "./treasury-composition";
 
 export interface TreasuryLiquidity {
   /**
@@ -75,83 +101,43 @@ export interface TreasuryLiquidity {
   derived: boolean;
 }
 
-const EMPTY: TreasuryLiquidity = {
-  liquidStableUsd: 0,
-  liquidCryptoUsd: 0,
-  concentratedUsd: 0,
-  otherUsd: 0,
-  btcUsd: 0,
-  totalUsd: 0,
-  concentrationPct: 0,
-  derived: false,
-};
-
-/** Uppercase. Wrapped BTC trades against the same order books as BTC itself. */
-const BTC_SYMBOLS: ReadonlySet<string> = new Set([
-  "BTC",
-  "WBTC",
-  "CBBTC",
-  "TBTC",
-]);
-
-/** Uppercase. The chains' own gas asset and its wrapper are one asset here. */
-const ETH_SYMBOLS: ReadonlySet<string> = new Set(["ETH", "WETH"]);
-
-interface StoredTokenBalance {
-  symbol?: string;
-  valueUsd?: number;
-  contractAddress?: string | null;
-}
-
-interface StoredWalletBalance {
-  chain?: string;
-  tokens?: StoredTokenBalance[];
-}
-
-/** The project fields that identify its own token. A structural subset of `Project`. */
-export interface ProjectTokenIdentity {
-  tokenSymbol?: string | null;
-  tokenContract?: string | null;
-}
-
 /**
- * The project's own token, matched on contract address FIRST. The contract is
- * authoritative: it identifies exactly one asset, whereas a ticker is a
- * self-declared string that dozens of tokens can and do share. Symbol matching
- * is the fallback for projects that never filled in a contract, and for
- * holdings the balance provider returned without one.
+ * Narrows a full `TreasuryComposition` (or any bucket set) to the liquidity
+ * view. Fields are picked explicitly rather than spread, so the returned object
+ * carries exactly the eight keys declared above and nothing else — the
+ * per-asset rows, the dust rollup and the unpriced count belong to the
+ * composition view and must not leak into a consumer that never asked for them.
  *
- * A symbol-only false positive misclassifies an unrelated token as the
- * project's own and drops it out of runway. That is the safe direction: it
- * shortens the reported runway rather than lengthening it.
+ * Exported so report-derived.ts can reuse its ONE memoized `composeTreasury`
+ * call for both views instead of walking every token in the snapshot twice.
  */
-function isOwnToken(
-  token: StoredTokenBalance,
-  project: ProjectTokenIdentity
-): boolean {
-  const ownContract = project.tokenContract?.trim().toLowerCase();
-  if (ownContract) {
-    const held = token.contractAddress?.trim().toLowerCase();
-    if (held && held === ownContract) return true;
-  }
-  const ownSymbol = project.tokenSymbol?.trim().toUpperCase();
-  if (!ownSymbol) return false;
-  return token.symbol?.trim().toUpperCase() === ownSymbol;
+export function liquidityFromBuckets(
+  buckets: TreasuryBuckets
+): TreasuryLiquidity {
+  return {
+    liquidStableUsd: buckets.liquidStableUsd,
+    liquidCryptoUsd: buckets.liquidCryptoUsd,
+    concentratedUsd: buckets.concentratedUsd,
+    otherUsd: buckets.otherUsd,
+    btcUsd: buckets.btcUsd,
+    totalUsd: buckets.totalUsd,
+    concentrationPct: buckets.concentrationPct,
+    derived: buckets.derived,
+  };
 }
 
 /**
- * Walks a stored `balances_detail` payload and sorts every priced holding into
- * exactly one of four liquidity buckets.
+ * The liquidity split of a stored `balances_detail` payload.
  *
- * Order of the checks is deliberate: own-token wins over every other rule,
- * including the stablecoin rule. A stablecoin issuer holding its own stable is
- * still holding its own token — the position unwinds badly for the same reason
- * any other own-token position does, and the runway denominator must not
- * include it.
+ * All classification — the own-token-first check order, the stablecoin set, the
+ * BTC and ETH families, the chain gas asset, liquid-staking recognition, and
+ * the skip rules for non-finite, zero and negative values — lives in
+ * `composeTreasury`. This function is the projection onto the eight fields
+ * `TreasuryLiquidity` declares, and nothing more.
  *
- * Defensive throughout: null, legacy shapes, non-array payloads, missing
- * token arrays, non-numeric values and negative values all aggregate to zeros
- * rather than throwing. An unreadable snapshot is an underived split, not an
+ * Still defensive by inheritance: null, legacy shapes, non-array payloads,
+ * missing token arrays and non-numeric values all aggregate to zeros rather
+ * than throwing. An unreadable snapshot is an underived split, not an
  * exception — this runs inside report generation, where throwing loses the
  * whole report over one bad row.
  */
@@ -159,60 +145,7 @@ export function analyzeTreasuryLiquidity(
   balancesDetail: unknown,
   project: ProjectTokenIdentity | null | undefined
 ): TreasuryLiquidity {
-  if (!Array.isArray(balancesDetail) || balancesDetail.length === 0) {
-    return { ...EMPTY };
-  }
-  const identity: ProjectTokenIdentity = project ?? {};
-
-  let liquidStableUsd = 0;
-  let liquidCryptoUsd = 0;
-  let concentratedUsd = 0;
-  let otherUsd = 0;
-  let btcUsd = 0;
-  let sawToken = false;
-
-  for (const wallet of balancesDetail as StoredWalletBalance[]) {
-    if (!wallet || !Array.isArray(wallet.tokens)) continue;
-    for (const token of wallet.tokens) {
-      if (!token || typeof token !== "object") continue;
-      const value = Number(token.valueUsd ?? 0);
-      // Unpriced and zero-value dust contribute nothing to any bucket, and a
-      // negative "value" is corrupt data, not a short position.
-      if (!Number.isFinite(value) || value <= 0) continue;
-      sawToken = true;
-
-      const symbol = token.symbol?.trim().toUpperCase() ?? "";
-
-      if (isOwnToken(token, identity)) {
-        concentratedUsd += value;
-      } else if (STABLECOIN_SYMBOLS.has(symbol)) {
-        liquidStableUsd += value;
-      } else if (BTC_SYMBOLS.has(symbol)) {
-        liquidCryptoUsd += value;
-        btcUsd += value;
-      } else if (ETH_SYMBOLS.has(symbol)) {
-        liquidCryptoUsd += value;
-      } else if (isLiquidStakingToken(token)) {
-        liquidCryptoUsd += value;
-      } else {
-        otherUsd += value;
-      }
-    }
-  }
-
-  const totalUsd =
-    liquidStableUsd + liquidCryptoUsd + concentratedUsd + otherUsd;
-
-  return {
-    liquidStableUsd,
-    liquidCryptoUsd,
-    concentratedUsd,
-    otherUsd,
-    btcUsd,
-    totalUsd,
-    concentrationPct: totalUsd > 0 ? (concentratedUsd / totalUsd) * 100 : 0,
-    derived: sawToken,
-  };
+  return liquidityFromBuckets(composeTreasury(balancesDetail, project));
 }
 
 /**

@@ -10,6 +10,7 @@ import { ExpenseBreakdown } from "@/components/charts/ExpenseBreakdown";
 import { IncomeBreakdown } from "@/components/charts/IncomeBreakdown";
 import { ChainIcon } from "@/components/ui/ChainIcon";
 import { trailingAverageBurn } from "@/server/services/burn-metrics";
+import { composeTreasury } from "@/server/services/treasury-composition";
 
 // Brand colors keyed by chain id, used by the per-chain stacked bar so
 // each segment matches the wallet-list ChainIcon palette. Unknown chains
@@ -130,6 +131,17 @@ export default async function ProjectPage({ params }: Props) {
   // it explicitly ("No outflows this period") and surface the trailing
   // 3-mo average as a tooltip. Founders who want the comparison get it
   // on hover; investors looking at the dashboard see truthful, calm copy.
+  // Stablecoins tile, derived at read time from the snapshot's per-token
+  // `balances_detail` rather than read off the frozen `stablecoins_usd` column.
+  // Same classifier the report, the PDF donut and the investor email now use, so
+  // the tile and the report can no longer print different stablecoin figures
+  // for the same snapshot. (The column is still written by the sync — the
+  // treasury/burn/runway tiles and the historical charts read it — but it is a
+  // write-only cache; see treasury-composition.ts.)
+  const latestComposition = latestSnapshot
+    ? composeTreasury(latestSnapshot.balancesDetail, project)
+    : null;
+
   const latestBurn = Number(latestSnapshot?.burnRateUsd ?? 0);
   // `slice(1)` drops the current snapshot — trailingAverageBurn takes PRIOR
   // periods only, and applies the same 3-month window and zero-burn exclusion
@@ -268,7 +280,7 @@ export default async function ProjectPage({ params }: Props) {
           )}
           {statCard(
             "Stablecoins",
-            formatUsd(Number(latestSnapshot.stablecoinsUsd ?? 0))
+            formatUsd(latestComposition?.liquidStableUsd ?? 0)
           )}
         </div>
       )}

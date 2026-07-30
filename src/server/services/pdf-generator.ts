@@ -14,6 +14,10 @@ import { db } from "@/server/db";
 import { reports, projects, treasurySnapshots } from "@/server/db/schema";
 import { and, desc, eq, lt } from "drizzle-orm";
 import { formatDate } from "@/lib/utils";
+import {
+  composeTreasury,
+  compositionSlices as buildCompositionSlices,
+} from "./treasury-composition";
 
 export async function generatePDF(
   reportId: string
@@ -58,6 +62,27 @@ export async function generatePDF(
   const content = parseMarkdown(report.contentMd);
   const period = formatDate(report.periodEnd);
 
+  // Donut slices are DERIVED HERE, at read time, from the snapshot's per-token
+  // `balances_detail` — not read off the four frozen snapshot columns the
+  // template used to reach into.
+  //
+  // Those columns are computed once at sync time against whatever the project
+  // had entered then. On the fixture treasury `projects.token_symbol` was NULL
+  // at sync, so `native_token_usd` froze at $0.00 and a $1.06B own-token
+  // position landed in `other_assets_usd` — the donut read "Stables 0.0% /
+  // ETH-WETH 0.0% / Other 100.0%" while the prose beside it, which always read
+  // the derived classifier, had the split right. Deriving here means a plain
+  // regenerate fixes every snapshot already in the database, with no re-sync.
+  //
+  // `project` and `snapshot` are both already in scope, so this costs one pure
+  // function call and keeps the template a renderer with no data policy in it.
+  const compositionSlices = snapshot
+    ? buildCompositionSlices(
+        composeTreasury(snapshot.balancesDetail, project),
+        project
+      )
+    : [];
+
   const element = React.createElement(VaultBriefPDF, {
     projectName: project.name,
     logoUrl: branding?.logoUrl ?? project.logoUrl,
@@ -67,6 +92,7 @@ export async function generatePDF(
     primaryColor: branding?.primaryColor,
     snapshot,
     trendSnapshots,
+    compositionSlices,
   });
 
   const renderToBuffer = await getRenderToBuffer();

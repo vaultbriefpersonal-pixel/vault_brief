@@ -21,6 +21,10 @@ import {
   trendBarsSvg,
   rasterizeAndUpload,
 } from "./chart-png";
+import {
+  composeTreasury,
+  compositionSlices,
+} from "./treasury-composition";
 
 // Lazy init: Trigger.dev's deploy bundler imports task files at build time
 // when env vars aren't available. Constructing the Resend client at module
@@ -76,6 +80,18 @@ async function loadEmailContext(report: Report): Promise<{
       })
     : null;
 
+  // Composition derived at read time from the snapshot's per-token
+  // `balances_detail` through the shared classifier, exactly as the PDF and the
+  // report widget strip now do. The four frozen snapshot columns are a
+  // write-only cache computed against whatever the project had entered at sync
+  // time; on the fixture treasury they made this donut read "Other 100.0%" and
+  // the Stablecoins KPI vanish. See treasury-composition.ts for the full
+  // account. `project` may be null for an orphaned report — `composeTreasury`
+  // reads that as "no own token configured" rather than throwing.
+  const composition = snapshot
+    ? composeTreasury(snapshot.balancesDetail, project ?? null)
+    : null;
+
   const metrics: Array<{ label: string; value: string }> = [];
   if (snapshot) {
     if (snapshot.totalBalanceUsd != null) {
@@ -96,10 +112,10 @@ async function loadEmailContext(report: Report): Promise<{
         value: `${Number(snapshot.runwayMonths).toFixed(0)} mo`,
       });
     }
-    if (snapshot.stablecoinsUsd != null && Number(snapshot.stablecoinsUsd) > 0) {
+    if (composition && composition.liquidStableUsd > 0) {
       metrics.push({
         label: "Stablecoins",
-        value: formatUsd(Number(snapshot.stablecoinsUsd)),
+        value: formatUsd(composition.liquidStableUsd),
       });
     }
   }
@@ -110,13 +126,8 @@ async function loadEmailContext(report: Report): Promise<{
   // without charts. KPI grid still carries the numbers either way.
   const chartUrls: { composition?: string; chain?: string; trend?: string } = {};
   if (snapshot) {
-    const composition = compositionPieSvg(
-      [
-        { label: "Stables", value: Number(snapshot.stablecoinsUsd ?? 0) },
-        { label: "ETH/WETH", value: Number(snapshot.ethUsd ?? 0) },
-        { label: "Native token", value: Number(snapshot.nativeTokenUsd ?? 0) },
-        { label: "Other", value: Number(snapshot.otherAssetsUsd ?? 0) },
-      ],
+    const compositionSvg = compositionPieSvg(
+      composition ? compositionSlices(composition, project ?? null) : [],
       palette.accent
     );
     const chainEntries = snapshot.balancesByChain
@@ -144,7 +155,7 @@ async function loadEmailContext(report: Report): Promise<{
     const trendSvg = trendBarsSvg(trendData, palette.accent);
 
     const [c, ch, t] = await Promise.all([
-      rasterizeAndUpload(composition, report.id, "composition"),
+      rasterizeAndUpload(compositionSvg, report.id, "composition"),
       rasterizeAndUpload(chainSvg, report.id, "chain"),
       rasterizeAndUpload(trendSvg, report.id, "trend"),
     ]);

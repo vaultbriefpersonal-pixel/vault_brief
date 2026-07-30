@@ -12,13 +12,44 @@ interface Props {
 interface SyncOption {
   label: string;
   months: number;
+  /**
+   * Set on every `months > 1` option until real historical reconstruction
+   * lands. `createMonthlySnapshot` calls
+   * `fetchAllBalances(walletList, project.tokenSymbol)` with NO period
+   * argument (data-sync.ts:32), so a 12-month "backfill" writes twelve rows
+   * that all carry TODAY's balances and today's token price. That is strictly
+   * worse than having one snapshot: month-over-month, anomalies and the
+   * forecast all read those rows as observed history and narrate a treasury
+   * that was perfectly flat for a year, and nothing in the output discloses
+   * that the numbers are copies.
+   *
+   * Real backfill — walking balances back through transfer history and pricing
+   * them at each period's close, disclosed as reconstructed rather than
+   * observed — is task P3.1. Re-enable these there, not before.
+   */
+  disabledReason?: string;
 }
+
+const BACKFILL_DISABLED_REASON =
+  "Backfill is temporarily unavailable — it would record today's balances under past dates. Coming with historical reconstruction.";
 
 const OPTIONS: SyncOption[] = [
   { label: "Last month", months: 1 },
-  { label: "Last 3 months (backfill)", months: 3 },
-  { label: "Last 6 months (backfill)", months: 6 },
-  { label: "Last 12 months (backfill)", months: 12 },
+  {
+    label: "Last 3 months (backfill)",
+    months: 3,
+    disabledReason: BACKFILL_DISABLED_REASON,
+  },
+  {
+    label: "Last 6 months (backfill)",
+    months: 6,
+    disabledReason: BACKFILL_DISABLED_REASON,
+  },
+  {
+    label: "Last 12 months (backfill)",
+    months: 12,
+    disabledReason: BACKFILL_DISABLED_REASON,
+  },
 ];
 
 /**
@@ -155,6 +186,8 @@ export function SyncNowButton({ projectId }: Props) {
             <button
               key={opt.months}
               type="button"
+              disabled={Boolean(opt.disabledReason)}
+              title={opt.disabledReason}
               onClick={() => trigger(opt.months)}
               style={{
                 display: "block",
@@ -165,11 +198,12 @@ export function SyncNowButton({ projectId }: Props) {
                 borderRadius: 6,
                 padding: "8px 12px",
                 fontSize: 13,
-                color: "var(--vb-text)",
+                color: opt.disabledReason ? "var(--vb-dim)" : "var(--vb-text)",
                 fontFamily: "var(--font-inter), Inter, sans-serif",
-                cursor: "pointer",
+                cursor: opt.disabledReason ? "not-allowed" : "pointer",
               }}
               onMouseEnter={(e) => {
+                if (opt.disabledReason) return;
                 e.currentTarget.style.background = "var(--vb-card-hover)";
               }}
               onMouseLeave={(e) => {
@@ -177,6 +211,7 @@ export function SyncNowButton({ projectId }: Props) {
               }}
             >
               {opt.label}
+              {opt.disabledReason ? " — coming soon" : ""}
             </button>
           ))}
         </div>

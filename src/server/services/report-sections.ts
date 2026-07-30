@@ -27,17 +27,21 @@ import {
   budgetsForPeriod,
   burnBasis,
   burnBasisLabel,
+  compositionOf,
   liquidityOf,
   netFlowOf,
   signedUsd,
   splitIncome,
   CONCENTRATION_PCT_FLOOR,
+  DUST_FLOOR_USD,
+  RECURRING_INCOME_FLOOR_USD,
   STABLE_COVER_FLOOR_MONTHS,
   TRAILING_BURN_MONTHS,
   type BudgetLine,
   type BudgetSide,
   type ReportSectionContext,
 } from "./report-derived";
+import type { TreasuryComposition } from "./treasury-composition";
 import { evidenceOf, formatEvidenceItems } from "./report-evidence";
 
 // `ReportSectionContext` moved to report-derived.ts, which both this module
@@ -389,32 +393,185 @@ const lowsConcerns: ReportSection = {
 - **No alarmism and no advice.** State the concern and its figure. Do not write "critical", "dangerous", "urgent", or a survival timeline, and do not recommend a course of action — that is financial advice, and this section does not give it.`,
 };
 
+// ─── treasury composition (buckets + per-asset rows) ───────────────────────
+
+/**
+ * How many holdings get named individually. Ten is the point past which a
+ * composition table stops informing and starts burying: the reader has already
+ * seen everything that moves the total, and row eleven onward is a long tail
+ * that the rollup line summarises more honestly than eleven near-zero rows do.
+ */
+const MAX_NAMED_ASSET_ROWS = 10;
+
+/**
+ * The four buckets, as prompt bullets, gated on `DUST_FLOOR_USD`.
+ *
+ * NOT `ctx.minSignificant`: that floor is 0.1% of the treasury, which on a
+ * $1.06B balance sheet is ~$1.06M, and it is what suppressed a $1,136
+ * stablecoin bullet and a $440 ETH bullet from a shipped report. Those two
+ * figures are the most important thing that report could have said about
+ * liquidity. See the floor comments in report-derived.ts.
+ *
+ * Every figure comes from `compositionOf(ctx)` — the shared read-time
+ * classifier — never from the frozen `stablecoins_usd` / `eth_usd` /
+ * `native_token_usd` / `other_assets_usd` snapshot columns. Those are a
+ * write-only cache computed against whatever the project had entered at sync
+ * time, and on this fixture they read "Other 100.0%".
+ */
+function compositionBucketLines(
+  c: TreasuryComposition,
+  ctx: ReportSectionContext
+): string[] {
+  const lines: string[] = [];
+
+  if (c.liquidStableUsd > DUST_FLOOR_USD) {
+    lines.push(`- Stablecoins: ${formatUsd(c.liquidStableUsd)}`);
+  }
+  if (c.liquidCryptoUsd > DUST_FLOOR_USD) {
+    const slices: string[] = [];
+    if (c.ethUsd > DUST_FLOOR_USD) slices.push(`ETH and WETH ${formatUsd(c.ethUsd)}`);
+    if (c.btcUsd > DUST_FLOOR_USD) {
+      slices.push(`BTC and wrapped BTC ${formatUsd(c.btcUsd)}`);
+    }
+    const detail = slices.length > 0 ? ` (of which ${slices.join("; ")})` : "";
+    lines.push(
+      `- Liquid crypto — ETH, BTC, chain gas assets and liquid-staking tokens: ${formatUsd(
+        c.liquidCryptoUsd
+      )}${detail}`
+    );
+  }
+  if (c.concentratedUsd > DUST_FLOOR_USD) {
+    const tokenName = ctx.project.tokenSymbol
+      ? `${ctx.project.tokenSymbol}, the project's own token`
+      : "The project's own token";
+    lines.push(
+      `- ${tokenName}: ${formatUsd(c.concentratedUsd)} (${c.concentrationPct.toFixed(
+        1
+      )}% of the treasury)`
+    );
+  }
+  if (c.otherUsd > DUST_FLOOR_USD) {
+    lines.push(
+      `- Other assets, unrecognised and treated as illiquid: ${formatUsd(c.otherUsd)}`
+    );
+  }
+
+  return lines;
+}
+
+/**
+ * The per-asset table: the largest holdings named individually, then one line
+ * for everything else, then one line for what could not be priced.
+ *
+ * This did not exist anywhere in the product before. Every section emitted
+ * aggregate buckets only, while `balances_detail` sat on 53 individual
+ * holdings — so a reader could see "Other assets $1.06B / 100%" and had no way
+ * to learn that the $1.06B was one position in a single token.
+ *
+ * Three rules the arithmetic has to obey, and each one is a way the table
+ * could lie:
+ *   • Named rows plus the rollup line always equal the per-token total. A row
+ *     dropped for being small must still be counted somewhere.
+ *   • Dust is aggregated, never named. A $0.00 spam airdrop must not be able
+ *     to buy itself a line in an investor report by existing.
+ *   • Unpriced holdings are named separately and counted in NO total. Folding
+ *     them in at $0 understates the treasury while looking complete.
+ */
+function assetRowLines(c: TreasuryComposition): string[] {
+  if (c.assets.length === 0) return [];
+
+  const named = c.assets
+    .filter((a) => a.valueUsd >= DUST_FLOOR_USD)
+    .slice(0, MAX_NAMED_ASSET_ROWS);
+  const lines = named.map(
+    (a) =>
+      `- ${a.symbol} on ${a.chain || "unknown chain"}: ${formatUsd(
+        a.valueUsd
+      )} (${a.sharePct.toFixed(1)}% of the per-token total)`
+  );
+
+  const namedUsd = named.reduce((sum, a) => sum + a.valueUsd, 0);
+  const remainderCount = c.assets.length - named.length;
+  if (remainderCount > 0) {
+    // Derived by subtraction, so this line and the named rows are guaranteed
+    // to add up to `totalUsd` no matter how the split above is tuned.
+    const remainderUsd = c.totalUsd - namedUsd;
+    lines.push(
+      `- ${remainderCount} smaller holding${
+        remainderCount === 1 ? "" : "s"
+      } not listed individually, totalling ${formatUsd(remainderUsd)}`
+    );
+  }
+
+  if (c.unpriced.count > 0) {
+    lines.push(
+      `- ${c.unpriced.count} holding${
+        c.unpriced.count === 1 ? "" : "s"
+      } with no price feed — excluded from every total above`
+    );
+  }
+
+  return lines;
+}
+
+/**
+ * Shared by `requires()` and `userPromptFragment()` so the readiness gate and
+ * the content it gates can never disagree — the discipline
+ * `concentrationOrThinCoverTriggered` below established after the two halves of
+ * that section drifted apart.
+ *
+ * Either source of truth is enough to render: `ctx.total` alone still supports
+ * the total-balance line on a legacy snapshot that carries no per-token detail,
+ * and per-token detail alone still supports the whole table on a snapshot whose
+ * stored total is missing.
+ */
+function treasuryOverviewHasContent(ctx: ReportSectionContext): boolean {
+  return ctx.total > 0 || compositionOf(ctx).totalUsd > 0;
+}
+
 const treasuryOverview: ReportSection = {
   id: "treasury_overview",
   title: "Treasury Overview",
   description:
-    "Asset breakdown table: stablecoins, native ETH, project token, other holdings.",
+    "Asset breakdown: stablecoins, liquid crypto, the project's own token and unrecognised holdings — plus the largest individual positions.",
   defaultEnabled: true,
-  requires: (ctx) => ctx.total > 0,
+  requires: (ctx) => treasuryOverviewHasContent(ctx),
   userPromptFragment: (ctx) => {
-    const { snapshot, project, total, minSignificant } = ctx;
-    const lines: string[] = [`- Total balance: ${formatUsd(total)}`];
-    const stables = Number(snapshot.stablecoinsUsd ?? 0);
-    if (stables > minSignificant) lines.push(`- Stablecoins: ${formatUsd(stables)}`);
-    const ethUsd = Number(snapshot.ethUsd ?? 0);
-    if (ethUsd > minSignificant) lines.push(`- ETH/WETH: ${formatUsd(ethUsd)}`);
-    const nativeUsd = Number(snapshot.nativeTokenUsd ?? 0);
-    if (project.tokenSymbol && nativeUsd > minSignificant) {
-      lines.push(`- ${project.tokenSymbol} (native token): ${formatUsd(nativeUsd)}`);
+    if (!treasuryOverviewHasContent(ctx)) return "";
+    const c = compositionOf(ctx);
+
+    const lines: string[] = [];
+    if (ctx.total > 0) lines.push(`- Total balance: ${formatUsd(ctx.total)}`);
+    if (c.derived) {
+      // Stated separately from the headline total because the two legitimately
+      // differ: unpriced holdings count toward neither, and only this one is
+      // the denominator the rows below share.
+      lines.push(`- Total across priced holdings: ${formatUsd(c.totalUsd)}`);
+      lines.push(...compositionBucketLines(c, ctx));
     }
-    const otherUsd = Number(snapshot.otherAssetsUsd ?? 0);
-    if (otherUsd > minSignificant) lines.push(`- Other assets: ${formatUsd(otherUsd)}`);
-    return `\n## Current Treasury (${snapshot.snapshotDate})\n${lines.join("\n")}`;
+
+    const rows = assetRowLines(c);
+    const blocks = [lines.join("\n")];
+    if (rows.length > 0) {
+      blocks.push(
+        `Individual holdings, largest first (derived from per-token balances stored with this snapshot):\n${rows.join(
+          "\n"
+        )}`
+      );
+    }
+
+    return `\n## Current Treasury (${ctx.snapshot.snapshotDate})\n${blocks.join(
+      "\n\n"
+    )}`;
   },
   systemPromptFragment: `### Treasury Overview
-- Table: Asset | Balance | % of Total
+- Table: Asset | Balance | % of Total. Render the bucket lines the input gives you (stablecoins, liquid crypto, the project's own token, other assets), then a second table of the individual holdings when the input lists them.
 - **Only include rows where Balance > $0.** Skip categories the project does not currently hold — do NOT emit "$0 / 0%" placeholder rows. If the input doesn't list a balance for an asset, that asset doesn't exist in this treasury; pretend it's not even on the menu.
-- Total treasury value
+- **Every figure here is derived at read time from the per-token holdings stored with the snapshot.** It is an approximation at the margins, not an audited balance sheet. Never call it audited, verified or exact.
+- **A holding rolled into the "smaller holdings not listed individually" line must never be named.** Do not guess what is in it, do not itemise it, do not describe it. It is a long tail of small and often worthless positions, and naming any of them gives a spam airdrop the same standing as a real position.
+- **Holdings with no price feed are reported as a count and nothing else.** They are excluded from every total in the input, so never add them to one, never estimate their value, and never imply the treasury is larger because of them. State the count and that they are unpriced.
+- Report a small figure as the small figure it is. If the input says stablecoins are $1,136 against a treasury of $1.06B, say exactly that — a treasury holding almost no stablecoins is a material fact about its liquidity, not a rounding error to omit.
+- Total treasury value.
 - Change vs previous month (absolute and percentage) — only if a Previous Month section appears in the input.`,
   notReadyHint: "Run a sync to fetch wallet balances first.",
 };
@@ -425,13 +582,17 @@ const treasuryByChain: ReportSection = {
   description:
     "How balances split across Ethereum, L2s, Solana, etc. Auto-skips for single-chain projects.",
   defaultEnabled: true,
+  // `DUST_FLOOR_USD`, not `ctx.minSignificant`: this asks "does the project
+  // hold anything on this chain?", which is a composition question. At 0.1% of
+  // a $1.06B treasury the proportional floor is ~$1.06M, so a chain holding a
+  // real six-figure position would be silently dropped from the split — and if
+  // that dropped it below two chains, the whole section would vanish with it.
   requires: (ctx) => {
     const byChain =
       (ctx.snapshot.balancesByChain as Record<string, number> | null) ?? null;
     if (!byChain) return false;
     return (
-      Object.values(byChain).filter((v) => Number(v) > ctx.minSignificant)
-        .length >= 2
+      Object.values(byChain).filter((v) => Number(v) > DUST_FLOOR_USD).length >= 2
     );
   },
   userPromptFragment: (ctx) => {
@@ -439,7 +600,7 @@ const treasuryByChain: ReportSection = {
       (ctx.snapshot.balancesByChain as Record<string, number> | null) ?? null;
     if (!byChain) return "";
     const entries = Object.entries(byChain).filter(
-      ([, v]) => Number(v) > ctx.minSignificant
+      ([, v]) => Number(v) > DUST_FLOOR_USD
     );
     if (entries.length < 2) return "";
     const sorted = entries.sort((a, b) => Number(b[1]) - Number(a[1]));
@@ -931,11 +1092,16 @@ const protocolRevenue: ReportSection = {
   // entire inflow is a funding round has no revenue to report, and rendering a
   // "Protocol Revenue" heading over a raise is precisely the category error
   // this section exists to prevent — the heading alone does the misleading,
-  // before the model writes a word. `minSignificant` (0.1% of treasury) is the
-  // floor: a few hundred dollars of dust yield is not a revenue line.
+  // before the model writes a word.
+  //
+  // The floor is `RECURRING_INCOME_FLOOR_USD` ($5K absolute), NOT
+  // `ctx.minSignificant`. Revenue is measured against burn, not against the
+  // balance sheet: at 0.1% of a $1.06B treasury the proportional floor is
+  // ~$1.06M, so a protocol earning a real $500K/month would have its revenue
+  // section suppressed for being small relative to assets it is not spending.
   requires: (ctx) =>
     splitIncome(ctx.snapshot.incomeByCategory).recurring.totalUsd >
-    ctx.minSignificant,
+    RECURRING_INCOME_FLOOR_USD,
   userPromptFragment: (ctx) => {
     const split = splitIncome(ctx.snapshot.incomeByCategory);
     if (split.recurring.totalUsd <= 0) return "";

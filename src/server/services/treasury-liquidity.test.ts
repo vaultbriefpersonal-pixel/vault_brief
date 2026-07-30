@@ -2,7 +2,15 @@ import { describe, it, expect } from "vitest";
 import {
   analyzeTreasuryLiquidity,
   liquidReservesUsd,
+  liquidityFromBuckets,
+  // Moved to treasury-composition.ts in P0.1 and re-exported from here, so
+  // every existing import path keeps resolving. Importing them from this module
+  // is the assertion that the re-export works.
+  BTC_SYMBOLS,
+  ETH_SYMBOLS,
+  isOwnToken,
 } from "./treasury-liquidity";
+import { composeTreasury } from "./treasury-composition";
 
 const STETH = "0xae7ab96520de3a18e5e111b5eaab095312d7fe84";
 const WSTETH_ARBITRUM = "0x5979D7b546E38E414F7E9822514be443A4800529";
@@ -281,5 +289,103 @@ describe("analyzeTreasuryLiquidity — bucketing", () => {
     expect(liq.concentrationPct).toBeCloseTo(60, 6);
     expect(liquidReservesUsd(liq)).toBe(3_500_000);
     expect(liq.derived).toBe(true);
+  });
+});
+
+// ─── P0.1: the projection over the shared classifier ────────────────────────
+//
+// Everything above this line predates P0.1 and passes UNMODIFIED, which is the
+// proof that `analyzeTreasuryLiquidity` is still shape- and behaviour-
+// compatible now that it is a projection over `composeTreasury`. The blocks
+// below cover what the projection ADDS.
+
+describe("analyzeTreasuryLiquidity — return shape is exactly the eight declared fields", () => {
+  it("does not leak the composition's rows, dust or unpriced count", () => {
+    // Callers destructure this and `report-evidence.ts` passes it around; an
+    // accidental spread of the whole composition would put a 53-element asset
+    // array behind a type that promises eight numbers.
+    const liq = analyzeTreasuryLiquidity(
+      [wallet("ethereum", [{ symbol: "USDC", valueUsd: 1_000 }])],
+      PROJECT
+    );
+    expect(Object.keys(liq).sort()).toEqual([
+      "btcUsd",
+      "concentratedUsd",
+      "concentrationPct",
+      "derived",
+      "liquidCryptoUsd",
+      "liquidStableUsd",
+      "otherUsd",
+      "totalUsd",
+    ]);
+  });
+
+  it("agrees field-for-field with liquidityFromBuckets over the same composition", () => {
+    const detail = [
+      wallet("ethereum", [
+        { symbol: "USDC", valueUsd: 500 },
+        { symbol: "WBTC", valueUsd: 700 },
+        { symbol: "TEST", contractAddress: OWN_CONTRACT, valueUsd: 2_000 },
+        { symbol: "MYSTERY", valueUsd: 300 },
+      ]),
+    ];
+    expect(analyzeTreasuryLiquidity(detail, PROJECT)).toEqual(
+      liquidityFromBuckets(composeTreasury(detail, PROJECT))
+    );
+  });
+});
+
+describe("analyzeTreasuryLiquidity — chain gas assets are liquid crypto (Cause C)", () => {
+  // Before P0.1 there was no bucket for a non-ETH gas asset, so SOL, MATIC and
+  // friends fell through to `otherUsd` — understating liquid reserves and,
+  // through the runway figure, survival time for every non-Ethereum treasury.
+  it("counts SOL on solana as liquid crypto, not as an unrecognised asset", () => {
+    const liq = analyzeTreasuryLiquidity(
+      [wallet("solana", [{ symbol: "SOL", valueUsd: 120_000 }])],
+      PROJECT
+    );
+    expect(liq.liquidCryptoUsd).toBe(120_000);
+    expect(liq.otherUsd).toBe(0);
+    expect(liquidReservesUsd(liq)).toBe(120_000);
+  });
+
+  it("counts MATIC on polygon and ETH on the L2s as liquid crypto", () => {
+    const liq = analyzeTreasuryLiquidity(
+      [
+        wallet("polygon", [{ symbol: "MATIC", valueUsd: 60_000 }]),
+        wallet("arbitrum", [{ symbol: "ETH", valueUsd: 40_000 }]),
+      ],
+      PROJECT
+    );
+    expect(liq.liquidCryptoUsd).toBe(100_000);
+    expect(liq.otherUsd).toBe(0);
+  });
+
+  it("keeps the rule per-chain — MATIC on Ethereum is an ordinary ERC-20", () => {
+    const liq = analyzeTreasuryLiquidity(
+      [wallet("ethereum", [{ symbol: "MATIC", valueUsd: 60_000 }])],
+      PROJECT
+    );
+    expect(liq.otherUsd).toBe(60_000);
+    expect(liq.liquidCryptoUsd).toBe(0);
+  });
+
+  it("still puts the project's own token ahead of the gas-asset rule", () => {
+    // A project whose token IS the chain's gas asset must not have it counted
+    // as spendable reserves.
+    const liq = analyzeTreasuryLiquidity(
+      [wallet("solana", [{ symbol: "SOL", valueUsd: 80_000 }])],
+      { tokenSymbol: "SOL" }
+    );
+    expect(liq.concentratedUsd).toBe(80_000);
+    expect(liquidReservesUsd(liq)).toBe(0);
+  });
+});
+
+describe("re-exports moved to treasury-composition.ts", () => {
+  it("still resolves through this module", () => {
+    expect(BTC_SYMBOLS.has("WBTC")).toBe(true);
+    expect(ETH_SYMBOLS.has("WETH")).toBe(true);
+    expect(isOwnToken({ symbol: "TEST" }, { tokenSymbol: "TEST" })).toBe(true);
   });
 });
