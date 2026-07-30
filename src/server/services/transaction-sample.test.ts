@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
+import { DUST_FLOOR_USD } from "./treasury-composition";
 import {
   buildTransactionSample,
+  isSpamSuspect,
   transactionLegKey,
   TRANSACTION_SAMPLE_BASIS,
   TOP_VALUE_SAMPLE_SIZE,
@@ -37,7 +39,11 @@ function uniLeg(index: number): SampleableTransaction {
   };
 }
 
-/** The two spam airdrops that shared the period with the distribution. */
+/**
+ * The two spam airdrops that shared the period with the distribution. Real
+ * spam legs in this fixture ARE priceUnknown — the AQ0/ZIK tokens have no
+ * usable price feed, which is exactly what `isSpamSuspect` keys on.
+ */
 function spamLeg(token: string, units: number, index: number): SampleableTransaction {
   return {
     uniqueId: `0xspam${token}:log:${index}`,
@@ -47,6 +53,7 @@ function spamLeg(token: string, units: number, index: number): SampleableTransac
     value: String(units),
     token,
     valueUsd: 0,
+    priceUnknown: true,
     timestamp: BLOCK_MS + 1000,
     direction: "in",
   };
@@ -112,6 +119,61 @@ describe("transactionLegKey", () => {
     expect(transactionLegKey(leg({ to: "Abc" }))).not.toBe(
       transactionLegKey(leg({ to: "abc" }))
     );
+  });
+});
+
+describe("isSpamSuspect", () => {
+  it("flags an inbound, unpriced leg as a spam suspect", () => {
+    expect(
+      isSpamSuspect(leg({ direction: "in", priceUnknown: true, valueUsd: 0, token: "AQ0" }))
+    ).toBe(true);
+  });
+
+  it("flags an inbound $50 leg, even with a known price — below the dust floor", () => {
+    expect(
+      isSpamSuspect(leg({ direction: "in", priceUnknown: false, valueUsd: 50, token: "ZIK" }))
+    ).toBe(true);
+  });
+
+  it("does not flag an inbound $500 leg with a known price", () => {
+    expect(
+      isSpamSuspect(leg({ direction: "in", priceUnknown: false, valueUsd: 500, token: "UNI" }))
+    ).toBe(false);
+  });
+
+  it("never flags an outbound leg, even at $0 and priceUnknown — the direction gate", () => {
+    expect(
+      isSpamSuspect(leg({ direction: "out", priceUnknown: true, valueUsd: 0, token: "AQ0" }))
+    ).toBe(false);
+  });
+
+  it("never flags a stablecoin at any size", () => {
+    expect(
+      isSpamSuspect(leg({ direction: "in", priceUnknown: false, valueUsd: 1, token: "USDC" }))
+    ).toBe(false);
+  });
+
+  it("never flags a stablecoin even unpriced at $0 — the pool_size counter-example", () => {
+    // This is the exact shape that sank Dune's `pool_size` field as a spam
+    // signal: absent for real USDC/USDT, present for spam. A $0,
+    // priceUnknown USDT/USDC leg must stay exempt so this predicate does not
+    // reintroduce that same false positive by a different route.
+    expect(
+      isSpamSuspect(leg({ direction: "in", priceUnknown: true, valueUsd: 0, token: "USDT" }))
+    ).toBe(false);
+  });
+
+  it("matches the DUST_FLOOR_USD boundary exactly, so the two cannot drift silently", () => {
+    expect(
+      isSpamSuspect(
+        leg({ direction: "in", priceUnknown: false, valueUsd: DUST_FLOOR_USD - 0.01, token: "ZIK" })
+      )
+    ).toBe(true);
+    expect(
+      isSpamSuspect(
+        leg({ direction: "in", priceUnknown: false, valueUsd: DUST_FLOOR_USD, token: "ZIK" })
+      )
+    ).toBe(false);
   });
 });
 
@@ -307,5 +369,67 @@ describe("buildTransactionSample — robustness", () => {
     const nasty = [null, undefined, leg()] as unknown as SampleableTransaction[];
     expect(() => buildTransactionSample(nasty)).not.toThrow();
     expect(buildTransactionSample(nasty).legCount).toBe(1);
+  });
+});
+
+describe("buildTransactionSample — spam floods never displace real legs from either sample slice (the AQ0/ZIK regression, at scale)", () => {
+  it("keeps every real UNI leg in the sample even when spam outnumbers and outrecencies it", () => {
+    const DECOY_COUNT = 60; // > TOP_VALUE_SAMPLE_SIZE (50): occupies the value slot entirely
+    const SPAM_COUNT = 200; // > RECENT_SAMPLE_SIZE (150) on its own
+
+    const REAL_TS = BLOCK_MS;
+    const DECOY_TS = BLOCK_MS - 1_000_000_000_000; // ancient — never competes on recency
+
+    // Real legs: genuine UNI transfers, priced, but deliberately valued below
+    // what it takes to win a top-value slot once the decoys are in play — the
+    // ONLY thing that can save them is the recency slice, which is exactly
+    // what the AQ0/ZIK regression broke.
+    const realLegs = UNI_QUANTITIES.map((_, i) => ({
+      ...uniLeg(i),
+      valueUsd: 500,
+      timestamp: REAL_TS,
+    }));
+
+    // Decoys: large, genuinely priced, ancient. They exist only to occupy
+    // every top-value slot so this test actually exercises the recency fix
+    // rather than trivially passing through topByValue.
+    const decoyLegs = Array.from({ length: DECOY_COUNT }, (_, i) =>
+      leg({
+        uniqueId: `0xdecoy${i}:log:0`,
+        direction: "in",
+        token: "ETH",
+        valueUsd: 5_000_000,
+        priceUnknown: false,
+        timestamp: DECOY_TS,
+      })
+    );
+
+    // Spam: unpriced, inbound, and — critically — every single one is more
+    // recent than the real UNI legs. A pure recency sort (the pre-fix
+    // behaviour) fills all 150 recent slots with spam before a single real
+    // UNI leg gets a look-in.
+    const spamLegs = Array.from({ length: SPAM_COUNT }, (_, i) => ({
+      ...spamLeg(`SPAM${i}`, 1, i),
+      timestamp: REAL_TS + 1 + i,
+    }));
+
+    const all = [...realLegs, ...decoyLegs, ...spamLegs];
+    expect(realLegs.length + spamLegs.length).toBeGreaterThan(RECENT_SAMPLE_SIZE);
+
+    const result = buildTransactionSample(all);
+
+    const realIds = new Set(realLegs.map((l) => l.uniqueId));
+    const sampleIds = new Set(result.sample.map((t) => t.uniqueId));
+    for (const id of realIds) {
+      expect(sampleIds.has(id)).toBe(true);
+    }
+
+    // Spam is excluded whenever non-suspect legs are available to fill the
+    // slots instead — not all 200 spam legs fit, because the real and decoy
+    // legs take priority in both slices.
+    const spamInSample = result.sample.filter((t) => t.token.startsWith("SPAM"));
+    expect(spamInSample.length).toBeLessThan(SPAM_COUNT);
+
+    expect(result.capped).toBe(true);
   });
 });

@@ -29,6 +29,8 @@
 // later question can recover. Aggregation is a presentation concern and
 // lives in major-transactions.ts.
 
+import { STABLECOIN_SYMBOLS } from "@/lib/chains";
+
 /**
  * The subset of a transaction row this module needs. Both `RawTransaction`
  * and `ClassifiedTransaction` (expense-classifier.ts) satisfy it structurally;
@@ -49,6 +51,8 @@ export interface SampleableTransaction {
   valueUsd: number;
   timestamp: number;
   direction: "in" | "out";
+  /** True when no historical price could be resolved for this leg. Absent on legacy rows. */
+  priceUnknown?: boolean;
 }
 
 export interface TransactionSampleResult<T> {
@@ -85,6 +89,36 @@ function str(value: unknown): string {
 
 function num(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Threshold for flagging a suspiciously-cheap inbound transfer as spam. Kept
+ * as a LOCAL literal rather than importing DUST_FLOOR_USD from
+ * treasury-composition.ts, to avoid coupling this file's sampling concern to
+ * that file's holding-classification concern. Asserted equal to
+ * DUST_FLOOR_USD in transaction-sample.test.ts so the two cannot drift
+ * silently — same discipline as EXCLUDED_CATEGORIES in major-transactions.ts.
+ */
+const SPAM_DUST_FLOOR_USD = 100;
+
+/**
+ * A transfer leg that looks like unsolicited spam rather than a real event:
+ * inbound, and either unpriceable or worth less than the dust floor.
+ *
+ * Stablecoins are exempt at ANY value or price state — Dune Sim's `pool_size`
+ * field looked like a spam signal and was rejected (see treasury-composition.ts's
+ * header) specifically because it was absent for USDC/USDT while present for
+ * real spam; this predicate must not reintroduce that same false positive by a
+ * different route. A $5 USDC transfer is real, tiny income, never spam.
+ *
+ * Outbound legs are never suspects: this treasury sending value out is never
+ * unsolicited by definition.
+ */
+export function isSpamSuspect(tx: SampleableTransaction): boolean {
+  if (tx.direction !== "in") return false;
+  const symbol = str(tx.token).trim().toUpperCase();
+  if (STABLECOIN_SYMBOLS.has(symbol)) return false;
+  return tx.priceUnknown === true || Math.abs(num(tx.valueUsd)) < SPAM_DUST_FLOOR_USD;
 }
 
 /**
@@ -145,6 +179,14 @@ function dedupe<T extends SampleableTransaction>(rows: readonly T[]): T[] {
  * legCount` rather than `legCount > 200`, because the two slices can overlap:
  * 200 legs whose largest are also its newest still leave some leg in neither
  * slice, and that IS truncation.)
+ *
+ * Both sorts deprioritise `isSpamSuspect` legs first, value/recency second: a
+ * spam suspect can never occupy a slot ahead of a non-suspect leg, regardless
+ * of its nominal value or recency, and only fills a slot once no non-suspect
+ * leg is left contesting it. This is what stops a burst of unsolicited spam
+ * transfers (the AQ0/ZIK airdrops, `valueUsd: 0, priceUnknown: true`) from
+ * displacing real transfers out of the stored sample — the failure mode this
+ * module's header describes as a storage problem, not just a display one.
  */
 export function buildTransactionSample<T extends SampleableTransaction>(
   allTx: readonly T[]
@@ -153,10 +195,20 @@ export function buildTransactionSample<T extends SampleableTransaction>(
   const legCount = legs.length;
 
   const topByValue = [...legs]
-    .sort((a, b) => Math.abs(num(b.valueUsd)) - Math.abs(num(a.valueUsd)))
+    .sort((a, b) => {
+      const aSpam = isSpamSuspect(a);
+      const bSpam = isSpamSuspect(b);
+      if (aSpam !== bSpam) return aSpam ? 1 : -1;
+      return Math.abs(num(b.valueUsd)) - Math.abs(num(a.valueUsd));
+    })
     .slice(0, TOP_VALUE_SAMPLE_SIZE);
   const mostRecent = [...legs]
-    .sort((a, b) => num(b.timestamp) - num(a.timestamp))
+    .sort((a, b) => {
+      const aSpam = isSpamSuspect(a);
+      const bSpam = isSpamSuspect(b);
+      if (aSpam !== bSpam) return aSpam ? 1 : -1;
+      return num(b.timestamp) - num(a.timestamp);
+    })
     .slice(0, RECENT_SAMPLE_SIZE);
 
   const sample = dedupe([...topByValue, ...mostRecent]);

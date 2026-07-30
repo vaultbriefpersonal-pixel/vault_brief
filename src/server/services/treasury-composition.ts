@@ -80,6 +80,15 @@ import { isLiquidStakingToken } from "./defi-positions";
  */
 export const DUST_FLOOR_USD = 100;
 
+/**
+ * Below `DUST_FLOOR_USD`. Exported so any caller with a valueUsd-bearing
+ * holding — not just composeTreasury's own aggregated rows — can apply the
+ * same threshold without re-declaring it.
+ */
+export function isDustHolding(holding: { valueUsd?: number }): boolean {
+  return Number(holding.valueUsd ?? 0) < DUST_FLOOR_USD;
+}
+
 /** Uppercase. Wrapped BTC trades against the same order books as BTC itself. */
 export const BTC_SYMBOLS: ReadonlySet<string> = new Set([
   "BTC",
@@ -418,7 +427,7 @@ export function composeTreasury(
   // Dust is measured on the AGGREGATED rows, not the raw holdings: three $40
   // positions in the same token across three wallets are one $120 holding, and
   // calling that dust would hide a position the treasury actually has.
-  const dustRows = assets.filter((a) => a.valueUsd < DUST_FLOOR_USD);
+  const dustRows = assets.filter(isDustHolding);
 
   return {
     liquidStableUsd,
