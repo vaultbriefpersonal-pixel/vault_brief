@@ -245,11 +245,20 @@ export const reportsRouter = router({
         input.projectId,
         input.snapshotId
       );
-      try {
-        await renderAndStorePDF(report.id);
-      } catch (err) {
-        console.error("generate: PDF render failed:", err);
-      }
+
+      // Same fix as regenerate above, same reason: this used to await
+      // renderAndStorePDF inline, right after the LLM call generateAndSaveReport
+      // makes internally — long enough combined to risk the tRPC route's
+      // timeout budget and get silently killed mid-render. See regenerate's
+      // comment above for the full explanation.
+      after(async () => {
+        try {
+          await renderAndStorePDF(report.id);
+        } catch (err) {
+          console.error("generate: PDF render failed:", err);
+        }
+      });
+
       return report;
     }),
 });
