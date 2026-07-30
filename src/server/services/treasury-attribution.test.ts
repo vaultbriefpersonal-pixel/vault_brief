@@ -8,6 +8,9 @@ import {
 
 const AERO = "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+const UNI = "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984";
+/** A different contract deliberately calling itself USDC. */
+const SPOOF_USDC = "0xdeadbeef00000000000000000000000000000001";
 
 const WALLET_A = "0xAaA1111111111111111111111111111111111111";
 const WALLET_B = "0xBbB2222222222222222222222222222222222222";
@@ -35,6 +38,36 @@ function wallet(chain: string, tokens: TokenFixture[], walletAddress = WALLET_A)
       contractAddress: t.contractAddress ?? null,
     })),
   };
+}
+
+/**
+ * The exact shape of every token stored before wallet-sync started persisting
+ * contract addresses: no `contractAddress` key at all — not null, absent.
+ * `JSON.stringify` dropped the undefined value, so this is what all 53 tokens
+ * in the production database look like today.
+ */
+function legacyWallet(
+  chain: string,
+  tokens: Omit<TokenFixture, "contractAddress">[],
+  walletAddress = WALLET_A
+) {
+  return {
+    walletAddress,
+    chain,
+    tokens: tokens.map((t) => ({
+      symbol: t.symbol,
+      name: t.symbol,
+      amount: t.amount,
+      priceUsd: t.priceUsd,
+      valueUsd: t.valueUsd ?? t.amount * t.priceUsd,
+    })),
+  };
+}
+
+/** A wallet present in both snapshots holding nothing, so a token appearing or
+ * vanishing is a position change rather than a coverage change. */
+function emptyWallet(chain: string, walletAddress = WALLET_A) {
+  return { walletAddress, chain, tokens: [] };
 }
 
 /** The invariant the whole module rests on. */
@@ -492,6 +525,293 @@ describe("attributeTreasuryChange — token identity", () => {
     expect(a.tokens[0].qtyPrev).toBe(500);
     expect(a.tokens[0].qtyCurr).toBe(900);
     expect(a.flowUsd).toBeCloseTo(400, 6);
+  });
+});
+
+describe("attributeTreasuryChange — the contractAddress key transition", () => {
+  // wallet-sync used to read Dune's contract address from the wrong field name,
+  // so every stored token lost it. The first snapshot taken after that fix
+  // keys UNI by `0x1f9840a8…` while every earlier snapshot keys the same
+  // holding `ethereum:UNI`. Diffing on the key alone would show each ERC-20 as
+  // a full exit AND a full entry — for this position, a fabricated $1.07bn
+  // round trip in the "largest per-token contributors" bullets.
+  const UNI_QTY = 267_134_858.47907;
+  const UNI_PRICE = 4.0151825139540005;
+
+  it("reports ONE unchanged row, not a ±$1bn round trip, when a holding gains its contract", () => {
+    const prev = [
+      legacyWallet("ethereum", [
+        { symbol: "UNI", amount: UNI_QTY, priceUsd: UNI_PRICE },
+      ]),
+    ];
+    const curr = [
+      wallet("ethereum", [
+        { symbol: "UNI", amount: UNI_QTY, priceUsd: UNI_PRICE, contractAddress: UNI },
+      ]),
+    ];
+
+    const a = attributeTreasuryChange(prev, curr);
+
+    expect(a.tokens).toHaveLength(1);
+    expect(a.tokens[0].symbol).toBe("UNI");
+    // Identity is carried forward from curr — the canonical, address-keyed side.
+    expect(a.tokens[0].contractAddress).toBe(UNI);
+    expect(a.tokens[0].key).toBe(UNI);
+    expect(a.tokens[0].symbolResolved).toBe(true);
+
+    expect(a.flowUsd).toBe(0);
+    expect(a.priceEffectUsd).toBe(0);
+    expect(a.crossUsd).toBe(0);
+    expect(a.walletSetUsd).toBe(0);
+    expect(a.unpricedUsd).toBe(0);
+    expect(a.deltaUsd).toBe(0);
+    expect(a.walletSetChanged).toBe(false);
+    // The failure this test exists for: two rows of roughly ±$1.07bn.
+    expect(a.tokens.map((t) => t.flowUsd)).toEqual([0]);
+    expectIdentity(a);
+  });
+
+  it("matches in the reverse direction too (contract on prev, symbol-only on curr)", () => {
+    const prev = [
+      wallet("ethereum", [
+        { symbol: "UNI", amount: UNI_QTY, priceUsd: UNI_PRICE, contractAddress: UNI },
+      ]),
+    ];
+    const curr = [
+      legacyWallet("ethereum", [
+        { symbol: "UNI", amount: UNI_QTY, priceUsd: UNI_PRICE },
+      ]),
+    ];
+
+    const a = attributeTreasuryChange(prev, curr);
+
+    expect(a.tokens).toHaveLength(1);
+    expect(a.tokens[0].symbolResolved).toBe(true);
+    expect(a.flowUsd).toBe(0);
+    expect(a.priceEffectUsd).toBe(0);
+    expect(a.deltaUsd).toBe(0);
+    expectIdentity(a);
+  });
+
+  it("matches when the key change is a null contract becoming a real one", () => {
+    // Some payloads carry an explicit `contractAddress: null` rather than
+    // omitting the key. tokenKey treats both as symbol-keyed, so the alias
+    // pass has to cover this shape as well.
+    const prev = [wallet("ethereum", [{ symbol: "UNI", amount: 100, priceUsd: 4 }])];
+    const curr = [
+      wallet("ethereum", [
+        { symbol: "UNI", amount: 100, priceUsd: 4, contractAddress: UNI },
+      ]),
+    ];
+    const a = attributeTreasuryChange(prev, curr);
+    expect(a.tokens).toHaveLength(1);
+    expect(a.tokens[0].symbolResolved).toBe(true);
+    expect(a.deltaUsd).toBe(0);
+  });
+
+  it("still attributes a real quantity change across the re-key boundary", () => {
+    const prev = [legacyWallet("ethereum", [{ symbol: "UNI", amount: 100, priceUsd: 4 }])];
+    const curr = [
+      wallet("ethereum", [
+        { symbol: "UNI", amount: 150, priceUsd: 4, contractAddress: UNI },
+      ]),
+    ];
+    const a = attributeTreasuryChange(prev, curr);
+    expect(a.tokens).toHaveLength(1);
+    expect(a.tokens[0].symbolResolved).toBe(true);
+    expect(a.flowUsd).toBeCloseTo(200, 6);
+    expectIdentity(a);
+  });
+
+  it("still reads a genuine exit as a single negative-flow row", () => {
+    // Symbol-only prev with a real quantity, gone from curr entirely. Nothing
+    // on the curr side to alias to, so this must stay an exit — the alias pass
+    // must not blunt real outflows.
+    const prev = [legacyWallet("ethereum", [{ symbol: "UNI", amount: 100, priceUsd: 4 }])];
+    const curr = [emptyWallet("ethereum")];
+    const a = attributeTreasuryChange(prev, curr);
+    expect(a.tokens).toHaveLength(1);
+    expect(a.tokens[0].symbolResolved).toBe(false);
+    expect(a.flowUsd).toBeCloseTo(-400, 6);
+    expect(a.walletSetChanged).toBe(false);
+    expectIdentity(a);
+  });
+
+  it("still reads a genuine new position as a single positive-flow row", () => {
+    const prev = [emptyWallet("ethereum")];
+    const curr = [
+      wallet("ethereum", [
+        { symbol: "UNI", amount: 100, priceUsd: 4, contractAddress: UNI },
+      ]),
+    ];
+    const a = attributeTreasuryChange(prev, curr);
+    expect(a.tokens).toHaveLength(1);
+    expect(a.tokens[0].symbolResolved).toBe(false);
+    expect(a.flowUsd).toBeCloseTo(400, 6);
+    expectIdentity(a);
+  });
+
+  it("does not merge two different contracts that share a ticker", () => {
+    const prev = [
+      wallet("base", [
+        { symbol: "USDC", amount: 1_000_000, priceUsd: 1, contractAddress: USDC },
+        { symbol: "USDC", amount: 500, priceUsd: 1, contractAddress: SPOOF_USDC },
+      ]),
+    ];
+    const curr = [
+      wallet("base", [
+        { symbol: "USDC", amount: 1_200_000, priceUsd: 1, contractAddress: USDC },
+        { symbol: "USDC", amount: 500, priceUsd: 1, contractAddress: SPOOF_USDC },
+      ]),
+    ];
+    const a = attributeTreasuryChange(prev, curr);
+    expect(a.tokens).toHaveLength(2);
+    expect(a.tokens.map((t) => t.contractAddress).sort()).toEqual(
+      [USDC, SPOOF_USDC].sort()
+    );
+    expect(a.tokens.every((t) => !t.symbolResolved)).toBe(true);
+    expect(a.flowUsd).toBeCloseTo(200_000, 6);
+    expectIdentity(a);
+  });
+
+  it("refuses to alias when two unmatched entries on the other side share the symbol", () => {
+    // The ambiguity rule: one legacy USDC row on prev, two address-keyed USDC
+    // rows on curr. There is no defensible way to say which is the same
+    // holding, so nothing is aliased and the old exit+entry reading stands.
+    // What must never happen is the legacy row being merged into both, or
+    // arbitrarily into whichever the Map happened to yield first.
+    const prev = [legacyWallet("base", [{ symbol: "USDC", amount: 1_000_000, priceUsd: 1 }])];
+    const curr = [
+      wallet("base", [
+        { symbol: "USDC", amount: 1_000_000, priceUsd: 1, contractAddress: USDC },
+        { symbol: "USDC", amount: 500, priceUsd: 1, contractAddress: SPOOF_USDC },
+      ]),
+    ];
+    const a = attributeTreasuryChange(prev, curr);
+    expect(a.tokens).toHaveLength(3);
+    expect(a.tokens.every((t) => !t.symbolResolved)).toBe(true);
+    // -1,000,000 exit + 1,000,000 entry + 500 entry. No double counting.
+    expect(a.flowUsd).toBeCloseTo(500, 6);
+    expect(a.deltaUsd).toBeCloseTo(500, 6);
+    expectIdentity(a);
+  });
+
+  it("gives the same verdict whichever order the ambiguous entries appear in", () => {
+    const prev = [legacyWallet("base", [{ symbol: "USDC", amount: 1_000_000, priceUsd: 1 }])];
+    const forwards = [
+      wallet("base", [
+        { symbol: "USDC", amount: 1_000_000, priceUsd: 1, contractAddress: USDC },
+        { symbol: "USDC", amount: 500, priceUsd: 1, contractAddress: SPOOF_USDC },
+      ]),
+    ];
+    const backwards = [
+      wallet("base", [
+        { symbol: "USDC", amount: 500, priceUsd: 1, contractAddress: SPOOF_USDC },
+        { symbol: "USDC", amount: 1_000_000, priceUsd: 1, contractAddress: USDC },
+      ]),
+    ];
+    const a = attributeTreasuryChange(prev, forwards);
+    const b = attributeTreasuryChange(prev, backwards);
+    expect(a.tokens).toHaveLength(b.tokens.length);
+    expect(a.flowUsd).toBeCloseTo(b.flowUsd, 6);
+    expect(a.tokens.every((t) => !t.symbolResolved)).toBe(true);
+    expect(b.tokens.every((t) => !t.symbolResolved)).toBe(true);
+  });
+
+  it("never lets the alias pass poach a token that already matched by contract", () => {
+    // A mixed payload: prev carries both an address-keyed USDC and a legacy
+    // symbol-keyed USDC row. The address side matches directly, and the legacy
+    // row must not then be aliased onto that already-consumed entry.
+    const prev = [
+      {
+        walletAddress: WALLET_A,
+        chain: "base",
+        tokens: [
+          {
+            symbol: "USDC",
+            name: "USDC",
+            amount: 1_000_000,
+            priceUsd: 1,
+            valueUsd: 1_000_000,
+            contractAddress: USDC,
+          },
+          { symbol: "USDC", name: "USDC", amount: 400, priceUsd: 1, valueUsd: 400 },
+        ],
+      },
+    ];
+    const curr = [
+      wallet("base", [
+        { symbol: "USDC", amount: 1_000_000, priceUsd: 1, contractAddress: USDC },
+      ]),
+    ];
+    const a = attributeTreasuryChange(prev, curr);
+    expect(a.tokens).toHaveLength(2);
+    expect(a.tokens.every((t) => !t.symbolResolved)).toBe(true);
+    expect(a.flowUsd).toBeCloseTo(-400, 6);
+    expectIdentity(a);
+  });
+
+  it("does not alias the same symbol across two chains", () => {
+    const prev = [
+      legacyWallet("ethereum", [{ symbol: "UNI", amount: 100, priceUsd: 4 }]),
+      emptyWallet("base"),
+    ];
+    const curr = [
+      emptyWallet("ethereum"),
+      wallet("base", [
+        { symbol: "UNI", amount: 100, priceUsd: 4, contractAddress: UNI },
+      ]),
+    ];
+    const a = attributeTreasuryChange(prev, curr);
+    expect(a.walletSetChanged).toBe(false);
+    expect(a.tokens).toHaveLength(2);
+    expect(a.tokens.every((t) => !t.symbolResolved)).toBe(true);
+    expectIdentity(a);
+  });
+
+  it("leaves ordinary contract-matched rows unflagged", () => {
+    const prev = [wallet("base", [{ symbol: "AERO", amount: 100, priceUsd: 1, contractAddress: AERO }])];
+    const curr = [wallet("base", [{ symbol: "AERO", amount: 100, priceUsd: 2, contractAddress: AERO }])];
+    expect(attributeTreasuryChange(prev, curr).tokens[0].symbolResolved).toBe(false);
+  });
+
+  it("leaves native assets, which never had a contract, unflagged", () => {
+    const prev = [wallet("ethereum", [{ symbol: "ETH", amount: 10, priceUsd: 3000 }])];
+    const curr = [wallet("ethereum", [{ symbol: "ETH", amount: 12, priceUsd: 3000 }])];
+    const a = attributeTreasuryChange(prev, curr);
+    expect(a.tokens[0].symbolResolved).toBe(false);
+    expect(a.flowUsd).toBeCloseTo(6000, 6);
+  });
+
+  it("handles a whole legacy snapshot re-keying at once without inventing flow", () => {
+    // The realistic boundary comparison: an entire prev snapshot with no
+    // contract addresses anywhere, against a curr snapshot where every ERC-20
+    // has one. Quantities and prices identical, so the honest answer is that
+    // nothing happened.
+    const holdings = [
+      { symbol: "UNI", amount: UNI_QTY, priceUsd: UNI_PRICE },
+      { symbol: "USDC", amount: 4_000_000, priceUsd: 1 },
+      { symbol: "WETH", amount: 900, priceUsd: 3200 },
+      { symbol: "ETH", amount: 50, priceUsd: 3200 },
+    ];
+    const prev = [legacyWallet("ethereum", holdings)];
+    const curr = [
+      wallet("ethereum", [
+        { ...holdings[0], contractAddress: UNI },
+        { ...holdings[1], contractAddress: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" },
+        { ...holdings[2], contractAddress: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2" },
+        // ETH is native and never gains a contract address.
+        holdings[3],
+      ]),
+    ];
+    const a = attributeTreasuryChange(prev, curr);
+    expect(a.tokens).toHaveLength(4);
+    expect(a.flowUsd).toBe(0);
+    expect(a.priceEffectUsd).toBe(0);
+    expect(a.crossUsd).toBe(0);
+    expect(a.deltaUsd).toBe(0);
+    expect(a.tokens.filter((t) => t.symbolResolved)).toHaveLength(3);
+    expectIdentity(a);
   });
 });
 

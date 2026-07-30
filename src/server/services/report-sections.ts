@@ -162,6 +162,13 @@ function formatQty(qty: number): string {
  * newly-tracked wallet has `qtyPrev = 0`, which reads as a quantity move — and
  * "the treasury received X" is exactly the claim that must not be made about
  * a wallet we merely started watching.
+ *
+ * `symbolResolved` gets the same treatment for the same reason. Such a row was
+ * matched across a change in how the token was *recorded* (older snapshots
+ * store no contract address, newer ones do), so its identity rests on
+ * chain+symbol alone. Whatever the numbers say, the sentence has to disclose
+ * that — otherwise a re-keyed holding reads as a movement the treasury never
+ * made.
  */
 function tokenMovement(t: TokenAttribution): string {
   if (!t.priced) return "no usable price — change left unattributed";
@@ -170,12 +177,15 @@ function tokenMovement(t: TokenAttribution): string {
   if (Math.abs(t.walletSetUsd) > attributed) {
     return "wallet coverage changed — not a treasury movement";
   }
+  const rekeyed = t.symbolResolved
+    ? "; matched across a change in stored token identity, on chain+symbol rather than contract — do not describe this row as a transfer"
+    : "";
   const qtyMoved = t.qtyCurr !== t.qtyPrev;
   const priceMoved = t.priceCurr !== t.pricePrev;
-  if (qtyMoved && priceMoved) return "quantity and price both moved";
-  if (qtyMoved) return "quantity moved, price unchanged";
-  if (priceMoved) return "price moved, quantity unchanged";
-  return "neither quantity nor price moved";
+  if (qtyMoved && priceMoved) return `quantity and price both moved${rekeyed}`;
+  if (qtyMoved) return `quantity moved, price unchanged${rekeyed}`;
+  if (priceMoved) return `price moved, quantity unchanged${rekeyed}`;
+  return `neither quantity nor price moved${rekeyed}`;
 }
 
 // ─── liquidity lines ───────────────────────────────────────────────────────

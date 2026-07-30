@@ -14,6 +14,18 @@ function evmChainId(chain: string): number | null {
 const cache = new Map<string, { data: DuneBalanceResponse; expiresAt: number }>();
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
+// Field names are Dune Sim's, verified against a live
+// GET /v1/evm/balances/{address}?chain_ids=1 response. The contract address
+// comes back as `address` — NOT `contract_address`, which this interface used
+// to declare. Nothing failed loudly: `b.contract_address` read as `undefined`,
+// JSON.stringify dropped the key, and every stored token silently lost its
+// contract. That disabled contract-first own-token matching
+// (treasury-liquidity.ts), LSD address matching (defi-positions.ts) and token
+// identity in treasury-attribution.ts. Do not "tidy" this name.
+//
+// `pool_size` is also present on real responses and is deliberately NOT
+// captured: it is absent for USDC and USDT while present for spam tokens, so
+// as a spam signal it is worse than useless.
 interface DuneTokenBalance {
   symbol: string;
   name: string;
@@ -21,7 +33,9 @@ interface DuneTokenBalance {
   decimals: number;
   price_usd: number | null;
   value_usd: number | null;
-  contract_address: string | null;
+  address: string | null;
+  chain?: string;
+  chain_id?: number;
 }
 
 interface DuneBalanceResponse {
@@ -143,7 +157,9 @@ export async function fetchWalletBalance(
     amount: Number(b.amount) / Math.pow(10, b.decimals),
     priceUsd: b.price_usd ?? 0,
     valueUsd: b.value_usd ?? 0,
-    contractAddress: b.contract_address,
+    // `?? null` rather than a bare read: an absent key must persist as an
+    // explicit null, not vanish from the stored JSON the way `undefined` does.
+    contractAddress: b.address ?? null,
   }));
 
   const totalUsd = tokens.reduce((sum, t) => sum + t.valueUsd, 0);
