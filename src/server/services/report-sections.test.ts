@@ -1534,3 +1534,101 @@ describe("actual_vs_budget — data and rules share one switch", () => {
     expect(user).not.toContain("## Plan vs actual");
   });
 });
+
+// ─── the contractAddress key transition ────────────────────────────────────
+//
+// Snapshots taken before wallet-sync persisted contract addresses key their
+// ERC-20s `chain:SYMBOL`; later ones key them by address. treasury-attribution
+// matches across that boundary on chain+symbol and flags the row
+// `symbolResolved`. Anything narrating such a row has to disclose the weaker
+// identity, or a holding that was merely re-recorded reads as a transfer.
+
+describe("previous_month_comparison — rows matched only by symbol", () => {
+  function rekeyContext(currTokenExtras: Record<string, unknown>) {
+    const legacyToken = {
+      symbol: "UNI",
+      name: "Uniswap",
+      amount: 1_000_000,
+      priceUsd: 4,
+      valueUsd: 4_000_000,
+    };
+    const prevSnapshot = snapshotWith({
+      snapshotDate: "2026-03-31",
+      totalBalanceUsd: "4000000",
+      balancesDetail: [
+        { walletAddress: "0xaaa", chain: "ethereum", tokens: [legacyToken] },
+      ],
+    });
+    return contextWith(
+      {
+        totalBalanceUsd: "6000000",
+        balancesDetail: [
+          {
+            walletAddress: "0xaaa",
+            chain: "ethereum",
+            tokens: [
+              {
+                ...legacyToken,
+                amount: 1_500_000,
+                valueUsd: 6_000_000,
+                ...currTokenExtras,
+              },
+            ],
+          },
+        ],
+      },
+      prevSnapshot
+    );
+  }
+
+  it("discloses that the row was matched on chain+symbol, not on contract", () => {
+    const fragment = section("previous_month_comparison").userPromptFragment(
+      rekeyContext({ contractAddress: "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984" })
+    );
+    expect(fragment).toContain("UNI on ethereum");
+    expect(fragment).toContain("matched across a change in stored token identity");
+    expect(fragment).toContain("do not describe this row as a transfer");
+  });
+
+  it("reports the holding once, not as a paired exit and entry", () => {
+    const fragment = section("previous_month_comparison").userPromptFragment(
+      rekeyContext({ contractAddress: "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984" })
+    );
+    expect(fragment.match(/- UNI on ethereum/g)).toHaveLength(1);
+  });
+
+  it("adds no such caveat when both sides carried the same contract", () => {
+    const contract = "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984";
+    const token = {
+      symbol: "UNI",
+      name: "Uniswap",
+      amount: 1_000_000,
+      priceUsd: 4,
+      valueUsd: 4_000_000,
+      contractAddress: contract,
+    };
+    const prevSnapshot = snapshotWith({
+      snapshotDate: "2026-03-31",
+      totalBalanceUsd: "4000000",
+      balancesDetail: [
+        { walletAddress: "0xaaa", chain: "ethereum", tokens: [token] },
+      ],
+    });
+    const ctx = contextWith(
+      {
+        totalBalanceUsd: "6000000",
+        balancesDetail: [
+          {
+            walletAddress: "0xaaa",
+            chain: "ethereum",
+            tokens: [{ ...token, amount: 1_500_000, valueUsd: 6_000_000 }],
+          },
+        ],
+      },
+      prevSnapshot
+    );
+    const fragment = section("previous_month_comparison").userPromptFragment(ctx);
+    expect(fragment).toContain("quantity moved, price unchanged");
+    expect(fragment).not.toContain("stored token identity");
+  });
+});

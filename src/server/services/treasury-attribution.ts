@@ -61,6 +61,15 @@ export interface TokenAttribution {
   unpricedUsd: number;
   /** False when Dune gave no usable price on a side where the token was held. */
   priced: boolean;
+  /**
+   * True when the two sides were matched on `chain:SYMBOL` because the token's
+   * *stored* identity changed shape between the snapshots (contract address
+   * present on one side, absent on the other). The holding is the same
+   * holding; only the way it was recorded changed. A weaker identity claim
+   * than a contract match, so anything narrating this row must say so — see
+   * the ambiguity rule on `pairTokens`.
+   */
+  symbolResolved: boolean;
 }
 
 export interface TreasuryAttribution {
@@ -131,6 +140,13 @@ interface StoredWalletBalance {
  */
 interface Aggregated {
   key: string;
+  /**
+   * `chain:SYMBOL` for this same entry, always — even when `key` is a contract
+   * address. The alias the diff falls back to when a key exists on only one
+   * side. Empty string when the token carries no symbol, which means "no alias
+   * available", never "alias is the empty string".
+   */
+  fallbackKey: string;
   symbol: string;
   chain: string;
   contractAddress: string | null;
@@ -191,10 +207,32 @@ function walletKeys(balancesDetail: unknown): Map<string, string> {
  * aggregates into a single row. That understates chain-level detail but
  * never corrupts the flow/price split, since the quantities and prices
  * being combined are for economically equivalent claims.
+ *
+ * Second known tradeoff, and the reason `tokenFallbackKey` exists below: this
+ * scheme is not stable across a change in what the *snapshot* stored. Every
+ * snapshot written before wallet-sync started persisting `contractAddress`
+ * keys its ERC-20s as `chain:SYMBOL`; every snapshot after keys the same
+ * holding by address. Diffing across that boundary on `key` alone shows each
+ * ERC-20 as a full exit AND a separate full entry — a fabricated round trip in
+ * the per-token contributors an investor reads. The fix is alias matching in
+ * `pairTokens`, NOT weakening this function to symbol-only: real snapshots
+ * hold spam tokens that spoof real tickers, and symbol-only keying would merge
+ * a counterfeit USDC into the genuine position. Address precision stays.
  */
 function tokenKey(chain: string, symbol: string, contractAddress: string | null): string {
   const address = contractAddress?.toLowerCase();
   return address ? address : `${chain}:${symbol.toUpperCase()}`;
+}
+
+/**
+ * The weaker, storage-format-independent identity for the same token: what
+ * `tokenKey` would have returned had no contract address been recorded. Chain
+ * stays in it for the same reason as above — symbol alone merges two chains'
+ * natives. Empty when there is no symbol to key on, which callers must read as
+ * "this entry has no alias" and skip.
+ */
+function tokenFallbackKey(chain: string, symbol: string): string {
+  return symbol ? `${chain}:${symbol.toUpperCase()}` : "";
 }
 
 /**
@@ -244,6 +282,7 @@ function aggregateSnapshot(
       } else {
         byToken.set(key, {
           key,
+          fallbackKey: tokenFallbackKey(chain, symbol),
           symbol,
           chain,
           contractAddress,
@@ -298,10 +337,11 @@ function resolvePrices(
 
 function attributeToken(
   prev: Aggregated | undefined,
-  curr: Aggregated | undefined
+  curr: Aggregated | undefined,
+  symbolResolved: boolean
 ): TokenAttribution {
-  // aggregateSnapshot only produces entries for keys it actually saw, so at
-  // least one side is defined for every key attributeTreasuryChange iterates.
+  // pairTokens only emits pairs built from entries aggregateSnapshot actually
+  // produced, so at least one side is defined on every pair reaching here.
   const identity = curr ??
     prev ?? { key: "", symbol: "", chain: "unknown", contractAddress: null };
   const { key, symbol, chain, contractAddress } = identity;
@@ -346,6 +386,7 @@ function attributeToken(
       walletSetUsd: storedUntrackedCurr - storedUntrackedPrev,
       unpricedUsd: storedTrackedCurr - storedTrackedPrev,
       priced: false,
+      symbolResolved,
     };
   }
 
@@ -390,7 +431,101 @@ function attributeToken(
     walletSetUsd,
     unpricedUsd: 0,
     priced: true,
+    symbolResolved,
   };
+}
+
+/** One row to attribute: the two sides that were matched, and how. */
+interface TokenPair {
+  prev: Aggregated | undefined;
+  curr: Aggregated | undefined;
+  symbolResolved: boolean;
+}
+
+/**
+ * Decides which prev entry lines up with which curr entry.
+ *
+ * Direct `key` equality first — a contract match, or two natives on the same
+ * chain. Whatever is left unmatched on either side then gets exactly one more
+ * chance, via `fallbackKey` (`chain:SYMBOL`). That second pass is what absorbs
+ * the storage-format change described on `tokenKey`: the same UNI position
+ * keyed `ethereum:UNI` in every snapshot taken before contract addresses were
+ * persisted, and `0x1f9840a8…` in every snapshot after. Without it, the first
+ * comparison to straddle that boundary reports every ERC-20 as a full exit
+ * plus a full entry of the same size.
+ *
+ * AMBIGUITY RULE — a `fallbackKey` is used only when *exactly one* unmatched
+ * entry on the prev side and *exactly one* unmatched entry on the curr side
+ * carry it. Two unmatched entries sharing a symbol (a spoofed ticker; or a
+ * genuine address-keyed holding sitting alongside a legacy symbol-keyed row
+ * for the same ticker) offer no defensible way to say which is which, so none
+ * of them are aliased and every one of them falls through to the pre-existing
+ * new/exited treatment. Consequences of choosing it this way:
+ *   - Deterministic. The verdict depends only on the two sets, never on Map
+ *     iteration order.
+ *   - Cannot double-count: each entry is consumed by at most one pair, and an
+ *     ambiguous alias consumes nothing.
+ *   - Degrades to the old, honest failure (an exit and an entry we cannot
+ *     link) rather than to a silent merge of two different tokens, which is
+ *     the direction that would corrupt an investor-facing number.
+ *
+ * Entries already matched directly are excluded from the alias pass, so an
+ * address-keyed token that matched on both sides can never be pulled into a
+ * second pairing by its symbol.
+ */
+function pairTokens(
+  prev: Map<string, Aggregated>,
+  curr: Map<string, Aggregated>
+): TokenPair[] {
+  const pairs: TokenPair[] = [];
+  const unmatchedPrev: Aggregated[] = [];
+  const unmatchedCurr: Aggregated[] = [];
+
+  for (const [key, p] of prev) {
+    const c = curr.get(key);
+    if (c) pairs.push({ prev: p, curr: c, symbolResolved: false });
+    else unmatchedPrev.push(p);
+  }
+  for (const [key, c] of curr) {
+    if (!prev.has(key)) unmatchedCurr.push(c);
+  }
+
+  // fallbackKey → the sole entry carrying it, or null once a second one shows
+  // up. null is the ambiguity marker, and it is sticky.
+  const indexByFallback = (entries: Aggregated[]): Map<string, Aggregated | null> => {
+    const index = new Map<string, Aggregated | null>();
+    for (const entry of entries) {
+      if (!entry.fallbackKey) continue;
+      index.set(entry.fallbackKey, index.has(entry.fallbackKey) ? null : entry);
+    }
+    return index;
+  };
+
+  const prevByFallback = indexByFallback(unmatchedPrev);
+  const currByFallback = indexByFallback(unmatchedCurr);
+  const aliased = new Set<Aggregated>();
+
+  for (const [fallbackKey, p] of prevByFallback) {
+    if (!p) continue;
+    const c = currByFallback.get(fallbackKey);
+    if (!c) continue;
+    pairs.push({ prev: p, curr: c, symbolResolved: true });
+    aliased.add(p);
+    aliased.add(c);
+  }
+
+  for (const p of unmatchedPrev) {
+    if (!aliased.has(p)) {
+      pairs.push({ prev: p, curr: undefined, symbolResolved: false });
+    }
+  }
+  for (const c of unmatchedCurr) {
+    if (!aliased.has(c)) {
+      pairs.push({ prev: undefined, curr: c, symbolResolved: false });
+    }
+  }
+
+  return pairs;
 }
 
 /**
@@ -405,6 +540,11 @@ function attributeToken(
  * The cross term is reported on its own and never folded into flow or
  * price. Folding it is a judgement call that shifts an investor-facing
  * number without saying so; a caller that wants to merge it can, visibly.
+ *
+ * Matching the two sides token-by-token is `pairTokens`'s job, including the
+ * alias pass that keeps a change in how a token was *stored* from reading as a
+ * change in what was *held*. Rows it could only match by symbol come back with
+ * `symbolResolved: true`, and callers narrating a row must surface that.
  *
  * Caller must pass the snapshots it actually wants compared — see the
  * scope note at the top of this file.
@@ -435,8 +575,8 @@ export function attributeTreasuryChange(
   const curr = aggregateSnapshot(currBalancesDetail, tracked);
 
   const tokens: TokenAttribution[] = [];
-  for (const key of new Set([...prev.keys(), ...curr.keys()])) {
-    tokens.push(attributeToken(prev.get(key), curr.get(key)));
+  for (const pair of pairTokens(prev, curr)) {
+    tokens.push(attributeToken(pair.prev, pair.curr, pair.symbolResolved));
   }
 
   tokens.sort((a, b) => Math.abs(b.deltaUsd) - Math.abs(a.deltaUsd));
