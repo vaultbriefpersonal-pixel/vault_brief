@@ -617,14 +617,39 @@ describe("major_transactions — user prompt fragment", () => {
         transactionsRaw: txPayload([outflow()], {
           totalCount: 640,
           capped: true,
+          sampleBasis: "top-50-by-value + 150-most-recent, per transfer leg",
         }),
       })
     );
     expect(out).toContain("SAMPLING NOTE");
-    expect(out).toContain("most recent transactions");
+    expect(out).toContain("stored a SAMPLE of the period's transfers");
+    expect(out).toContain(
+      "selection basis: top-50-by-value + 150-most-recent, per transfer leg"
+    );
     expect(out).toContain("640");
     expect(out).toContain("NOT necessarily the largest of the period");
     expect(out).toContain("This caveat MUST appear in the section.");
+  });
+
+  it("never claims the sample is the period's most recent transactions", () => {
+    // The old note described sampling that was replaced in d10ff59 — it told
+    // the reader the rows came from "the N most recent transactions" long
+    // after the sampler had switched to (50 largest ∪ 150 recent).
+    const capped = major.userPromptFragment(
+      contextWith({
+        transactionsRaw: txPayload([outflow()], {
+          totalCount: 640,
+          capped: true,
+        }),
+      })
+    );
+    const uncapped = major.userPromptFragment(
+      contextWith({ transactionsRaw: txPayload([outflow()]) })
+    );
+    expect(capped).not.toContain("most recent");
+    expect(uncapped).not.toContain("most recent");
+    // With no recorded basis, the note says so rather than naming a rule.
+    expect(capped).toContain("did not record how the sample was selected");
   });
 
   it("omits the caveat when the sync stored every transaction", () => {
@@ -632,6 +657,69 @@ describe("major_transactions — user prompt fragment", () => {
       contextWith({ transactionsRaw: txPayload([outflow()]) })
     );
     expect(out).not.toContain("SAMPLING NOTE");
+  });
+
+  it("labels a single transfer as one, and a grouped transaction by its leg count", () => {
+    const single = major.userPromptFragment(
+      contextWith({ transactionsRaw: txPayload([outflow()]) })
+    );
+    expect(single).toContain("| 1 transfer");
+
+    const batch = major.userPromptFragment(
+      contextWith({
+        transactionsRaw: txPayload(
+          Array.from({ length: 8 }, (_, i) =>
+            outflow({ hash: "0xbatch", to: `0xrecipient${i}`, valueUsd: 500_000 })
+          )
+        ),
+      })
+    );
+    expect(batch).toContain("| 8 transfers");
+    expect(batch).toContain("$4.0M");
+    expect(batch).toContain("8 counterparties");
+  });
+
+  it("marks a partially-priced transaction as a floor", () => {
+    const out = major.userPromptFragment(
+      contextWith({
+        transactionsRaw: txPayload([
+          outflow({ hash: "0xpartial", to: "0xa", valueUsd: 900_000 }),
+          outflow({
+            hash: "0xpartial",
+            to: "0xb",
+            valueUsd: 0,
+            priceUnknown: true,
+          }),
+        ]),
+      })
+    );
+    expect(out).toContain("| 1 transfer*");
+    expect(out).toContain("That amount is a FLOOR");
+  });
+
+  it("accounts for the gap between stored transfers and rendered rows", () => {
+    const out = major.userPromptFragment(
+      contextWith({
+        transactionsRaw: txPayload([
+          outflow({ hash: "0xkeep" }),
+          outflow({ hash: "0xint", category: "internal_transfer" }),
+          outflow({ hash: "0xnoprice", priceUnknown: true }),
+          outflow({ hash: "0xtiny", valueUsd: 100 }),
+        ]),
+      })
+    );
+    expect(out).toContain("ACCOUNTING: the snapshot stored 4 transfers");
+    expect(out).toContain("1 internal (between the project's own wallets)");
+    expect(out).toContain("1 with no resolvable price");
+    expect(out).toContain("1 fell below the threshold");
+    expect(out).toContain("that is grouping and filtering, not missing data");
+  });
+
+  it("omits the accounting line when nothing was excluded", () => {
+    const out = major.userPromptFragment(
+      contextWith({ transactionsRaw: txPayload([outflow()]) })
+    );
+    expect(out).not.toContain("ACCOUNTING");
   });
 
   it("says how many qualified when the table was truncated to the row cap", () => {

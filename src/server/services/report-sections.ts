@@ -1212,6 +1212,13 @@ const treasuryOperations: ReportSection = {
  */
 function majorTxRow(tx: MajorTransaction): string {
   const direction = tx.direction === "in" ? "incoming" : "outgoing";
+  // The transfer count is a column rather than prose because the model
+  // otherwise has no way to know that one row covers eight transfers, and
+  // "eight transactions" is exactly the sentence this section must not
+  // produce. The asterisk marks a value that is a floor.
+  const transfers = `${tx.legCount} transfer${tx.legCount === 1 ? "" : "s"}${
+    tx.partial ? "*" : ""
+  }`;
   return [
     tx.date || "unknown",
     direction,
@@ -1219,6 +1226,7 @@ function majorTxRow(tx: MajorTransaction): string {
     tx.token,
     tx.category || "unclassified",
     tx.counterparty || "unidentified address",
+    transfers,
   ].join(" | ");
 }
 
@@ -1241,11 +1249,21 @@ const majorTransactions: ReportSection = {
     const lines: string[] = [
       `Every transaction at or above ${formatUsd(
         result.thresholdUsd
-      )} (the larger of $25,000 and 0.5% of treasury), largest first. Transfers between the project's own wallets are excluded — they move nothing. Transactions whose USD value could not be priced are excluded — their value is not known.`,
+      )} (the larger of $25,000 and 0.5% of treasury), largest first. One row is one TRANSACTION, not one transfer: a single transaction that paid eight recipients is one row whose Transfers column reads 8, and the threshold was applied to the transaction's total after its transfers were summed. Transfers between the project's own wallets are excluded — they move nothing. Transfers whose USD value could not be priced are excluded from the totals — their value is not known.`,
       "",
-      "Date | Direction | Amount | Asset | Category | Counterparty",
+      "Date | Direction | Amount | Asset | Category | Counterparty | Transfers",
       ...result.rows.map((tx) => `- ${majorTxRow(tx)}`),
     ];
+
+    // A row whose value omits an unpriceable transfer is a floor, and the
+    // report has to say so — the alternative is a number that reads exact and
+    // is not.
+    if (result.rows.some((tx) => tx.partial)) {
+      lines.push(
+        "",
+        "* This transaction included at least one transfer with no resolvable price, which is excluded from the amount shown. That amount is a FLOOR — the transaction moved at least this much, possibly more."
+      );
+    }
 
     if (result.qualifyingCount > result.rows.length) {
       lines.push(
@@ -1254,9 +1272,45 @@ const majorTransactions: ReportSection = {
       );
     }
 
-    // The disclosure. data-sync.ts stores the most RECENT transactions, not
-    // the largest, so once that store was capped these rows are "largest among
-    // the recent ones" and a bigger transfer may sit outside the window
+    // The stored-vs-rendered gap, stated rather than left dangling. Without
+    // this, a snapshot holding ten legs that renders one row looks like nine
+    // transactions went missing.
+    const excludedClauses = [
+      result.excluded.internal > 0
+        ? `${result.excluded.internal.toLocaleString()} internal (between the project's own wallets)`
+        : "",
+      result.excluded.priceUnknown > 0
+        ? `${result.excluded.priceUnknown.toLocaleString()} with no resolvable price`
+        : "",
+    ].filter(Boolean);
+    if (excludedClauses.length > 0 || result.excluded.belowThreshold > 0) {
+      const parts = [
+        `ACCOUNTING: the snapshot stored ${result.sampleSize.toLocaleString()} transfer${
+          result.sampleSize === 1 ? "" : "s"
+        } for this period.`,
+      ];
+      if (excludedClauses.length > 0) {
+        parts.push(`Excluded before grouping: ${excludedClauses.join(", ")}.`);
+      }
+      const grouped = result.qualifyingCount + result.excluded.belowThreshold;
+      const below =
+        result.excluded.belowThreshold > 0
+          ? `, of which ${result.excluded.belowThreshold.toLocaleString()} fell below the threshold`
+          : "";
+      parts.push(
+        `The rest group into ${grouped.toLocaleString()} transaction${
+          grouped === 1 ? "" : "s"
+        }${below}.`
+      );
+      parts.push(
+        "The table above is therefore shorter than the transfer count by construction — that is grouping and filtering, not missing data."
+      );
+      lines.push("", parts.join(" "));
+    }
+
+    // The truncation disclosure. The sync stores a SAMPLE of the period's
+    // transfers (the largest by value plus the most recent), so once that
+    // store was genuinely capped a bigger transfer may sit outside it
     // entirely. Nothing downstream can detect that, and re-sampling only helps
     // snapshots not yet taken — so the report says it out loud instead of
     // quietly presenting a partial ranking as a complete one.
@@ -1264,10 +1318,18 @@ const majorTransactions: ReportSection = {
       const of =
         result.totalCount === null
           ? ""
-          : ` of ${result.totalCount.toLocaleString()} recorded for the period`;
+          : ` out of ${result.totalCount.toLocaleString()} recorded for the period`;
+      // Legacy snapshots carry no `sampleBasis`, and the rule in force when
+      // they were written cannot be recovered from the row. Saying so is the
+      // only honest option — naming a rule we are guessing at is how the old
+      // note came to claim "the N most recent" long after the sampler had
+      // stopped working that way.
+      const basis = result.sampleBasis
+        ? ` (selection basis: ${result.sampleBasis})`
+        : " (this snapshot did not record how the sample was selected)";
       lines.push(
         "",
-        `SAMPLING NOTE: this snapshot stored only the ${result.sampleSize.toLocaleString()} most recent transactions${of}. The rows above are the largest within that sample, NOT necessarily the largest of the period — a larger transaction may have occurred earlier in the period and fallen outside what was stored. This caveat MUST appear in the section.`
+        `SAMPLING NOTE: this snapshot stored a SAMPLE of the period's transfers${basis} — ${result.sampleSize.toLocaleString()} of them${of} — because the period held more than the sample could carry. The rows above are the largest within that sample, NOT necessarily the largest of the period: a larger transaction may have fallen outside what was stored. This caveat MUST appear in the section.`
       );
     }
 
@@ -1275,11 +1337,14 @@ const majorTransactions: ReportSection = {
   },
   systemPromptFragment: `### Major Transactions (CONDITIONAL)
 - Only render when the input contains a "## Major transactions" block.
-- Render a table with the columns Date | Direction | Amount | Asset | Category | Counterparty, one row per listed transaction, values copied from the input. A row whose Date reads "unknown" has no usable timestamp in the stored data — leave that cell blank rather than guessing or inferring a date.
+- Render a table with the columns Date | Direction | Amount | Asset | Category | Counterparty | Transfers, one row per listed transaction, values copied from the input. A row whose Date reads "unknown" has no usable timestamp in the stored data — leave that cell blank rather than guessing or inferring a date.
+- **One row is one transaction.** A row whose Transfers column reads 8 is ONE transaction comprising eight transfers — say it that way, or say nothing about the count. Writing "8 transactions", counting it eight times in any total, or listing the transfers as separate rows all misstate what happened. An asset shown as "multiple assets" or a counterparty shown as "N counterparties" is a transaction with several transfers, not several transactions.
+- **An amount marked with an asterisk is a floor, and must be described as one** — "at least $X". One of its transfers had no resolvable price and is excluded from the figure. Never present that number as the transaction's exact value.
 - **Never invent a purpose for a transfer.** The input records what moved, when, and to or from whom. It does not record why. Commentary is allowed only where the category and counterparty in the row already carry it: "a $1.2M USDC transfer to Binance, classified as a token sale" is supportable because every element of it is in the input. "Sold treasury assets to fund operations", "paid down vendor obligations", "deployed capital into the ecosystem", "took profit" are NOT supportable — each asserts an intent the data cannot show.
 - A counterparty shown as a truncated address ("0x1234…abcd") is an address and nothing else. Do not name an entity, a relationship, or a category of business for it. A row marked "unclassified" or "unidentified address" gets stated plainly, with no inference attached.
 - At most two sentences of commentary in total, and only if a row genuinely supports it. A bare table with no commentary is a correct, complete answer here.
-- **If the input carries a SAMPLING NOTE, the rendered section MUST carry that caveat** — one short sentence stating the list is drawn from the period's most recent stored transactions and may not include the period's largest. Do not present the table as the definitive list of the largest transactions. Dropping this caveat misrepresents what the numbers are; it is not a stylistic trim.
+- **If the input carries a SAMPLING NOTE, the rendered section MUST carry that caveat** — one short sentence stating the list is drawn from a stored sample of the period's transfers and may not include the period's largest transaction. Do not present the table as the definitive list of the largest transactions. Dropping this caveat misrepresents what the numbers are; it is not a stylistic trim. When there is no SAMPLING NOTE, do NOT invent one: nothing was truncated, and inventing doubt is as wrong as hiding it.
+- An ACCOUNTING line in the input explains why the table is shorter than the stored transfer count. Use it if you say anything about coverage, and never describe those exclusions as missing or failed data.
 - Never describe this table as complete, exhaustive, or "all transactions". Transfers below the stated threshold, internal transfers, and unpriced transfers are all excluded by construction.`,
   notReadyHint:
     "Needs a synced period containing transactions above the reporting threshold.",

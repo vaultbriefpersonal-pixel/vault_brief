@@ -4,6 +4,7 @@ import { projects, wallets, treasurySnapshots } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
 import { fetchAllBalances, fetchTokenMetrics } from "./wallet-sync";
 import { fetchAndClassify } from "./transaction-sync";
+import { buildTransactionSample } from "./transaction-sample";
 import { fetchGitHubActivity } from "./github-sync";
 import { notify } from "./notifications";
 
@@ -56,41 +57,24 @@ export async function createMonthlySnapshot(
 
   const snapshotDate = period.end.toISOString().split("T")[0];
 
-  // Cap raw transactions stored on the snapshot row. Aggregates are computed
-  // inside fetchAndClassify from the full list, so accuracy there is
-  // preserved; this only bounds the JSONB blob size (~60KB instead of 1MB+).
+  // Which transfer legs get persisted, and whether anything was left out, is
+  // decided by transaction-sample.ts — pure and unit-tested, because this
+  // file imports `db` and cannot be. Aggregates are computed inside
+  // fetchAndClassify over the FULL list, so nothing here affects them; this
+  // only bounds the JSONB blob (~60KB instead of 1MB+).
   //
-  // Sampling by recency alone means a genuinely large transaction earlier in
-  // a high-volume period is silently invisible to major-transactions.ts
-  // forever (that section only ever sees this stored sample). So we keep the
-  // union of the 50 largest-by-value and the 150 most recent, deduped by
-  // hash — large transactions survive regardless of when they happened,
-  // while recency coverage for "recent activity" use cases is preserved.
-  const TOP_VALUE_SAMPLE_SIZE = 50;
-  const RECENT_SAMPLE_SIZE = 150;
+  // `legCount` and `sampleBasis` are additive envelope keys. readEnvelope in
+  // major-transactions.ts ignores keys it does not know, so every snapshot
+  // already in the database keeps reading exactly as before.
   const allTx = txResult?.transactions ?? [];
-  const topByValue = [...allTx]
-    .sort((a, b) => Math.abs(b.valueUsd) - Math.abs(a.valueUsd))
-    .slice(0, TOP_VALUE_SAMPLE_SIZE);
-  const mostRecent = [...allTx]
-    .sort((a, b) => b.timestamp - a.timestamp)
-    .slice(0, RECENT_SAMPLE_SIZE);
-  const seenHashes = new Set<string>();
-  const sampledTx = [...topByValue, ...mostRecent].filter((t) => {
-    if (seenHashes.has(t.hash)) return false;
-    seenHashes.add(t.hash);
-    return true;
-  });
+  const sampled = buildTransactionSample(allTx);
   const transactionsRaw = txResult
     ? {
-        sample: sampledTx,
+        sample: sampled.sample,
         totalCount: allTx.length,
-        // Compare against the actual (post-dedup) sample size, not a fixed
-        // constant — the union can be smaller than
-        // TOP_VALUE_SAMPLE_SIZE + RECENT_SAMPLE_SIZE when the two sets
-        // overlap, and `capped` must still mean "some transactions were left
-        // out of the stored sample."
-        capped: allTx.length > sampledTx.length,
+        capped: sampled.capped,
+        legCount: sampled.legCount,
+        sampleBasis: sampled.basis,
       }
     : null;
 

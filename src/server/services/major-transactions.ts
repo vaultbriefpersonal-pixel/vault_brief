@@ -15,20 +15,36 @@
 // server-only import would break `npm run build` in a way that is tedious to
 // trace back to this line.
 //
+// ─── Legs are not transactions ─────────────────────────────────────────────
+//
+// The stored sample holds one row per transfer LEG. A batch distribution to
+// eight recipients, both sides of a swap, a multi-asset payout — each is ONE
+// transaction that produced several rows sharing one `hash`. Ranking legs
+// individually is wrong in both directions: eight legs of $4.7M crowd every
+// other row out of an 8-row table, while a hundred $500 legs that are really
+// one $50K transfer clear no threshold at all and vanish.
+//
+// So rows here are aggregated by `(hash, direction)` and the threshold is
+// applied to the AGGREGATE, never to a leg. `legCount` on each row carries
+// how many transfers the transaction comprised, so the report can say "one
+// transaction comprising eight transfers" rather than "eight transactions".
+//
 // ─── The sampling caveat, stated once, here ────────────────────────────────
 //
-// data-sync.ts stores the 200 MOST RECENT transactions, not the 200 largest:
+// data-sync.ts stores a SAMPLE of the period's legs, not all of them — the
+// union of the 50 largest by value and the 150 most recent (see
+// transaction-sample.ts, which owns that rule and writes `sampleBasis` onto
+// the envelope). When the period had more legs than that union could hold,
+// the sync sets `capped` and a larger transfer may sit outside the sample
+// entirely; nothing here can detect it. `capped` carries that fact out to the
+// caller so the report can say so out loud, and it is inferred from the
+// STORED sample size — never from the aggregated row count, which is legitimately
+// smaller than the sample whenever legs group.
 //
-//     const sampledTx = [...allTx].sort((a, b) => b.timestamp - a.timestamp)
-//                                 .slice(0, TX_SAMPLE_SIZE);
-//
-// So "the largest transactions" is only ever "the largest among the most
-// recent N". When the sync capped the list, a transaction bigger than
-// everything below may sit outside the sample entirely, and this module has no
-// way to know. `capped` carries that fact out to the caller so the report can
-// say so out loud. Changing the sampling would only help snapshots taken after
-// the change and cannot repair a single row already written — the honest fix
-// is disclosure, not a silently different sort.
+// Note that `capped` was wrong in production until 2026-07: the sync compared
+// against a hash-deduped length, so collapsing legs alone raised the flag on
+// periods where nothing had been truncated. A snapshot written before then may
+// claim truncation that never happened.
 //
 // Everything here is defensive: `transactionsRaw` spans two stored shapes
 // (the current object with metadata, and a legacy bare array), plus rows
@@ -37,7 +53,10 @@
 
 import { labelCounterparty } from "./counterparty-labels";
 
-/** One row of the Major Transactions table. Every field is render-ready. */
+/**
+ * One row of the Major Transactions table — ONE transaction, not one transfer
+ * leg. Every field is render-ready.
+ */
 export interface MajorTransaction {
   hash: string;
   /** Epoch milliseconds, as stored. 0 when the payload had no usable timestamp. */
@@ -45,37 +64,85 @@ export interface MajorTransaction {
   /** 'YYYY-MM-DD', or an empty string when the timestamp was unusable. */
   date: string;
   direction: "in" | "out";
-  /** Absolute USD value. Always finite and > 0 — zero-value rows never qualify. */
+  /**
+   * Absolute USD value of the whole transaction: the sum of its priced legs.
+   * Always finite and > 0 — zero-value rows never qualify.
+   */
   valueUsd: number;
-  /** Asset symbol as recorded at sync time, uppercased. "UNKNOWN" when absent. */
+  /**
+   * Asset symbol, uppercased, when every counted leg moved the same one.
+   * "multiple assets" when they did not. "UNKNOWN" when absent.
+   */
   token: string;
-  /** Classifier category verbatim (`payroll`, `revenue`, …). "" when absent. */
+  /**
+   * Classifier category verbatim (`payroll`, `revenue`, …) when the legs
+   * agree, "multiple categories" when they do not, "" when absent.
+   */
   category: string;
-  /** The other side of the transfer: `to` for outflows, `from` for inflows. */
+  /**
+   * The other side of the transfer — `to` for outflows, `from` for inflows —
+   * when there is exactly one. Empty when the transaction had several.
+   */
   counterpartyAddress: string;
-  /** Known name ("Binance") or a truncated address ("0x1234…abcd"). */
+  /**
+   * Known name ("Binance"), a truncated address ("0x1234…abcd"), or
+   * "N counterparties" when the transaction paid out to several.
+   */
   counterparty: string;
   /** True when `counterparty` is a recognised name rather than an address. */
   counterpartyKnown: boolean;
+  /**
+   * How many transfer legs this row's value is the sum of. 1 for an ordinary
+   * transfer, 8 for a batch distribution. NEVER a count of transactions.
+   */
+  legCount: number;
+  /**
+   * True when at least one leg of this transaction was dropped for having no
+   * resolvable price. `valueUsd` is then a FLOOR, not the transaction's value.
+   * The alternative — silently adding a known-wrong $0 — would understate it
+   * with no signal at all.
+   */
+  partial: boolean;
+}
+
+/** Why legs that were stored are not in the table. */
+export interface MajorTransactionExclusions {
+  /** Legs the treasury sent to itself. Not events. */
+  internal: number;
+  /** Legs whose USD value the sync could not resolve. */
+  priceUnknown: number;
+  /** Aggregated transactions that came in under the threshold. */
+  belowThreshold: number;
 }
 
 export interface MajorTransactionsResult {
   /** Qualifying transactions, largest USD value first. At most `MAX_ROWS`. */
   rows: MajorTransaction[];
   /**
-   * True when the stored transaction list was a capped sample of a larger
-   * set. Rows are then "largest among the most recent N", NOT "largest of the
-   * period" — the report MUST disclose this. See the header.
+   * True when the stored leg list was a capped sample of a larger set. Rows
+   * are then "largest of what was sampled", NOT "largest of the period" — the
+   * report MUST disclose this. See the header.
    */
   capped: boolean;
-  /** The USD floor a transaction had to clear. */
+  /** The USD floor a transaction had to clear, applied AFTER aggregation. */
   thresholdUsd: number;
   /** How many transactions cleared the threshold before the row cap applied. */
   qualifyingCount: number;
-  /** Transactions in the stored sample (post-exclusions denominator context). */
+  /**
+   * Transfer LEGS in the stored sample. This is the denominator the `capped`
+   * inference uses, and it is deliberately not the row count — rows are
+   * fewer whenever legs group, and reading a legitimate grouping as
+   * truncation would make every multi-leg period claim data was lost.
+   */
   sampleSize: number;
-  /** Total transactions the sync saw, when the payload recorded it. */
+  /** Total legs the sync saw, when the payload recorded it. */
   totalCount: number | null;
+  /** Distinct legs the sync recorded, when the envelope carries it. */
+  storedLegCount: number | null;
+  /** How the sync chose the sample, when the envelope carries it. */
+  sampleBasis: string | null;
+  /** Accounting for the gap between `sampleSize` and `rows.length`. */
+  excluded: MajorTransactionExclusions;
 }
 
 /** Absolute floor. Below this a transfer is not "major" for any treasury. */
@@ -121,6 +188,10 @@ interface StoredTransactionsEnvelope {
   sample?: unknown;
   totalCount?: unknown;
   capped?: unknown;
+  /** Added 2026-07. Absent on every earlier snapshot. */
+  legCount?: unknown;
+  /** Added 2026-07. Absent on every earlier snapshot. */
+  sampleBasis?: unknown;
 }
 
 function num(value: unknown): number {
@@ -181,16 +252,30 @@ function readEnvelope(transactionsRaw: unknown): {
   sample: StoredTransaction[];
   totalCount: number | null;
   capped: boolean;
+  legCount: number | null;
+  sampleBasis: string | null;
 } {
   if (Array.isArray(transactionsRaw)) {
     const sample = transactionsRaw.filter(
       (t): t is StoredTransaction => typeof t === "object" && t !== null
     );
-    return { sample, totalCount: sample.length, capped: false };
+    return {
+      sample,
+      totalCount: sample.length,
+      capped: false,
+      legCount: null,
+      sampleBasis: null,
+    };
   }
 
   if (typeof transactionsRaw !== "object" || transactionsRaw === null) {
-    return { sample: [], totalCount: null, capped: false };
+    return {
+      sample: [],
+      totalCount: null,
+      capped: false,
+      legCount: null,
+      sampleBasis: null,
+    };
   }
 
   const envelope = transactionsRaw as StoredTransactionsEnvelope;
@@ -211,19 +296,184 @@ function readEnvelope(transactionsRaw: unknown): {
       ? envelope.capped
       : totalCount !== null && totalCount > sample.length;
 
-  return { sample, totalCount, capped };
+  const legCount =
+    typeof envelope.legCount === "number" && Number.isFinite(envelope.legCount)
+      ? envelope.legCount
+      : null;
+
+  const sampleBasis =
+    typeof envelope.sampleBasis === "string" && envelope.sampleBasis
+      ? envelope.sampleBasis
+      : null;
+
+  return { sample, totalCount, capped, legCount, sampleBasis };
+}
+
+/** One normalised transfer leg, before any grouping. */
+export interface TransactionLeg {
+  hash: string;
+  direction: "in" | "out";
+  token: string;
+  category: string;
+  valueUsd: number;
+  timestamp: number;
+  counterpartyAddress: string;
+  priceUnknown: boolean;
+}
+
+/** Normalise one stored row. Never throws; missing fields get safe defaults. */
+function toLeg(tx: StoredTransaction): TransactionLeg {
+  const direction = tx.direction === "in" ? "in" : "out";
+  return {
+    hash: str(tx.hash),
+    direction,
+    token: str(tx.token).toUpperCase(),
+    category: str(tx.category),
+    valueUsd: Math.abs(num(tx.valueUsd)),
+    timestamp: num(tx.timestamp),
+    counterpartyAddress: str(direction === "in" ? tx.from : tx.to).trim(),
+    priceUnknown: tx.priceUnknown === true,
+  };
+}
+
+/**
+ * Group transfer legs into transactions by `(hash, direction)`, summing USD.
+ *
+ * Direction is part of the key, not just the hash: a swap routed through the
+ * treasury has an in-leg and an out-leg under one hash, and adding them
+ * together would report a transaction that both arrived and left as a single
+ * doubled inflow.
+ *
+ * A leg with no resolvable price is EXCLUDED from the sum and marks its
+ * transaction `partial`, so the row can be presented as a floor. Summing its
+ * stored 0 would silently understate the transaction; dropping the whole
+ * transaction would hide a real transfer because one of its legs was
+ * unpriceable. `legCount` therefore counts the legs the value is the sum of.
+ *
+ * Rows with no priced leg at all produce nothing — there is no number to show.
+ * Callers apply the threshold to the returned rows, never to a leg.
+ */
+export function aggregateLegs(legs: readonly TransactionLeg[]): {
+  rows: MajorTransaction[];
+  priceUnknownLegs: number;
+} {
+  interface Group {
+    hash: string;
+    direction: "in" | "out";
+    valueUsd: number;
+    timestamp: number;
+    legCount: number;
+    unpricedLegs: number;
+    tokens: Set<string>;
+    categories: Set<string>;
+    counterparties: Map<string, string>;
+  }
+
+  const groups = new Map<string, Group>();
+  let priceUnknownLegs = 0;
+
+  legs.forEach((leg, index) => {
+    if (leg.priceUnknown) priceUnknownLegs += 1;
+
+    // A row with no hash cannot be grouped with anything — a malformed or
+    // hand-edited payload must not have unrelated rows fused together just
+    // because both are missing the field. Such rows stay one row each.
+    const key = leg.hash
+      ? `${leg.hash.toLowerCase()}|${leg.direction}`
+      : `__nohash__${index}|${leg.direction}`;
+
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        hash: leg.hash,
+        direction: leg.direction,
+        valueUsd: 0,
+        timestamp: 0,
+        legCount: 0,
+        unpricedLegs: 0,
+        tokens: new Set<string>(),
+        categories: new Set<string>(),
+        counterparties: new Map<string, string>(),
+      };
+      groups.set(key, group);
+    }
+
+    if (leg.priceUnknown) {
+      group.unpricedLegs += 1;
+      return;
+    }
+    // A leg priced at exactly zero is not a floor — its value is known and it
+    // is nothing. It contributes no sum and no `partial` flag.
+    if (leg.valueUsd <= 0) return;
+
+    group.valueUsd += leg.valueUsd;
+    group.legCount += 1;
+    group.timestamp = Math.max(group.timestamp, leg.timestamp);
+    group.tokens.add(leg.token);
+    group.categories.add(leg.category);
+    group.counterparties.set(
+      leg.counterpartyAddress.toLowerCase(),
+      leg.counterpartyAddress
+    );
+  });
+
+  const rows: MajorTransaction[] = [];
+  for (const group of groups.values()) {
+    if (group.legCount === 0 || group.valueUsd <= 0) continue;
+
+    const tokens = [...group.tokens];
+    const categories = [...group.categories];
+    const counterparties = [...group.counterparties.values()];
+
+    const single = counterparties.length === 1 ? counterparties[0] : "";
+    const known = counterparties.length === 1 ? labelFor(single) : null;
+
+    rows.push({
+      hash: group.hash,
+      timestamp: group.timestamp,
+      date: toDate(group.timestamp),
+      direction: group.direction,
+      valueUsd: group.valueUsd,
+      token: tokens.length === 1 ? tokens[0] || "UNKNOWN" : "multiple assets",
+      category: categories.length === 1 ? categories[0] : "multiple categories",
+      counterpartyAddress: single,
+      counterparty:
+        counterparties.length === 1
+          ? (known ?? truncateAddress(single))
+          : `${counterparties.length} counterparties`,
+      counterpartyKnown: known !== null,
+      legCount: group.legCount,
+      partial: group.unpricedLegs > 0,
+    });
+  }
+
+  // Value descending. Timestamp then hash break ties so the same payload
+  // always produces the same table — a report regenerated twice should not
+  // shuffle its rows.
+  rows.sort(
+    (a, b) =>
+      b.valueUsd - a.valueUsd ||
+      b.timestamp - a.timestamp ||
+      a.hash.localeCompare(b.hash)
+  );
+
+  return { rows, priceUnknownLegs };
 }
 
 /**
  * Extract the transactions worth naming in a report.
  *
- * Exclusions, in order of how badly each would mislead:
- *   • `internal_transfer` — the treasury paying itself. Not an event.
- *   • `priceUnknown` — sync could not resolve a historical price, so
- *     `valueUsd` was left at 0 (or filled with a poisoned figure that was then
- *     zeroed). Ranking by a value we know to be wrong would put fake numbers
- *     at the top of the table.
- *   • non-positive or non-finite `valueUsd` — nothing to rank.
+ * Order of operations matters and is the whole fix:
+ *   1. Drop `internal_transfer` legs — the treasury paying itself is not an
+ *      event, and it must not contribute to any transaction's total either.
+ *   2. Aggregate the remaining legs into transactions by `(hash, direction)`,
+ *      excluding unpriced legs from the sum and flagging those rows `partial`.
+ *   3. THEN apply the threshold, to the aggregate.
+ *
+ * Thresholding a leg was wrong in both directions: three legs of a $37.8M
+ * distribution at $1.49M / $1.37M / $0.46M each failed a $5.28M floor while
+ * their own transaction cleared it seven times over, and a hundred $500 legs
+ * of one $50K transfer cleared nothing at all.
  *
  * Never throws. A malformed payload is an empty result, which the caller reads
  * as "no section", not as an error.
@@ -233,54 +483,40 @@ export function extractMajorTransactions(
   totalTreasuryUsd: number
 ): MajorTransactionsResult {
   const thresholdUsd = majorTransactionThreshold(totalTreasuryUsd);
-  const { sample, totalCount, capped } = readEnvelope(transactionsRaw);
+  const { sample, totalCount, capped, legCount, sampleBasis } =
+    readEnvelope(transactionsRaw);
 
-  const qualifying: MajorTransaction[] = [];
+  const legs: TransactionLeg[] = [];
+  let internal = 0;
   for (const tx of sample) {
-    if (tx.priceUnknown === true) continue;
-
-    const category = str(tx.category);
-    if (EXCLUDED_CATEGORIES.has(category)) continue;
-
-    const valueUsd = Math.abs(num(tx.valueUsd));
-    if (valueUsd <= 0 || valueUsd < thresholdUsd) continue;
-
-    const direction = tx.direction === "in" ? "in" : "out";
-    const counterpartyAddress = str(direction === "in" ? tx.from : tx.to).trim();
-    const known = labelFor(counterpartyAddress);
-    const timestamp = num(tx.timestamp);
-    const token = str(tx.token).toUpperCase();
-
-    qualifying.push({
-      hash: str(tx.hash),
-      timestamp,
-      date: toDate(timestamp),
-      direction,
-      valueUsd,
-      token: token || "UNKNOWN",
-      category,
-      counterpartyAddress,
-      counterparty: known ?? truncateAddress(counterpartyAddress),
-      counterpartyKnown: known !== null,
-    });
+    const leg = toLeg(tx);
+    if (EXCLUDED_CATEGORIES.has(leg.category)) {
+      internal += 1;
+      continue;
+    }
+    legs.push(leg);
   }
 
-  // Value descending. Timestamp then hash break ties so the same payload
-  // always produces the same table — a report regenerated twice should not
-  // shuffle its rows.
-  qualifying.sort(
-    (a, b) =>
-      b.valueUsd - a.valueUsd ||
-      b.timestamp - a.timestamp ||
-      a.hash.localeCompare(b.hash)
-  );
+  const { rows: aggregated, priceUnknownLegs } = aggregateLegs(legs);
+
+  const qualifying = aggregated.filter((row) => row.valueUsd >= thresholdUsd);
 
   return {
     rows: qualifying.slice(0, MAX_ROWS),
     capped,
     thresholdUsd,
     qualifyingCount: qualifying.length,
+    // Deliberately the stored LEG count, not `qualifying.length`: see the
+    // header. Aggregation legitimately shrinks the row count and must never
+    // be read as the sync having truncated something.
     sampleSize: sample.length,
     totalCount,
+    storedLegCount: legCount,
+    sampleBasis,
+    excluded: {
+      internal,
+      priceUnknown: priceUnknownLegs,
+      belowThreshold: aggregated.length - qualifying.length,
+    },
   };
 }

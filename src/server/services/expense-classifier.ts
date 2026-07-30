@@ -73,6 +73,14 @@ export const EXPENSE_CATEGORIES: ExpenseCategory[] = [
 ];
 
 export interface RawTransaction {
+  /**
+   * Alchemy's per-LEG identifier (`hash:log:N`). One transaction produces
+   * several legs — a batch payout, both sides of a swap — and they all share
+   * `hash`, so `hash` alone cannot identify a row. Optional: Solana rows
+   * (Helius has no equivalent) and every row written before 2026-07 have
+   * none, which is why transaction-sample.ts carries a composite fallback.
+   */
+  uniqueId?: string;
   hash: string;
   from: string;
   to: string;

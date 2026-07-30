@@ -122,6 +122,13 @@ async function getBlockByTimestamp(
 }
 
 interface AlchemyTransfer {
+  /**
+   * `hash:log:N` — Alchemy's identifier for one transfer LEG, returned on
+   * every `alchemy_getAssetTransfers` row and, until 2026-07, thrown away.
+   * It is the only field that distinguishes the eight legs of a batch
+   * distribution from each other; `hash` is shared by all of them.
+   */
+  uniqueId?: string;
   hash: string;
   from: string;
   to: string;
@@ -239,6 +246,13 @@ async function transferToRaw(
   const cleanUsd = usd > MAX_REASONABLE_TX_USD ? 0 : usd;
 
   return {
+    // Spread-when-present rather than `uniqueId: t.uniqueId`: an explicit
+    // `undefined` would survive into the stored JSONB as a key, and a row
+    // that HAS the field set to nothing is harder to reason about later than
+    // a row that simply lacks it (which is what every legacy row looks like).
+    ...(typeof t.uniqueId === "string" && t.uniqueId
+      ? { uniqueId: t.uniqueId }
+      : {}),
     hash: t.hash,
     from: t.from,
     to: t.to ?? "",
