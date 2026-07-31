@@ -13,6 +13,8 @@ import {
   qaHighlights,
   milestones,
   projectBudgets,
+  grantAwards,
+  grantTranches,
 } from "@/server/db/schema";
 import type { Context } from "./context";
 
@@ -158,6 +160,35 @@ export async function requireQaHighlight(ctx: GuardCtx, id: string) {
 export async function requireProjectBudget(ctx: GuardCtx, id: string) {
   const row = await ctx.db.query.projectBudgets.findFirst({
     where: eq(projectBudgets.id, id),
+  });
+  if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+  await requireProject(ctx, row.projectId);
+  return row;
+}
+
+/**
+ * An award this project RECEIVED. Not `requireGrant` above — that guards the
+ * `grants` table, which is money the project GAVE OUT. Two tables, two guards,
+ * and passing an id to the wrong one NOT_FOUNDs rather than silently
+ * authorising across them.
+ */
+export async function requireGrantAward(ctx: GuardCtx, id: string) {
+  const row = await ctx.db.query.grantAwards.findFirst({
+    where: eq(grantAwards.id, id),
+  });
+  if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+  await requireProject(ctx, row.projectId);
+  return row;
+}
+
+/**
+ * Resolves ownership off the tranche's own `projectId` rather than joining
+ * through `grantAwards` — the reason that column is denormalised onto the row
+ * (see schema.ts). Same two-step shape as every other guard here.
+ */
+export async function requireGrantTranche(ctx: GuardCtx, id: string) {
+  const row = await ctx.db.query.grantTranches.findFirst({
+    where: eq(grantTranches.id, id),
   });
   if (!row) throw new TRPCError({ code: "NOT_FOUND" });
   await requireProject(ctx, row.projectId);

@@ -8,6 +8,7 @@ import {
   date,
   timestamp,
   jsonb,
+  index,
   uniqueIndex,
   primaryKey,
 } from "drizzle-orm/pg-core";
@@ -385,6 +386,26 @@ export const milestones = pgTable("milestones", {
   status: text("status").notNull().default("planned"), // planned | in_progress | completed | delayed
   targetDate: date("target_date"),
   completedDate: date("completed_date"),
+  /**
+   * Optional link to the grant award this milestone is a deliverable for.
+   * Nullable, and null is the normal case: most milestones are ordinary
+   * roadmap work with no funder attached. There is deliberately no
+   * `is_grant_deliverable` boolean — the FK carries that fact and cannot
+   * disagree with itself.
+   *
+   * ON DELETE SET NULL, NOT CASCADE, and the difference matters: a milestone
+   * is the team's own record of shipped work and outlives whoever funded it.
+   * CASCADE here would mean deleting one mistyped grant award silently
+   * destroys hand-entered shipped history that `milestones_completed` and
+   * `looking_ahead` report from. SET NULL degrades the row to "not attributed
+   * to a grant", which is exactly what is true once the award record is gone.
+   *
+   * Intentionally NOT indexed — see the reasoning in
+   * scripts/migrations/add-grant-awards.mjs.
+   */
+  grantAwardId: uuid("grant_award_id").references(() => grantAwards.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -396,6 +417,9 @@ export const milestones = pgTable("milestones", {
 // asks scope by status instead so an open ask flows into every report
 // until resolved.
 // =============================================
+// ⚠️ MONEY THIS PROJECT GAVE OUT. Not the same thing as `grantAwards` below,
+// which is money this project RECEIVED. The names differ by one word and the
+// two must never be merged — see the header above `grantAwards`.
 export const grants = pgTable("grants", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id")
@@ -460,6 +484,122 @@ export const qaHighlights = pgTable("qa_highlights", {
   displayOrder: integer("display_order").default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
+
+// =============================================
+// ⚠️ AWARDS THIS PROJECT RECEIVED — the mirror of `grants` above, which is
+// money this project GAVE OUT. Different direction, different reader.
+// Do not merge them.
+//
+// `grants` answers an INVESTOR's question: how efficiently did you deploy
+// capital outward (`recipient`, `status: committed|disbursed`, and "grants" is
+// itself an ExpenseCategory in expense-classifier.ts, narrated by the
+// `grants_distributed` section as deployment efficiency).
+//
+// `grantAwards` answers a GRANTOR's question: what did you do with the money
+// we gave you (`grantor`, a disbursement schedule in `grantTranches`, and
+// milestones attributed back to the award). Nothing about the two shapes is
+// interchangeable — `recipient` and `grantor` are not the same field with a
+// different name, they are opposite ends of the same transfer.
+//
+// The tempting shortcut is one table with a `direction` column. It was
+// rejected: every existing consumer would then need a filter, and forgetting
+// one reports an outbound disbursement to a funder as an inbound award — a
+// wrong number in a document that decides whether the project gets paid.
+// Two tables make that unrepresentable.
+//
+// Mirrors scripts/migrations/add-grant-awards.mjs exactly (column types,
+// nullability, delete actions and all three indexes) — drift is what turns a
+// later `drizzle-kit push` into a diff instead of a no-op. See docs/MIGRATIONS.md.
+// =============================================
+export const grantAwards = pgTable(
+  "grant_awards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    grantor: text("grantor").notNull(), // 'Optimism Foundation'
+    program: text("program"), // 'RetroPGF Round 4'
+    /**
+     * NULLABLE ON PURPOSE, and the asymmetry with `grantTranches.amountUsd`
+     * (NOT NULL) is the point. An award may be denominated only in tokens —
+     * "30M OP" with no USD figure anywhere in the agreement — and writing a
+     * converted number here would state a precision the grant never had, in a
+     * field a report quotes back to the grantor as "Awarded". A tranche is a
+     * disbursement line by contrast: a schedule entry carrying no amount is
+     * not a fact about anything, so that column is NOT NULL.
+     */
+    awardAmountUsd: numeric("award_amount_usd", { precision: 18, scale: 2 }),
+    // Token-denominated awards. Scale 8 matches the token-price cache, so a
+    // whole-token award and a fractional one round the same way.
+    awardAmountToken: numeric("award_amount_token", {
+      precision: 30,
+      scale: 8,
+    }),
+    awardTokenSymbol: text("award_token_symbol"),
+    // Anchors "since we received the grant" — the period preset a grant
+    // report defaults to. NOT NULL because an award with no date cannot
+    // anchor a reporting window, which is the table's whole purpose.
+    awardDate: date("award_date").notNull(),
+    // Optional override for when reporting obligations actually start;
+    // defaults to awardDate when null. Some agreements are signed one month
+    // and start their reporting clock the next.
+    reportingStartDate: date("reporting_start_date"),
+    status: text("status").notNull().default("active"), // active | completed | terminated
+    agreementUrl: text("agreement_url"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    // Like projectBudgets and unlike the five manual-section tables: an award
+    // record gets corrected (a tranche renegotiated, a status flipped to
+    // completed) and a report should be able to say when it last changed.
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    // Postgres indexes primary keys and unique constraints automatically but
+    // NOT plain foreign keys. Without this, "list this project's awards" — the
+    // only read path — is a sequential scan, and deleting a project has to
+    // seq-scan this table to apply the CASCADE.
+    index("idx_grant_awards_project").on(table.projectId),
+  ]
+);
+
+// A disbursement schedule line. Not every award pays out at once; a grantor
+// typically releases against milestones, and "received to date" is the sum of
+// the lines whose receivedDate is set — never a treasury balance, because
+// money is fungible and a balance cannot say which dollars came from where.
+export const grantTranches = pgTable(
+  "grant_tranches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    grantAwardId: uuid("grant_award_id")
+      .notNull()
+      // CASCADE is right here, unlike on milestones.grantAwardId: a tranche is
+      // a line in THIS award's schedule and has no meaning without it. An
+      // orphaned "$50,000, expected 2026-09-01" row would describe nothing.
+      .references(() => grantAwards.id, { onDelete: "cascade" }),
+    /**
+     * Reachable via grantAwardId, so redundant as data — kept as an ownership
+     * handle. Every guard in trpc/guards.ts has the same shape: resolve the
+     * row, hand `row.projectId` to `requireProject`. This column is what lets
+     * `requireGrantTranche` keep that shape instead of joining through
+     * grantAwards first, and it is what the project-scoped list filters on.
+     */
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    label: text("label").notNull(), // 'Tranche 1 — on signature'
+    amountUsd: numeric("amount_usd", { precision: 18, scale: 2 }).notNull(),
+    expectedDate: date("expected_date"),
+    receivedDate: date("received_date"), // NULL = not yet disbursed
+    txHash: text("tx_hash"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("idx_grant_tranches_award").on(table.grantAwardId),
+    index("idx_grant_tranches_project").on(table.projectId),
+  ]
+);
 
 // =============================================
 // PROJECT BUDGETS
@@ -635,6 +775,11 @@ export type Milestone = typeof milestones.$inferSelect;
 export type NewMilestone = typeof milestones.$inferInsert;
 export type Grant = typeof grants.$inferSelect;
 export type NewGrant = typeof grants.$inferInsert;
+// Awards RECEIVED — not `Grant`/`NewGrant` above, which is money given out.
+export type GrantAward = typeof grantAwards.$inferSelect;
+export type NewGrantAward = typeof grantAwards.$inferInsert;
+export type GrantTranche = typeof grantTranches.$inferSelect;
+export type NewGrantTranche = typeof grantTranches.$inferInsert;
 export type GovernanceProposal = typeof governanceProposals.$inferSelect;
 export type NewGovernanceProposal = typeof governanceProposals.$inferInsert;
 export type Partner = typeof partners.$inferSelect;
