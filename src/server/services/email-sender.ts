@@ -25,6 +25,7 @@ import {
   composeTreasury,
   compositionSlices,
 } from "./treasury-composition";
+import { REPORT_DISCLAIMER } from "@/lib/report-disclaimer";
 
 // Lazy init: Trigger.dev's deploy bundler imports task files at build time
 // when env vars aren't available. Constructing the Resend client at module
@@ -192,12 +193,19 @@ export async function sendReportEmail(params: SendReportEmailParams) {
     ${ctaButtonHtml(reportUrl, "View Full Report →", palette)}
   `;
 
+  // Investor-facing send only — `renderEmailLayout`'s default footer is
+  // shared with magic-link, review-ready and anomaly-alert emails, none of
+  // which should carry a financial disclaimer. Keep the default attribution
+  // line and append the disclaimer beneath it rather than replacing it.
+  const footerHtml = `Sent via <a href="https://vaultbrief.io" style="color: ${palette.accent}; text-decoration: none;">Vault Brief</a> · Automated investor reporting for Web3<br/><br/><span style="font-size: 11px; color: ${palette.textMuted};">${REPORT_DISCLAIMER}</span>`;
+
   const html = renderEmailLayout({
     title: projectName,
     subtitle: `Monthly Investor Update · ${period}`,
     logoUrl,
     palette,
     bodyHtml: body,
+    footerHtml,
   });
 
   const { data, error } = await getResend().emails.send({

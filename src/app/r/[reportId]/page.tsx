@@ -7,6 +7,7 @@ import { ReportPreview } from "@/components/report/ReportPreview";
 import { ReportWidgets } from "@/components/report/ReportWidgets";
 import { formatDate } from "@/lib/utils";
 import { getSafeInfoForProject } from "@/server/services/safe-info";
+import { REPORT_DISCLAIMER } from "@/lib/report-disclaimer";
 
 /**
  * Public investor view of a sent report.
@@ -204,6 +205,9 @@ export default async function PublicReportPage({ params }: Props) {
         <span>
           Confidential — for the recipient of this email only.
         </span>
+        <p style={{ width: "100%", margin: 0, fontSize: 11, color: "var(--vb-dim)" }}>
+          {REPORT_DISCLAIMER}
+        </p>
       </footer>
     </div>
   );

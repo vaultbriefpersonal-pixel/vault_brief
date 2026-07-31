@@ -40,14 +40,17 @@ import { burnTrend, liquidRunwayMonths } from "./burn-metrics";
 import type { Anomaly } from "./anomalies";
 import {
   attributionOf,
+  budgetComparison,
   burnBasis,
   burnBasisLabel,
+  compositionOf,
   liquidityOf,
   netFlowOf,
   signedUsd,
   splitIncome,
   CONCENTRATION_PCT_FLOOR,
   STABLE_COVER_FLOOR_MONTHS,
+  type BudgetLine,
   type ReportSectionContext,
 } from "./report-derived";
 
@@ -691,6 +694,126 @@ export function evidenceOf(ctx: ReportSectionContext): EvidenceLedger {
   const ledger = buildEvidenceLedger(ctx);
   EVIDENCE_MEMO.set(ctx, ledger);
   return ledger;
+}
+
+/**
+ * One factual finding a recommendation is allowed to cite, plus the figure
+ * that backs it.
+ *
+ * This is the entire enforcement mechanism behind letting the model write
+ * recommendations: a recommendation not grounded in one of these entries is
+ * an opinion, and the Recommendations section's own rules say opinions don't
+ * get a bullet. Never shown to the model as `source` — that field exists so
+ * tests can assert which pipeline produced a given entry.
+ */
+export interface DecisionLedgerEntry {
+  /** Short factual statement a recommendation may cite as its basis. */
+  finding: string;
+  /** The figure that backs the finding, pre-formatted in house style. */
+  figure: string;
+  /** Where this entry came from — for tests/traceability, never shown to the model. */
+  source: string;
+}
+
+/**
+ * Sane ceiling on ledger size so the Recommendations prompt fragment cannot
+ * balloon on a treasury with dozens of budget lines and holdings. Composition
+ * rows are appended last and therefore truncated first when the cap bites —
+ * evidence items are already curated to matter most (see `evidenceOf`), and
+ * the liquidity/budget entries below are the ones a recommendation is most
+ * likely to need.
+ */
+const MAX_DECISION_LEDGER_ITEMS = 20;
+
+/**
+ * Every finding the Recommendations section is allowed to cite, combined from
+ * four sources that do not overlap:
+ *
+ *   1. `evidenceOf(ctx)` — the same curated positives/negatives Wins and
+ *      Lows/Concerns already select from. This already includes concentration
+ *      risk and thin stablecoin cover as negative items (see `concentration()`
+ *      and `stablecoinCover()` above), so those two are NOT recomputed here.
+ *   2. `liquidityOf` + `burnBasis` — the CURRENT liquid runway figure.
+ *      `evidenceOf` only carries `runwayShrinking`, a period-over-period
+ *      comparison; it has no entry for the raw current-state number, which is
+ *      exactly what a recommendation about runway needs to cite.
+ *   3. `budgetComparison(ctx)` — every line (and the total row) the founder's
+ *      own plan-vs-actual already marked `material`. The materiality
+ *      threshold is `report-derived.ts`'s, reused rather than reimplemented.
+ *   4. `compositionOf(ctx)` — the top 3 holdings by value, already sorted
+ *      descending in `TreasuryComposition.assets`.
+ *
+ * Never throws — same discipline as `buildEvidenceLedger`: every `ctx` field
+ * this reads can be absent or empty, and that means "no entry from this
+ * source", never an error.
+ */
+export function decisionLedger(
+  ctx: ReportSectionContext
+): DecisionLedgerEntry[] {
+  const entries: DecisionLedgerEntry[] = [];
+
+  // 1. Evidence ledger — already curated, already used by Wins/Lows.
+  const { positives, negatives } = evidenceOf(ctx);
+  for (const it of [...positives, ...negatives]) {
+    entries.push({
+      finding: it.claim,
+      figure: it.figure,
+      source: `evidence:${it.id}`,
+    });
+  }
+
+  // 2. Current liquid runway — the raw current-state figure evidenceOf lacks.
+  const liq = liquidityOf(ctx);
+  const basis = burnBasis(ctx);
+  if (liq.derived && basis.avgUsd > 0) {
+    const reserves = liquidReservesUsd(liq);
+    const months = liquidRunwayMonths(reserves, basis.avgUsd);
+    if (months !== null) {
+      entries.push({
+        finding: "Liquid runway",
+        figure: `${months.toFixed(1)} months (liquid reserves ${formatUsd(
+          reserves
+        )} ÷ ${burnBasisLabel(basis)} of ${formatUsd(basis.avgUsd)})`,
+        source: "liquidity",
+      });
+    }
+  }
+
+  // 3. Material budget variances — plan vs actual, founder-entered.
+  const cmp = budgetComparison(ctx);
+  const budgetLines: BudgetLine[] = [
+    ...(cmp.expense ? [...cmp.expense.lines, cmp.expense.total] : []),
+    ...(cmp.income ? [...cmp.income.lines, cmp.income.total] : []),
+  ];
+  for (const line of budgetLines) {
+    if (!line.material) continue;
+    const pct =
+      line.variancePct == null
+        ? "unplanned"
+        : `${line.variancePct > 0 ? "+" : ""}${line.variancePct.toFixed(0)}%`;
+    entries.push({
+      finding: `${line.label} variance`,
+      figure: `planned ${formatUsd(line.plannedUsd)}, actual ${formatUsd(
+        line.actualUsd
+      )} (${pct})`,
+      source: "budget",
+    });
+  }
+
+  // 4. Top holdings by value — appended last so the cap below truncates these
+  // first, never the evidence/liquidity/budget entries above.
+  const composition = compositionOf(ctx);
+  for (const row of composition.assets.slice(0, 3)) {
+    entries.push({
+      finding: `${row.symbol} holding`,
+      figure: `${formatUsd(row.valueUsd)} (${row.sharePct.toFixed(
+        1
+      )}% of treasury)`,
+      source: "composition",
+    });
+  }
+
+  return entries.slice(0, MAX_DECISION_LEDGER_ITEMS);
 }
 
 /** Prompt bullets. Empty string for an empty list, so callers can skip silently. */

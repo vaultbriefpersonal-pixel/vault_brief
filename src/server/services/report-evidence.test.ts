@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { buildEvidenceLedger, type EvidenceItem } from "./report-evidence";
-import type { ReportSectionContext } from "./report-sections";
-import type { TreasurySnapshot, Project } from "@/server/db/schema";
+import {
+  buildEvidenceLedger,
+  decisionLedger,
+  type EvidenceItem,
+} from "./report-evidence";
+import { getSectionById, type ReportSectionContext } from "./report-sections";
+import type { TreasurySnapshot, Project, ProjectBudget } from "@/server/db/schema";
 
 // The tests that matter here are the ones about what the ledger REFUSES to
 // say. A ledger that emits an item it should have withheld puts a sentence in
@@ -597,6 +601,213 @@ describe("malformed input", () => {
 });
 
 // ─── shape ─────────────────────────────────────────────────────────────────
+
+// ─── decisionLedger — what a Recommendations bullet is allowed to cite ─────
+
+function budgetRow(over: Partial<ProjectBudget> = {}): ProjectBudget {
+  return {
+    id: "b1",
+    projectId: "p1",
+    period: "2026-04",
+    kind: "expense",
+    category: "payroll",
+    plannedUsd: "100000",
+    notes: null,
+    createdAt: new Date("2026-04-01"),
+    updatedAt: new Date("2026-04-01"),
+    ...over,
+  } as unknown as ProjectBudget;
+}
+
+describe("decisionLedger", () => {
+  it("returns empty when the context carries no evidence, liquidity, budget or composition", () => {
+    expect(decisionLedger(ctxOf({}))).toEqual([]);
+  });
+
+  it("includes the current liquid runway when liq.derived and a trailing burn basis exist", () => {
+    const trailing = [
+      snapshot({ burnRateUsd: "100000" } as Partial<TreasurySnapshot>),
+      snapshot({ burnRateUsd: "100000" } as Partial<TreasurySnapshot>),
+    ];
+    const curr = snapshot({
+      totalBalanceUsd: "200000",
+      burnRateUsd: "200000",
+      balancesDetail: detail([{ symbol: "USDC", amount: 200_000, priceUsd: 1 }]),
+    } as Partial<TreasurySnapshot>);
+
+    const ledger = decisionLedger(ctxOf({ snapshot: curr, trailing }));
+    const runway = ledger.find((e) => e.source === "liquidity");
+    expect(runway).toBeDefined();
+    expect(runway!.finding).toBe("Liquid runway");
+    expect(runway!.figure).toMatch(/months/);
+  });
+
+  it("omits the liquid runway entry when there is no usable burn basis", () => {
+    const curr = snapshot({
+      totalBalanceUsd: "200000",
+      balancesDetail: detail([{ symbol: "USDC", amount: 200_000, priceUsd: 1 }]),
+    } as Partial<TreasurySnapshot>);
+    const ledger = decisionLedger(ctxOf({ snapshot: curr }));
+    expect(ledger.find((e) => e.source === "liquidity")).toBeUndefined();
+  });
+
+  it("includes a MATERIAL budget line but not an immaterial one", () => {
+    const curr = snapshot({
+      snapshotDate: "2026-04-30",
+      expensesByCategory: { payroll: 150_000, marketing: 10_200 },
+    } as Partial<TreasurySnapshot>);
+    const budgets = [
+      budgetRow({ id: "b1", category: "payroll", plannedUsd: "100000" }),
+      budgetRow({ id: "b2", category: "marketing", plannedUsd: "10000" }),
+    ];
+
+    const ledger = decisionLedger(
+      ctxOf({
+        snapshot: curr,
+        budgets: budgets as unknown as ReportSectionContext["budgets"],
+      })
+    );
+    const budgetFindings = ledger
+      .filter((e) => e.source === "budget")
+      .map((e) => e.finding);
+    // payroll: planned $100K, actual $150K -> +50%, clears both floors.
+    expect(budgetFindings).toContain("payroll variance");
+    // marketing: planned $10K, actual $10.2K -> +2%/$200, clears neither floor.
+    expect(budgetFindings).not.toContain("marketing variance");
+  });
+
+  it("lists the top 3 holdings by value, largest first, and no more", () => {
+    const curr = snapshot({
+      totalBalanceUsd: "1000000",
+      balancesDetail: detail([
+        { symbol: "USDC", amount: 500_000, priceUsd: 1 }, // $500K
+        { symbol: "WBTC", amount: 5, priceUsd: 60_000 }, // $300K
+        { symbol: "ETH", amount: 50, priceUsd: 3_000 }, // $150K
+        { symbol: "DAI", amount: 50_000, priceUsd: 1 }, // $50K — 4th, excluded
+      ]),
+    } as Partial<TreasurySnapshot>);
+
+    const ledger = decisionLedger(ctxOf({ snapshot: curr }));
+    const compositionFindings = ledger
+      .filter((e) => e.source === "composition")
+      .map((e) => e.finding);
+    expect(compositionFindings).toEqual([
+      "USDC holding",
+      "WBTC holding",
+      "ETH holding",
+    ]);
+  });
+
+  it("skips composition entries entirely when the treasury has no priced holdings", () => {
+    const ledger = decisionLedger(ctxOf({}));
+    expect(ledger.filter((e) => e.source === "composition")).toEqual([]);
+  });
+
+  it("anchoring: every figure the Recommendations fragment renders comes from the ledger, and nothing else", () => {
+    const prev = snapshot({
+      id: "s0",
+      snapshotDate: "2026-03-31",
+      tokenHoldersCount: 1000,
+    } as Partial<TreasurySnapshot>);
+    const curr = snapshot({
+      totalBalanceUsd: "1000000",
+      tokenHoldersCount: 1400,
+      balancesDetail: detail([{ symbol: "USDC", amount: 1_000_000, priceUsd: 1 }]),
+    } as Partial<TreasurySnapshot>);
+    const ctx = ctxOf({ snapshot: curr, prevSnapshot: prev });
+
+    const ledger = decisionLedger(ctx);
+    expect(ledger.length).toBeGreaterThan(0);
+
+    const section = getSectionById("recommendations");
+    expect(section).toBeDefined();
+    const fragment = section!.userPromptFragment(ctx);
+
+    // Every ledger figure is quoted verbatim in the rendered fragment...
+    for (const entry of ledger) {
+      expect(fragment).toContain(entry.figure);
+    }
+    // ...and the fragment has exactly one bullet per ledger entry — it is
+    // built ENTIRELY from decisionLedger(ctx), with no other numeral source.
+    const bulletLines = fragment
+      .split("\n")
+      .filter((l) => l.startsWith("- "));
+    expect(bulletLines).toHaveLength(ledger.length);
+  });
+
+  it("requires() is false when the ledger is empty, true otherwise", () => {
+    const section = getSectionById("recommendations")!;
+    expect(section.requires(ctxOf({}))).toBe(false);
+
+    const curr = snapshot({
+      totalBalanceUsd: "1000000",
+      balancesDetail: detail([{ symbol: "USDC", amount: 1_000_000, priceUsd: 1 }]),
+    } as Partial<TreasurySnapshot>);
+    expect(section.requires(ctxOf({ snapshot: curr }))).toBe(true);
+  });
+
+  it("never throws, and stays within the size cap, on a saturated context", () => {
+    const trailing = [
+      snapshot({ burnRateUsd: "100000" } as Partial<TreasurySnapshot>),
+      snapshot({ burnRateUsd: "100000" } as Partial<TreasurySnapshot>),
+    ];
+    const prev = snapshot({
+      id: "s0",
+      snapshotDate: "2026-03-31",
+      tokenHoldersCount: 1000,
+      incomeByCategory: { revenue: 100_000 },
+      balancesDetail: detail([{ symbol: "USDC", amount: 1_000_000, priceUsd: 1 }]),
+    } as Partial<TreasurySnapshot>);
+    const curr = snapshot({
+      totalBalanceUsd: "1000000",
+      burnRateUsd: "200000",
+      tokenHoldersCount: 1400,
+      incomeByCategory: { revenue: 150_000 },
+      expensesByCategory: {
+        payroll: 150_000,
+        infrastructure: 90_000,
+        marketing: 80_000,
+      },
+      balancesDetail: detail([
+        { symbol: "USDC", amount: 500_000, priceUsd: 1 },
+        { symbol: "WBTC", amount: 5, priceUsd: 60_000 },
+        { symbol: "ETH", amount: 50, priceUsd: 3_000 },
+      ]),
+    } as Partial<TreasurySnapshot>);
+    const budgets = [
+      budgetRow({ id: "b1", category: "payroll", plannedUsd: "80000" }),
+      budgetRow({ id: "b2", category: "infrastructure", plannedUsd: "40000" }),
+      budgetRow({ id: "b3", category: "marketing", plannedUsd: "20000" }),
+    ];
+
+    let ledger!: ReturnType<typeof decisionLedger>;
+    expect(() => {
+      ledger = decisionLedger(
+        ctxOf({
+          snapshot: curr,
+          prevSnapshot: prev,
+          trailing,
+          milestones: [
+            {
+              id: "m1",
+              title: "Audit closed",
+              status: "completed",
+              completedDate: "2026-04-12",
+            },
+          ] as ReportSectionContext["milestones"],
+          budgets: budgets as unknown as ReportSectionContext["budgets"],
+        })
+      );
+    }).not.toThrow();
+
+    expect(ledger.length).toBeLessThanOrEqual(20);
+    for (const entry of ledger) {
+      expect(entry.finding.trim().length).toBeGreaterThan(0);
+      expect(entry.figure.trim().length).toBeGreaterThan(0);
+      expect(entry.source.trim().length).toBeGreaterThan(0);
+    }
+  });
+});
 
 describe("every item carries a figure", () => {
   it("holds no item with an empty claim or an empty figure", () => {
