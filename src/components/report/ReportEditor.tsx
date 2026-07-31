@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ReportPreview } from "./ReportPreview";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { upsertFounderNoteSection } from "@/lib/report-markdown";
 
 interface ReportEditorProps {
   initialContent: string;
@@ -44,6 +45,7 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
   const [content, setContent] = useState(initialContent);
   const [notes, setNotes] = useState(founderNotes ?? "");
   const [saving, setSaving] = useState(false);
+  const [inserting, setInserting] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMobile = useIsMobile();
   // On mobile we collapse the 50/50 split to a tab switcher. Both panes stay
@@ -67,6 +69,27 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
   }, []);
+
+  // Explicit, deliberate publish action (B7 fix) — pulls the founder's own
+  // notes into the report body as a real "## Founder's note" section, which
+  // is what the PDF/public view/email actually render. Saves immediately
+  // rather than through the 5-second debounce: a one-click action should
+  // feel instant, and any pending debounced autosave must be cancelled
+  // first so it can't fire afterward with stale content and clobber this.
+  const handleInsertFounderNote = useCallback(async () => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    const updated = upsertFounderNoteSection(content, notes);
+    setContent(updated);
+    setInserting(true);
+    try {
+      await onSave(updated, notes);
+    } finally {
+      setInserting(false);
+    }
+  }, [content, notes, onSave]);
 
   const editorVisible = !isMobile || mobileTab === "editor";
   const previewVisible = !isMobile || mobileTab === "preview";
@@ -213,6 +236,14 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
               triggerSave(content, e.target.value);
             }}
           />
+          <button
+            type="button"
+            onClick={handleInsertFounderNote}
+            disabled={inserting}
+            className="mt-2 rounded-md border border-[var(--vb-border)] bg-[var(--vb-alt)] px-3 py-1.5 text-xs font-medium text-[var(--vb-text)] hover:bg-[var(--vb-border)] disabled:opacity-50"
+          >
+            {inserting ? "Inserting..." : "Insert as Founder's note"}
+          </button>
         </div>
       </div>
 
