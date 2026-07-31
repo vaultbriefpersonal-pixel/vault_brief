@@ -1,6 +1,7 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { db } from "@/server/db";
-import { projects } from "@/server/db/schema";
+import { projects, users, reports } from "@/server/db/schema";
+import { TRPCError } from "@trpc/server";
 
 /**
  * Returns the set of project IDs the user is allowed to sync.
@@ -52,4 +53,49 @@ export async function filterEligibleProjects<
     allowed.push(...owned.filter((r) => eligible.has(r.id)));
   }
   return allowed;
+}
+
+/**
+ * How many reports a free-plan project may generate before its owner needs a
+ * paid plan. Usage-based, and deliberately separate from `assertTrialActive`
+ * above (a time-based trial wall, left a no-op on purpose): a founder can
+ * fully set up a project — wallets, budgets, milestones, everything — for
+ * free, with no limit. The one thing this gates is generating more than one
+ * report for the same project. Regenerating an existing report
+ * (`reports.regenerate`) is a different code path and is unaffected.
+ *
+ * There is no self-serve checkout for a paid plan yet (Stripe checkout is
+ * disabled behind placeholder price IDs) — paying clients are onboarded
+ * manually by flipping `users.plan` directly; see `scripts/set-user-plan.mjs`.
+ */
+export const FREE_REPORT_LIMIT = 1;
+
+/**
+ * Throws FORBIDDEN when `projectId` has already used its free report and its
+ * OWNER (`ownerId` — pass `project.userId` from `requireProject`, never the
+ * calling session user, since a project member acting on someone else's
+ * project must be judged by the OWNER's plan) is still on the free plan.
+ */
+export async function assertCanGenerateReport(
+  ownerId: string,
+  projectId: string
+): Promise<void> {
+  const [owner] = await db
+    .select({ plan: users.plan })
+    .from(users)
+    .where(eq(users.id, ownerId))
+    .limit(1);
+  if (owner?.plan && owner.plan !== "free") return;
+
+  const [row] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(reports)
+    .where(eq(reports.projectId, projectId));
+
+  if (Number(row?.count ?? 0) >= FREE_REPORT_LIMIT) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `The free plan includes ${FREE_REPORT_LIMIT} report per project. Contact hello@vaultbrief.io to keep generating reports for this project.`,
+    });
+  }
 }
