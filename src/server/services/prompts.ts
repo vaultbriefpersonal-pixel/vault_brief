@@ -8,6 +8,8 @@ import type {
   Ask,
   QaHighlight,
   ProjectBudget,
+  GrantAward,
+  GrantTranche,
 } from "@/server/db/schema";
 import { formatUsd } from "@/lib/utils";
 import type { Anomaly } from "./anomalies";
@@ -50,6 +52,18 @@ export interface BuildReportPromptsInput {
    */
   budgets?: ProjectBudget[];
   /**
+   * Grant awards this project RECEIVED, and their disbursement lines. Optional
+   * and defaulting to empty for the same reason `budgets` is: every existing
+   * caller, test and fixture compiles unchanged, and an omitted list means "no
+   * grant on record", which gates both grant sections off rather than
+   * rendering an award with no figures in it.
+   *
+   * Not `grants` above — that is money the project gave out. See the header on
+   * `grantAwards` in schema.ts.
+   */
+  grantAwards?: GrantAward[];
+  grantTranches?: GrantTranche[];
+  /**
    * Output of `detectAnomalies(snapshot, trailing)`. Optional so existing
    * callers keep compiling; an omitted list means "no anomalies", which
    * gates the section off rather than smuggling data past it.
@@ -73,6 +87,8 @@ export function buildReportPrompts(
     asks = [],
     qaHighlights = [],
     budgets = [],
+    grantAwards = [],
+    grantTranches = [],
     anomalies = [],
     storedSections = null,
   } = input;
@@ -100,6 +116,8 @@ export function buildReportPrompts(
     asks,
     qaHighlights,
     budgets,
+    grantAwards,
+    grantTranches,
     anomalies,
     period,
     total,

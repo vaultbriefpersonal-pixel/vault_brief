@@ -14,9 +14,12 @@ import {
 import { decisionLedger } from "./report-evidence";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "./expense-classifier";
 import {
+  awardsForPeriod,
   changeSignificanceFloor,
   DUST_FLOOR_USD,
   EXPENSE_CATEGORY_NAMES,
+  grantDeliverables,
+  grantFundUsage,
   INCOME_CATEGORY_NAMES,
   RECURRING_INCOME_FLOOR_USD,
   splitIncome,
@@ -270,6 +273,13 @@ function contextWith(
     asks: [],
     qaHighlights: [],
     budgets: [],
+    // Explicit, not left to the `as unknown as` cast at the bottom of this
+    // builder: an omitted field passes through it silently, which is exactly
+    // how a stale `period: string` survived into Phase 1. Both grant sections
+    // gate on these, and they default to empty so every existing assertion
+    // below is unchanged.
+    grantAwards: [],
+    grantTranches: [],
     anomalies: [],
     total: TREASURY_TOTAL,
     minSignificant: MIN_SIGNIFICANT,
@@ -2950,5 +2960,545 @@ describe("period-aware resolvers are byte-identical to their static form for a m
       (s) => resolveSystemRules(s, custom) !== s.systemPromptFragment
     );
     expect(differing.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+// ─── grant funding received ────────────────────────────────────────────────
+//
+// The two sections that turn `grant_awards` / `grant_tranches` into report
+// content. Every test below exists because the corresponding mistake would
+// produce a plausible-looking WRONG NUMBER in a document a funder makes a
+// funding decision from — not a crash, not an empty section.
+//
+// The fixture is chosen so that every arithmetic mistake this section could
+// make has its own distinct formatted string:
+//
+//   awarded                 $2,000,000  → "$2.0M"
+//   received to date          $500,000  → "$500.0K"   (two tranches)
+//   received in period        $250,000  → "$250.0K"   (one of them)
+//   operating outflows        $300,000  → "$300.0K"
+//   awarded − received      $1,500,000  → "$1.5M"     ← the ONE legal remainder
+//   received − spent          $200,000  → "$200.0K"   ← FORBIDDEN
+//   awarded − spent         $1,700,000  → "$1.7M"     ← FORBIDDEN
+
+const AWARD_ID = "award-1";
+
+function award(over: Record<string, unknown> = {}) {
+  return {
+    id: AWARD_ID,
+    projectId: "p1",
+    grantor: "Optimism Foundation",
+    program: "RetroPGF Round 4",
+    awardAmountUsd: "2000000",
+    awardAmountToken: null,
+    awardTokenSymbol: null,
+    awardDate: "2026-01-15",
+    reportingStartDate: null,
+    status: "active",
+    agreementUrl: null,
+    notes: null,
+    ...over,
+  };
+}
+
+function tranche(over: Record<string, unknown> = {}) {
+  return {
+    id: "t1",
+    grantAwardId: AWARD_ID,
+    projectId: "p1",
+    label: "Tranche 1",
+    amountUsd: "250000",
+    expectedDate: null,
+    receivedDate: null,
+    txHash: null,
+    notes: null,
+    ...over,
+  };
+}
+
+/** The standard fixture: $500K received of a $2M award, $300K spent. */
+function grantContext(
+  extra: Partial<ReportSectionContext> = {},
+  snapshotFields: Record<string, unknown> = {}
+): ReportSectionContext {
+  return contextWith(
+    {
+      expensesByCategory: { payroll: 300_000 },
+      incomeByCategory: { grant_received: 250_000 },
+      ...snapshotFields,
+    },
+    null,
+    {
+      grantAwards: [award()] as never,
+      grantTranches: [
+        // Received inside April 2026 — the cross-check's founder side.
+        tranche({ id: "t1", receivedDate: "2026-04-10" }),
+        // Received before the window opened. Counts toward "received to date"
+        // and must NOT count toward the in-period cross-check.
+        tranche({ id: "t2", receivedDate: "2026-01-20" }),
+        tranche({ id: "t3", amountUsd: "1500000", expectedDate: "2026-09-01" }),
+      ] as never,
+      ...extra,
+    }
+  );
+}
+
+function grantFragment(ctx: ReportSectionContext): string {
+  return section("grant_fund_usage").userPromptFragment(ctx);
+}
+
+/** Every finite number anywhere in a derived view, at any depth. */
+function numbersIn(value: unknown): number[] {
+  if (typeof value === "number") return Number.isFinite(value) ? [value] : [];
+  if (Array.isArray(value)) return value.flatMap(numbersIn);
+  if (value !== null && typeof value === "object") {
+    return Object.values(value).flatMap(numbersIn);
+  }
+  return [];
+}
+
+describe("grant sections — library registration and defaults", () => {
+  it("both ship OFF by default", () => {
+    expect(section("grant_fund_usage").defaultEnabled).toBe(false);
+    expect(section("grant_milestone_progress").defaultEnabled).toBe(false);
+  });
+
+  it("neither is spliced into an existing stored config", () => {
+    // The byte-identity guarantee for every project already on the product:
+    // `resolveSections` skips `!s.defaultEnabled` when back-filling library
+    // sections a stored config never mentioned, so an investor project that
+    // saved a template before this phase gets exactly the sections it had.
+    const result = ids([{ id: "executive_summary", enabled: true }]);
+    expect(result).not.toContain("grant_fund_usage");
+    expect(result).not.toContain("grant_milestone_progress");
+  });
+
+  it("neither appears in the default (null-config) section list", () => {
+    expect(DEFAULT_IDS).not.toContain("grant_fund_usage");
+    expect(DEFAULT_IDS).not.toContain("grant_milestone_progress");
+  });
+
+  it("sits beside the section it mirrors, and titles name the direction", () => {
+    // `grants_distributed` is money the project GAVE OUT. Adjacent placement
+    // is the disambiguation: in the constructor the founder sees both, and
+    // both titles say which way the money went.
+    expect(LIBRARY_IDS[LIBRARY_IDS.indexOf("grants_distributed") + 1]).toBe(
+      "grant_fund_usage"
+    );
+    expect(section("grants_distributed").title).toBe("Grants Distributed");
+    expect(section("grant_fund_usage").title).toBe("Grant Funding Received");
+  });
+});
+
+describe("grant sections — silent without data", () => {
+  it("neither renders for a project with no grant award", () => {
+    const ctx = contextWith({ expensesByCategory: { payroll: 300_000 } });
+    for (const id of ["grant_fund_usage", "grant_milestone_progress"]) {
+      expect(section(id).requires(ctx)).toBe(false);
+      expect(section(id).userPromptFragment(ctx)).toBe("");
+    }
+  });
+
+  it("keeps both out of a prompt built with the whole library enabled", () => {
+    // The end-to-end version of the check above: a project with every section
+    // switched on and no grant data must produce a prompt with no grant
+    // heading and — because `buildSystemPrompt` selects rules by whether the
+    // fragment is non-empty — no grant RULES either.
+    const ctx = contextWith({ expensesByCategory: { payroll: 300_000 } });
+    const enabled = [...SECTION_LIBRARY];
+    const user = buildUserPrompt(ctx, enabled);
+    const system = buildSystemPrompt(enabled, ctx);
+    expect(user).not.toContain("Grant funding received");
+    expect(user).not.toContain("Grant deliverable progress");
+    expect(system).not.toContain("### Grant Funding Received");
+    expect(system).not.toContain("### Grant Deliverable Progress");
+  });
+
+  it("an award granted after the period ends is not a fact about the period", () => {
+    // April 2026 report, award signed in June. Reporting it would tell the
+    // reader about money that had not been granted when the window closed.
+    const ctx = grantContext({
+      grantAwards: [award({ awardDate: "2026-06-01" })] as never,
+    });
+    expect(awardsForPeriod(ctx)).toHaveLength(0);
+    expect(section("grant_fund_usage").requires(ctx)).toBe(false);
+  });
+
+  it("an award granted before the period still reports, whatever its status", () => {
+    // Deliberate: the report a grantor most wants is the CLOSING one, and a
+    // founder flips the award to `completed` exactly when that report is due.
+    for (const status of ["active", "completed", "terminated"]) {
+      const ctx = grantContext({
+        grantAwards: [award({ status })] as never,
+      });
+      expect(section("grant_fund_usage").requires(ctx)).toBe(true);
+      expect(grantFragment(ctx)).toContain(`status: ${status}`);
+    }
+  });
+});
+
+describe("grant_fund_usage — the figures it may and may not state", () => {
+  it("states awarded, received to date, received this period and undisbursed", () => {
+    const text = grantFragment(grantContext());
+    expect(text).toContain("Awarded: $2.0M");
+    expect(text).toContain("Received to date: $500.0K");
+    expect(text).toContain("Received during this reporting period: $250.0K");
+    expect(text).toContain("Not yet disbursed under the award");
+    expect(text).toContain("$1.5M");
+  });
+
+  it("NEVER emits a remaining figure derived from spending", () => {
+    // The single most important assertion in this file. `received − spent`
+    // ($200K) and `award − spent` ($1.7M) are both arithmetic a model — or a
+    // future contributor — would find natural, and both are fabrications: the
+    // treasury is fungible and its opening balance is not recorded anywhere.
+    const ctx = grantContext();
+    const text = grantFragment(ctx);
+    const rules = section("grant_fund_usage").systemPromptFragment;
+
+    expect(text).not.toContain("$200.0K"); // received − spent
+    expect(text).not.toContain("$1.7M"); // awarded − spent
+
+    // And the same figures must not be reachable from the derived view under
+    // any field name — a spend-derived remainder added later would show up
+    // here before it ever reached a prompt. Compared as NUMBERS, not as
+    // substrings: "2000000" contains "200000", and a substring check would
+    // have failed on the legitimate award amount.
+    expect(numbersIn(grantFundUsage(ctx))).not.toContain(200_000);
+    expect(numbersIn(grantFundUsage(ctx))).not.toContain(1_700_000);
+
+    // The prohibition is stated to the model in the same absolute register
+    // the token-price ban uses, not merely omitted from the data.
+    expect(rules).toContain("ABSOLUTE, NON-NEGOTIABLE");
+    expect(rules.toLowerCase()).toContain("fungible");
+  });
+
+  it("the only remainder it carries is awarded − received, labelled as schedule", () => {
+    const text = grantFragment(grantContext());
+    expect(text).toContain(
+      "Not yet disbursed under the award (awarded minus received to date): $1.5M"
+    );
+    expect(text).toContain("money the grantor has not sent yet");
+    expect(text).toContain("NOT a treasury balance");
+  });
+
+  it("carries the coverage ratio with its fungibility clause attached", () => {
+    const text = grantFragment(grantContext());
+    // $300K spent ÷ $500K received to date.
+    expect(text).toContain("60%");
+    expect(text).toContain(
+      "the treasury is fungible; this ratio does not assert that grant funds specifically paid these costs"
+    );
+  });
+
+  it("declines the coverage ratio rather than dividing by zero", () => {
+    const ctx = grantContext({
+      grantTranches: [tranche({ id: "t3", receivedDate: null })] as never,
+    });
+    const text = grantFragment(ctx);
+    expect(grantFundUsage(ctx).coverageRatio).toBeNull();
+    expect(text).toContain("Coverage ratio: not computable");
+    expect(text).toContain("Do not present the outflows as grant spending");
+  });
+
+  it("lists operating outflows excluding treasury rebalancing", () => {
+    const ctx = grantContext(
+      {},
+      { expensesByCategory: { payroll: 300_000, token_sale: 900_000 } }
+    );
+    const text = grantFragment(ctx);
+    expect(text).toContain("payroll: $300.0K");
+    expect(text).not.toContain("token_sale");
+    expect(grantFundUsage(ctx).operatingOutflowsUsd).toBe(300_000);
+  });
+
+  it("flags a tranche schedule that does not add up to the award", () => {
+    const ctx = grantContext({
+      grantTranches: [tranche({ id: "t1", receivedDate: "2026-04-10" })] as never,
+    });
+    expect(grantFundUsage(ctx).awards[0].scheduleIncomplete).toBe(true);
+    expect(grantFragment(ctx)).toContain("SCHEDULE NOTE");
+  });
+
+  it("refuses a negative undisbursed figure when receipts exceed the award", () => {
+    const ctx = grantContext({
+      grantAwards: [award({ awardAmountUsd: "100000" })] as never,
+    });
+    const text = grantFragment(ctx);
+    expect(text).toContain("EXCEED the recorded award");
+    expect(text).toContain("data-entry inconsistency");
+    expect(text).not.toContain("-$400.0K");
+  });
+});
+
+describe("grant_fund_usage — a token-denominated award", () => {
+  const tokenAward = () =>
+    award({
+      awardAmountUsd: null,
+      awardAmountToken: "30000000",
+      awardTokenSymbol: "OP",
+    });
+
+  it("quotes the token figure and emits no dollar award amount", () => {
+    const ctx = grantContext({ grantAwards: [tokenAward()] as never });
+    const text = grantFragment(ctx);
+    expect(text).toContain("Awarded: 30,000,000 OP");
+    expect(text).toContain("THE AGREEMENT STATES NO USD AMOUNT");
+    // Not "$0" either — a null award amount is an unstated one, and printing
+    // zero would tell the grantor their award was worthless.
+    expect(text).not.toContain("Awarded: $");
+  });
+
+  it("declines the undisbursed figure rather than mixing tokens with dollars", () => {
+    const ctx = grantContext({ grantAwards: [tokenAward()] as never });
+    expect(grantFundUsage(ctx).awards[0].undisbursedUsd).toBeNull();
+    expect(grantFragment(ctx)).toContain("Not yet disbursed: NOT COMPUTABLE");
+    expect(grantFragment(ctx)).toContain("do NOT derive one from spending");
+  });
+
+  it("still reports what actually arrived, which is measured in dollars", () => {
+    // The tranches are USD regardless of how the award is denominated, so the
+    // receipt figures survive — losing them would leave the section empty for
+    // exactly the grants most likely to need it.
+    const ctx = grantContext({ grantAwards: [tokenAward()] as never });
+    expect(grantFragment(ctx)).toContain("Received to date: $500.0K");
+  });
+
+  it("names a token amount whose symbol was never recorded", () => {
+    const ctx = grantContext({
+      grantAwards: [
+        award({
+          awardAmountUsd: null,
+          awardAmountToken: "30000000",
+          awardTokenSymbol: null,
+        }),
+      ] as never,
+    });
+    expect(grantFragment(ctx)).toContain("symbol not recorded");
+  });
+
+  it("says the award size is unrecorded when neither amount exists", () => {
+    const ctx = grantContext({
+      grantAwards: [
+        award({ awardAmountUsd: null, awardAmountToken: null }),
+      ] as never,
+    });
+    const text = grantFragment(ctx);
+    expect(text).toContain("carries no amount, in dollars or tokens");
+    expect(text).toContain("rather than inferring one from the tranche schedule");
+  });
+});
+
+describe("grant_fund_usage — the on-chain cross-check", () => {
+  it("CONSISTENT when the classified inflow matches the period's tranches", () => {
+    const ctx = grantContext();
+    expect(grantFundUsage(ctx).reconciliation.verdict).toBe("consistent");
+    expect(grantFragment(ctx)).toContain(
+      "classified on-chain grant inflows: CONSISTENT"
+    );
+  });
+
+  it("DIVERGING when they disagree by more than the tolerance", () => {
+    const ctx = grantContext({}, { incomeByCategory: { grant_received: 50_000 } });
+    const rec = grantFundUsage(ctx).reconciliation;
+    expect(rec.verdict).toBe("diverging");
+    expect(rec.divergencePct).toBeCloseTo(0.8, 5);
+    const text = grantFragment(ctx);
+    expect(text).toContain("classified on-chain grant inflows: DIVERGING");
+    expect(text).toContain("80% apart");
+  });
+
+  it("UNAVAILABLE when the period carries no classified income at all", () => {
+    // Absent is not zero. Coercing an unclassified period to $0 would score
+    // it as a 100% divergence and tell a grantor their tranche never arrived.
+    const ctx = grantContext({}, { incomeByCategory: null });
+    expect(grantFundUsage(ctx).reconciliation.chainUsd).toBeNull();
+    expect(grantFundUsage(ctx).reconciliation.verdict).toBe("unavailable");
+    expect(grantFragment(ctx)).toContain(
+      "classified on-chain grant inflows: UNAVAILABLE"
+    );
+    expect(grantFragment(ctx)).toContain("founder-entered and UNCONFIRMED");
+  });
+
+  it("UNAVAILABLE when both sides are too small to compare", () => {
+    const ctx = grantContext(
+      { grantTranches: [tranche({ id: "t3", receivedDate: null })] as never },
+      { incomeByCategory: { grant_received: 0 } }
+    );
+    expect(grantFundUsage(ctx).reconciliation.verdict).toBe("unavailable");
+  });
+
+  it("compares the IN-PERIOD tranches, never the cumulative receipts", () => {
+    // The trap this closes: "received to date" is cumulative by definition,
+    // while `incomeByCategory` covers this period alone. Comparing the two
+    // would report DIVERGING for every award whose tranches predate the
+    // window — a false alarm that gets louder the longer a grant runs. Here
+    // the cumulative figure is $500K and the chain figure $250K; if the
+    // cumulative side were used this would read DIVERGING.
+    const usage = grantFundUsage(grantContext());
+    expect(usage.receivedToDateUsd).toBe(500_000);
+    expect(usage.reconciliation.trancheUsd).toBe(250_000);
+    expect(usage.reconciliation.verdict).toBe("consistent");
+  });
+});
+
+describe("grant_fund_usage — the custom-period disclosure", () => {
+  const DISCLOSURE = "PERIOD DISCLOSURE";
+
+  it("appears for a custom period, naming both boundary dates", () => {
+    const ctx = grantContext({ period: GRANT_PERIOD });
+    const text = grantFragment(ctx);
+    expect(text).toContain(DISCLOSURE);
+    expect(text).toContain(`balances are as of ${GRANT_PERIOD.end}`);
+    expect(text).toContain(`${GRANT_PERIOD.days}-day period`);
+    expect(text).toContain(
+      `The opening balance at ${GRANT_PERIOD.start} is NOT recorded`
+    );
+  });
+
+  it("does NOT appear for a calendar month", () => {
+    // A monthly snapshot and its period were built for each other, so the
+    // ambiguity the disclosure exists to name does not arise.
+    expect(grantFragment(grantContext())).not.toContain(DISCLOSURE);
+  });
+
+  it("appears for a month-aligned custom period too", () => {
+    // Unlike `monthGranularityNote`, alignment is irrelevant here: the missing
+    // opening balance is a property of how balances are READ (live, as of the
+    // end date), not of how manual rows are tagged.
+    const ctx = grantContext({ period: QUARTER_PERIOD });
+    expect(grantFragment(ctx)).toContain(DISCLOSURE);
+  });
+});
+
+// ─── grant deliverables ────────────────────────────────────────────────────
+
+function milestone(over: Record<string, unknown> = {}) {
+  return {
+    id: "m1",
+    projectId: "p1",
+    title: "Ship the SDK",
+    description: null,
+    status: "completed",
+    targetDate: "2026-04-01",
+    completedDate: "2026-04-15",
+    grantAwardId: AWARD_ID,
+    ...over,
+  };
+}
+
+function deliverableFragment(ctx: ReportSectionContext): string {
+  return section("grant_milestone_progress").userPromptFragment(ctx);
+}
+
+describe("grant_milestone_progress", () => {
+  it("stays silent when no milestone is attached to an award", () => {
+    const ctx = grantContext({
+      milestones: [milestone({ grantAwardId: null })] as never,
+    });
+    expect(section("grant_milestone_progress").requires(ctx)).toBe(false);
+    expect(deliverableFragment(ctx)).toBe("");
+  });
+
+  it("groups deliverables under the award that commissioned them", () => {
+    const ctx = grantContext({ milestones: [milestone()] as never });
+    const text = deliverableFragment(ctx);
+    expect(text).toContain(
+      "Deliverables committed under Optimism Foundation — RetroPGF Round 4"
+    );
+    expect(text).toContain("Ship the SDK");
+  });
+
+  it("lists deliverables that have NOT shipped — the whole point", () => {
+    // A period filter would drop these entirely: an unfinished deliverable has
+    // no completedDate to match on. Dropping them turns a commitment list into
+    // a highlights reel, in a document written for the party bearing the risk.
+    const ctx = grantContext({
+      milestones: [
+        milestone({ id: "m2", status: "in_progress", completedDate: null }),
+      ] as never,
+    });
+    expect(section("grant_milestone_progress").requires(ctx)).toBe(true);
+    expect(deliverableFragment(ctx)).toContain("not completed");
+  });
+
+  it("keeps a deliverable completed BEFORE the period, and labels it as such", () => {
+    const ctx = grantContext({
+      milestones: [
+        milestone({ targetDate: "2026-01-10", completedDate: "2026-01-20" }),
+      ] as never,
+    });
+    const text = deliverableFragment(ctx);
+    expect(text).toContain("before this reporting period");
+    expect(text).not.toContain("inside this reporting period");
+  });
+
+  it("labels a deliverable completed inside the period", () => {
+    expect(
+      deliverableFragment(grantContext({ milestones: [milestone()] as never }))
+    ).toContain("inside this reporting period");
+  });
+
+  it("states slippage with its DIRECTION, never a bare day count", () => {
+    // "14 days" alone reads as late. A deliverable that shipped two weeks
+    // early being reported as slipping is a false statement about the team.
+    const late = grantContext({ milestones: [milestone()] as never });
+    expect(deliverableFragment(late)).toContain("14 days late against target");
+
+    const early = grantContext({
+      milestones: [
+        milestone({ targetDate: "2026-04-20", completedDate: "2026-04-06" }),
+      ] as never,
+    });
+    expect(deliverableFragment(early)).toContain("14 days early against target");
+
+    const onTime = grantContext({
+      milestones: [
+        milestone({ targetDate: "2026-04-15", completedDate: "2026-04-15" }),
+      ] as never,
+    });
+    expect(deliverableFragment(onTime)).toContain("delivered exactly on target");
+  });
+
+  it("measures an open deliverable's slippage against the period end", () => {
+    const ctx = grantContext({
+      milestones: [
+        milestone({
+          status: "delayed",
+          targetDate: "2026-04-01",
+          completedDate: null,
+        }),
+      ] as never,
+    });
+    const view = grantDeliverables(ctx)[0].deliverables[0];
+    expect(view.overdue).toBe(true);
+    expect(view.slippageDays).toBe(29); // 2026-04-01 → 2026-04-30
+    expect(deliverableFragment(ctx)).toContain(
+      "29 days past target and still open"
+    );
+  });
+
+  it("emits no slippage figure for a deliverable with no target date", () => {
+    const ctx = grantContext({
+      milestones: [milestone({ targetDate: null })] as never,
+    });
+    expect(grantDeliverables(ctx)[0].deliverables[0].slippageDays).toBeNull();
+    expect(deliverableFragment(ctx)).toContain("no target date");
+  });
+
+  it("ignores a milestone pointing at an award outside the period", () => {
+    // Both sections read one award set, so they cannot disagree about which
+    // awards exist.
+    const ctx = grantContext({
+      grantAwards: [award({ awardDate: "2026-06-01" })] as never,
+      milestones: [milestone()] as never,
+    });
+    expect(grantDeliverables(ctx)).toHaveLength(0);
+  });
+
+  it("runs alongside milestones_completed rather than replacing it", () => {
+    const ctx = grantContext({ milestones: [milestone()] as never });
+    expect(section("milestones_completed").requires(ctx)).toBe(true);
+    expect(section("grant_milestone_progress").requires(ctx)).toBe(true);
   });
 });

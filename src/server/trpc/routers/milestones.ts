@@ -1,8 +1,13 @@
 import { z } from "zod";
 import { eq } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { milestones } from "@/server/db/schema";
-import { requireProject, requireMilestone } from "../guards";
+import {
+  requireProject,
+  requireMilestone,
+  requireGrantAward,
+} from "../guards";
 import { assertTrialActive } from "@/server/lib/plan-limits";
 
 const STATUS = ["planned", "in_progress", "delayed", "completed"] as const;
@@ -10,6 +15,36 @@ const STATUS = ["planned", "in_progress", "delayed", "completed"] as const;
 const ISO_DATE = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
+
+/**
+ * Resolve the grant award a milestone is being attached to, and refuse one
+ * that belongs to a different project.
+ *
+ * `requireGrantAward` alone proves the CALLER may touch the award. It does not
+ * prove the award and the milestone belong to the same project — and a user
+ * who owns two projects could otherwise attach project A's deliverable to
+ * project B's award, putting a milestone into a grant report written for a
+ * funder who never commissioned it. Same class of hole as the destination
+ * check on `grantAwards.updateTranche`.
+ *
+ * `null` is the detach case and needs no award at all.
+ */
+async function resolveGrantAwardId(
+  ctx: Parameters<typeof requireGrantAward>[0],
+  grantAwardId: string | null | undefined,
+  projectId: string
+): Promise<string | null | undefined> {
+  if (grantAwardId === undefined) return undefined; // absent in a PATCH
+  if (grantAwardId === null) return null; // detach
+  const award = await requireGrantAward(ctx, grantAwardId);
+  if (award.projectId !== projectId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "That grant award belongs to a different project.",
+    });
+  }
+  return award.id;
+}
 
 export const milestonesRouter = router({
   list: protectedProcedure
@@ -42,12 +77,27 @@ export const milestonesRouter = router({
         status: z.enum(STATUS).default("planned"),
         targetDate: ISO_DATE.optional().nullable(),
         completedDate: ISO_DATE.optional().nullable(),
+        /**
+         * Optional link to a grant award this milestone is a deliverable for.
+         * Null and absent both mean "ordinary roadmap work", which is the
+         * normal case — the FK carries the fact, there is no boolean beside it.
+         * Set, it is what makes the row visible to `grant_milestone_progress`.
+         */
+        grantAwardId: z.string().uuid().optional().nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       await assertTrialActive(ctx.session.user.id!);
       await requireProject(ctx, input.projectId);
-      const [row] = await ctx.db.insert(milestones).values(input).returning();
+      const grantAwardId = await resolveGrantAwardId(
+        ctx,
+        input.grantAwardId,
+        input.projectId
+      );
+      const [row] = await ctx.db
+        .insert(milestones)
+        .values({ ...input, grantAwardId: grantAwardId ?? null })
+        .returning();
       return row;
     }),
 
@@ -60,14 +110,27 @@ export const milestonesRouter = router({
         status: z.enum(STATUS).optional(),
         targetDate: ISO_DATE.optional().nullable(),
         completedDate: ISO_DATE.optional().nullable(),
+        /** Null detaches the milestone from its award without deleting it. */
+        grantAwardId: z.string().uuid().optional().nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...data } = input;
-      await requireMilestone(ctx, id);
+      const { id, grantAwardId, ...data } = input;
+      // The milestone's own project is the authority for the cross-project
+      // check — never a projectId from the client, which this procedure
+      // deliberately does not accept.
+      const existing = await requireMilestone(ctx, id);
+      const resolved = await resolveGrantAwardId(
+        ctx,
+        grantAwardId,
+        existing.projectId
+      );
       const [row] = await ctx.db
         .update(milestones)
-        .set(data)
+        .set({
+          ...data,
+          ...(resolved !== undefined ? { grantAwardId: resolved } : {}),
+        })
         .where(eq(milestones.id, id))
         .returning();
       return row;

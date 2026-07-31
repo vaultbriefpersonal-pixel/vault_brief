@@ -15,6 +15,8 @@ import {
   asks,
   qaHighlights,
   projectBudgets,
+  grantAwards,
+  grantTranches,
 } from "@/server/db/schema";
 import { slugify, formatDate } from "@/lib/utils";
 import { TRPCError } from "@trpc/server";
@@ -439,6 +441,8 @@ export const projectsRouter = router({
         asksRows,
         qaRows,
         budgetRows,
+        grantAwardRows,
+        grantTrancheRows,
       ] = await Promise.all([
         ctx.db.query.milestones.findMany({
           where: eq(milestones.projectId, input.projectId),
@@ -463,6 +467,17 @@ export const projectsRouter = router({
         // simply wrong, and permanently so.
         ctx.db.query.projectBudgets.findMany({
           where: eq(projectBudgets.projectId, input.projectId),
+        }),
+        // Same reasoning as the budget rows above, and the same failure if
+        // omitted: both grant sections gate on these, so without them the
+        // constructor's chips would read "not ready" for a founder who HAS
+        // entered a grant award — permanently, with no way to tell from the
+        // UI that the data is fine and the endpoint simply never looked.
+        ctx.db.query.grantAwards.findMany({
+          where: eq(grantAwards.projectId, input.projectId),
+        }),
+        ctx.db.query.grantTranches.findMany({
+          where: eq(grantTranches.projectId, input.projectId),
         }),
       ]);
 
@@ -497,6 +512,8 @@ export const projectsRouter = router({
         asks: asksRows,
         qaHighlights: qaRows,
         budgets: budgetRows,
+        grantAwards: grantAwardRows,
+        grantTranches: grantTrancheRows,
         // Readiness does not run the anomaly detector — that needs the
         // trailing series this endpoint deliberately skips, and detection is
         // a report-time computation. Empty means the Anomalies chip reads

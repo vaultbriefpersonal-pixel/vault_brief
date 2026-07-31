@@ -23,11 +23,14 @@ import { formatAnomaliesForPrompt } from "./anomalies";
 // report-derived.ts for why they live in their own module.
 import {
   attributionOf,
+  awardsForPeriod,
   budgetComparison,
   budgetsForPeriod,
   burnBasis,
   burnBasisLabel,
   compositionOf,
+  grantDeliverables,
+  grantFundUsage,
   liquidityOf,
   netFlowOf,
   signedUsd,
@@ -39,6 +42,7 @@ import {
   TRAILING_BURN_MONTHS,
   type BudgetLine,
   type BudgetSide,
+  type GrantAwardView,
   type ReportSectionContext,
 } from "./report-derived";
 import type { TreasuryComposition } from "./treasury-composition";
@@ -1651,6 +1655,307 @@ const grantsDistributed: ReportSection = {
   notReadyHint: "Click Edit data to add grants for this period.",
 };
 
+// ─── grant funding RECEIVED ────────────────────────────────────────────────
+//
+// The mirror of `grants_distributed` directly above, and the two must never be
+// confused: that section reports money this project GAVE OUT, to an investor
+// assessing deployment efficiency. These two report money a funder GAVE the
+// project, to that funder. Opposite direction, opposite reader, and the titles
+// say so out loud ("Grants Distributed" vs "Grant Funding Received") because a
+// founder picking sections in the constructor sees only the title.
+
+/**
+ * How an award's headline figure is stated — which is entirely governed by the
+ * fact that `awardAmountUsd` IS NULLABLE.
+ *
+ * A grant denominated only in tokens ("30M OP") has no dollar figure anywhere
+ * in the agreement. Converting one here would put a number in front of the
+ * grantor that their own paperwork does not contain, priced at a rate this
+ * report never states and never agreed. So the token award is quoted in
+ * tokens, and the model is told in the same line not to convert it.
+ */
+function awardedLine(a: GrantAwardView): string {
+  const token =
+    a.awardAmountToken !== null
+      ? `${formatQty(a.awardAmountToken)} ${
+          a.awardTokenSymbol ?? "tokens (symbol not recorded)"
+        }`
+      : null;
+  if (a.awardAmountUsd !== null) {
+    return `- Awarded: ${formatUsd(a.awardAmountUsd)}${
+      token ? ` (recorded alongside a token figure of ${token})` : ""
+    }`;
+  }
+  if (token) {
+    return `- Awarded: ${token}. THE AGREEMENT STATES NO USD AMOUNT. Do not convert this to dollars, do not estimate its dollar value, and do not state any dollar figure as the award size — no exchange rate is recorded and none may be assumed.`;
+  }
+  return `- Awarded: the award record carries no amount, in dollars or tokens. State that the award size is not recorded rather than inferring one from the tranche schedule below.`;
+}
+
+/** One award block: what it is, what has arrived, what has not. */
+function awardBlock(a: GrantAwardView): string[] {
+  const name = a.program ? `${a.grantor} — ${a.program}` : a.grantor;
+  const lines: string[] = [
+    `Award: ${name} (status: ${a.status}, awarded ${a.awardDate})`,
+    awardedLine(a),
+  ];
+
+  const receivedCount = a.tranches.filter((t) => t.receivedDate !== null).length;
+  lines.push(
+    `- Received to date: ${formatUsd(a.receivedToDateUsd)}${
+      a.tranches.length > 0
+        ? ` — ${receivedCount} of ${a.tranches.length} recorded tranche${
+            a.tranches.length === 1 ? "" : "s"
+          } marked received`
+        : " — no disbursement schedule has been entered for this award"
+    }`,
+    `- Received during this reporting period: ${formatUsd(a.receivedInPeriodUsd)}`
+  );
+
+  // THE ONLY remaining-shaped figure this report may carry, and it is stated
+  // with its definition attached every single time.
+  if (a.undisbursedUsd === null) {
+    lines.push(
+      `- Not yet disbursed: NOT COMPUTABLE — the award carries no USD amount, so it cannot be differenced against the dollar tranches. Say the undisbursed amount is not stated; do NOT derive one from spending.`
+    );
+  } else if (a.undisbursedUsd < 0) {
+    lines.push(
+      `- Not yet disbursed: the recorded receipts (${formatUsd(
+        a.receivedToDateUsd
+      )}) EXCEED the recorded award (${formatUsd(
+        a.awardAmountUsd ?? 0
+      )}). That is a data-entry inconsistency, not a finding about the grant. Report neither a negative undisbursed figure nor an overpayment — say the two recorded numbers disagree.`
+    );
+  } else {
+    lines.push(
+      `- Not yet disbursed under the award (awarded minus received to date): ${formatUsd(
+        a.undisbursedUsd
+      )} — a fact about the DISBURSEMENT SCHEDULE: money the grantor has not sent yet. It is NOT a treasury balance and NOT grant money remaining to be spent.`
+    );
+  }
+
+  if (a.scheduleIncomplete) {
+    lines.push(
+      `- SCHEDULE NOTE: the recorded tranches sum to ${formatUsd(
+        a.scheduledTotalUsd
+      )}, which does not match the award amount of ${formatUsd(
+        a.awardAmountUsd ?? 0
+      )}. Both figures are entered by hand and the report cannot tell which is stale — state that the schedule as recorded does not add up to the award, and do not reconcile them yourself.`
+    );
+  }
+
+  if (a.tranches.length > 0) {
+    lines.push("", "  Tranche schedule:");
+    for (const t of a.tranches) {
+      const expected = t.expectedDate ? `expected ${t.expectedDate}` : "no expected date";
+      const received = t.receivedDate
+        ? `received ${t.receivedDate}`
+        : "NOT YET RECEIVED";
+      lines.push(`  - ${t.label}: ${formatUsd(t.amountUsd)}, ${expected}, ${received}`);
+    }
+  }
+
+  return lines;
+}
+
+/**
+ * The disclosure that has to ride along with every custom-period grant report.
+ *
+ * Balances are read LIVE — `fetchAllBalances` has no period parameter — so
+ * they describe `period.end` and nothing else, while the flow figures cover
+ * the whole window. The opening balance at `period.start` is not recorded
+ * anywhere in the system. Without this note the model has every incentive to
+ * close the loop itself ("started with X, received Y, spent Z, so…"), and the
+ * first term of that sentence does not exist.
+ *
+ * Empty for a calendar month, where the snapshot and the period were built for
+ * each other and the ambiguity does not arise.
+ */
+function grantPeriodDisclosure(period: ReportPeriod): string {
+  if (isMonthly(period)) return "";
+  return `\n\nPERIOD DISCLOSURE — this must appear in the rendered section: balances are as of ${period.end}, read live from chain. Flow figures cover the full ${period.days}-day period from ${period.start}. The opening balance at ${period.start} is NOT recorded anywhere and must not be stated, estimated or inferred.`;
+}
+
+const grantFundUsageSection: ReportSection = {
+  id: "grant_fund_usage",
+  title: "Grant Funding Received",
+  description:
+    "Money a grant program awarded this project: what was awarded, what has actually landed, and what the treasury spent over the period. Off by default — for teams reporting back to a funder.",
+  // OFF by default, like every section that renders nothing until a founder
+  // types data in. Verified against `resolveSections`: the splice pass skips
+  // `!s.defaultEnabled`, so no existing project's stored config changes and no
+  // config migration is needed.
+  defaultEnabled: false,
+  // At least one award already granted as of `period.end`. Status is NOT part
+  // of the gate — see `grantFundUsage` for why a completed or terminated award
+  // is exactly the one a closing report is written about.
+  requires: (ctx) => awardsForPeriod(ctx).length > 0,
+  userPromptFragment: (ctx) => {
+    const usage = grantFundUsage(ctx);
+    if (usage.awards.length === 0) return "";
+
+    const lines: string[] = [
+      "GRANT ACCOUNTING RULE — this governs every sentence in this section:",
+      "- A treasury is fungible. There is no such thing as a balance of grant money inside it, and this report does not carry one.",
+      "- The ONLY figures below are: what was awarded, what has been received, what has not been disbursed yet, and what the treasury spent over the period. Those are four separate facts.",
+      "- NEVER subtract spending from an award or from receipts to produce a remaining, unspent, leftover or available figure. That number is not in this input, cannot be derived from it, and would be fabricated.",
+      "",
+    ];
+
+    for (const award of usage.awards) {
+      lines.push(...awardBlock(award), "");
+    }
+
+    if (usage.awards.length > 1) {
+      lines.push(
+        `Across all ${usage.awards.length} awards — received to date: ${formatUsd(
+          usage.receivedToDateUsd
+        )}; received during this reporting period: ${formatUsd(
+          usage.receivedInPeriodUsd
+        )}.`,
+        ""
+      );
+    }
+
+    // The chain corroboration. Same three verdicts, same register and the same
+    // "absent is not zero" discipline as the transaction-derived net flow
+    // cross-check in Month-over-Month — deliberately, so a reader meeting
+    // CONSISTENT/DIVERGING/UNAVAILABLE twice in one document reads them the
+    // same way both times.
+    const rec = usage.reconciliation;
+    if (rec.verdict === "unavailable") {
+      lines.push(
+        `- Cross-check of recorded tranches against classified on-chain grant inflows: UNAVAILABLE — either this period carries no classified income breakdown, or the amounts on both sides are too small to compare. The receipt figures above are founder-entered and UNCONFIRMED by chain data this period; say so rather than presenting them as verified.`
+      );
+    } else {
+      const pctApart =
+        rec.divergencePct === null
+          ? ""
+          : `, ${(rec.divergencePct * 100).toFixed(0)}% apart`;
+      lines.push(
+        `- Cross-check of recorded tranches against classified on-chain grant inflows: ${rec.verdict.toUpperCase()} — tranches marked received this period ${formatUsd(
+          rec.trancheUsd
+        )} vs on-chain inflows classified as grant funding ${formatUsd(
+          rec.chainUsd ?? 0
+        )} (gap ${signedUsd(rec.divergenceUsd)}${pctApart}).`
+      );
+    }
+    lines.push("");
+
+    if (usage.operatingOutflows.length > 0) {
+      lines.push(
+        `Operating outflows over the reporting period (${ctx.period.start} to ${ctx.period.end}, ${ctx.period.days} days), by category. Treasury rebalancing is excluded, exactly as it is in Operating Expenses:`,
+        ...usage.operatingOutflows.map(
+          (e) => `- ${e.category}: ${formatUsd(e.usd)}`
+        ),
+        `- Total operating outflows over the period: ${formatUsd(
+          usage.operatingOutflowsUsd
+        )}`
+      );
+    } else {
+      lines.push(
+        "Operating outflows over the reporting period: none recorded. Do not present that as the grant being unspent — it means no classified operating spend was measured for this window."
+      );
+    }
+
+    // The coverage ratio, which is the single most misreadable figure in the
+    // section — hence the mandatory clause travelling in the same bullet
+    // rather than in the rules alone, where a trimmed section could lose it.
+    if (usage.coverageRatio !== null) {
+      lines.push(
+        "",
+        `- Coverage ratio (this period's operating outflows ÷ grant funds received to date): ${(
+          usage.coverageRatio * 100
+        ).toFixed(
+          0
+        )}%. MANDATORY CLAUSE whenever this figure is quoted: the treasury is fungible; this ratio does not assert that grant funds specifically paid these costs.`
+      );
+    } else {
+      lines.push(
+        "",
+        "- Coverage ratio: not computable — no grant funds are recorded as received to date, so there is nothing to divide by. Do not present the outflows as grant spending."
+      );
+    }
+
+    return `\n## Grant funding received and its use (${ctx.period.tag})\n${lines
+      .join("\n")
+      .trimEnd()}${grantPeriodDisclosure(ctx.period)}`;
+  },
+  systemPromptFragment: `### Grant Funding Received (CONDITIONAL)
+- Only render when the input contains a "## Grant funding received and its use" block. This section reports money a grant program gave THIS project. It is not the "Grants Distributed" section, which reports money this project gave to others — never merge the two, and never describe an award received as a grant made.
+- **ABSOLUTE, NON-NEGOTIABLE: never state a figure for grant funds remaining, unspent, left over, still available, or still in hand.** A treasury is fungible: money received from a grantor is indistinguishable inside it from every other dollar, and the balance at the start of the period is not recorded at all. Any such figure would be fabricated. This ban stands even if the arithmetic looks obvious, even if the reader would find it useful, and even if you label it an estimate. It is the same class of absolute rule as the ban on projecting a future token price, and it is not relaxed anywhere in this report.
+- **"Not yet disbursed" is the ONLY remaining-shaped figure permitted, it comes verbatim from the input, and it must be described as what it is: money the grantor has not sent yet.** Never restate it as funds the project has left, funds available to spend, or a balance of any kind.
+- Report awarded, received to date, received this period, and not-yet-disbursed as four separate facts. Do not add, subtract or reconcile them beyond what the input already states.
+- **An award with no USD amount has no USD amount.** When the input says the agreement states no dollar figure, quote the token amount as given and say the award is token-denominated. Do not convert it, do not estimate it, and do not present any dollar number as the award size.
+- Report the operating outflows as the period's spending, with the number of days they cover. **Never describe them as grant funds spent, grant money deployed, or the grant being drawn down** — the input cannot show which dollars paid which cost.
+- When the input carries the coverage ratio, the fungibility clause travels with it in the same sentence, every time: the treasury is fungible and the ratio does not assert that grant funds specifically paid these costs. A ratio quoted without that clause is a claim the data does not support.
+- Report the cross-check line as given. CONSISTENT means the founder's recorded tranches and the classified on-chain inflows agree, and the receipt figure can be stated as independently corroborated — that is the strongest statement available here. DIVERGING means they do not agree: say the recorded receipts are not confirmed by the classified on-chain inflows for this period, and do not decide which side is right. UNAVAILABLE means no comparison was possible — present the receipt figures as founder-entered and unverified.
+- If the input carries a PERIOD DISCLOSURE or a SCHEDULE NOTE, that caveat MUST appear in the rendered section. Dropping it misrepresents what the numbers are; it is not a stylistic trim.
+- No editorialising about grant performance — no "efficient use of funds", "strong execution against the award", no grades. State the figures and their caveats.`,
+  notReadyHint:
+    "Click Edit data to record the grant you received — the grantor, the award, and its disbursement tranches.",
+};
+
+const grantMilestoneProgress: ReportSection = {
+  id: "grant_milestone_progress",
+  title: "Grant Deliverable Progress",
+  description:
+    "Milestones committed under a grant award — status, target vs. actual date, and slippage. Separate from Milestones Completed, so a project can run both.",
+  defaultEnabled: false,
+  requires: (ctx) => grantDeliverables(ctx).length > 0,
+  userPromptFragment: (ctx) => {
+    const groups = grantDeliverables(ctx);
+    if (groups.length === 0) return "";
+
+    const blocks = groups.map((g) => {
+      const name = g.award.program
+        ? `${g.award.grantor} — ${g.award.program}`
+        : g.award.grantor;
+      const rows = g.deliverables.map((d) => {
+        const target = d.targetDate ? `target ${d.targetDate}` : "no target date";
+        const actual = d.completedDate
+          ? `completed ${d.completedDate}${
+              d.completedInPeriod ? " (inside this reporting period)" : " (before this reporting period)"
+            }`
+          : "not completed";
+        // Signed, and named in both directions. "14 days" alone reads as late
+        // by default, and a deliverable that shipped two weeks EARLY being
+        // reported as slipping is a false statement about the team.
+        const slip =
+          d.slippageDays === null
+            ? d.targetDate === null
+              ? "no target date, so no slippage figure"
+              : "on or ahead of target"
+            : d.slippageDays > 0
+              ? d.completedDate
+                ? `${d.slippageDays} days late against target`
+                : `${d.slippageDays} days past target and still open`
+              : d.slippageDays === 0
+                ? "delivered exactly on target"
+                : `${Math.abs(d.slippageDays)} days early against target`;
+        return `- [${d.status}] ${d.title}: ${target}, ${actual} — ${slip}${
+          d.description ? ` — ${d.description}` : ""
+        }`;
+      });
+      return [`Deliverables committed under ${name}:`, ...rows].join("\n");
+    });
+
+    return `\n## Grant deliverable progress\nEvery deliverable attributed to a grant award is listed below, whatever its status — this is the commitment list, not a list of what shipped this period. A deliverable that has not shipped is as much a part of the answer as one that has.\n\n${blocks.join(
+      "\n\n"
+    )}`;
+  },
+  systemPromptFragment: `### Grant Deliverable Progress (CONDITIONAL)
+- Only render when the input contains a "## Grant deliverable progress" block. Render as a table — Deliverable, Status, Target date, Completed, Slippage — one row per deliverable the input lists.
+- **List every deliverable the input gives you, including the ones that have not shipped.** This is the commitment list a funder is checking against, and quietly dropping the incomplete rows turns it into a highlights reel. Never omit a row for being unflattering.
+- Copy the slippage figure and its direction from the input. "14 days early" and "14 days late" are opposite facts; never state a bare number of days without the direction the input gives it.
+- A deliverable marked completed before this reporting period is not new progress. Distinguish it from one completed inside the period, exactly as the input labels them.
+- **Do not explain why anything slipped.** The input records dates and statuses, not causes. A reason that does not appear verbatim in this input is fabrication, however plausible.
+- Do not editorialise or grade — no "excellent delivery record", no "concerning delays". State status, dates and slippage; a bare table with no commentary is a complete answer.
+- This section is about deliverables committed under a grant. Do not merge it with Milestones Completed, and do not repeat rows between the two.`,
+  notReadyHint:
+    "Click Edit data to record a grant award, then attach the milestones you committed to deliver under it.",
+};
+
 const tokenMetrics: ReportSection = {
   id: "token_metrics",
   title: "Token Metrics",
@@ -2142,10 +2447,20 @@ export const SECTION_LIBRARY: readonly ReportSection[] = [
   treasuryOperations,
   majorTransactions,
   grantsDistributed,
+  // Directly after its mirror on purpose. The two are one word apart and point
+  // in opposite directions, and the constructor UI is where a founder picks
+  // between them — side by side, with descriptions that name the direction,
+  // the wrong one is hard to choose by accident. Both are off by default, so
+  // no existing project's resolved list changes.
+  grantFundUsageSection,
   tokenMetrics,
   governanceUpdates,
   developmentProgress,
   milestonesCompleted,
+  // Beside `milestones_completed`, which it deliberately does not replace: a
+  // project can run both, one reporting what shipped this period and the other
+  // reporting every commitment made to a funder, shipped or not.
+  grantMilestoneProgress,
   partnersIntegrations,
   anomalies,
   nextPeriodForecast,
