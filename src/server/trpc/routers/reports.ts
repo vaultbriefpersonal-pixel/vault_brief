@@ -10,7 +10,7 @@ import {
   generateAndSaveReport,
 } from "@/server/services/report-generator";
 import { renderAndStorePDF } from "@/server/services/pdf-storage";
-import { assertTrialActive } from "@/server/lib/plan-limits";
+import { assertTrialActive, assertCanGenerateReport } from "@/server/lib/plan-limits";
 
 export const reportsRouter = router({
   list: protectedProcedure
@@ -239,8 +239,8 @@ export const reportsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertTrialActive(ctx.session.user.id!);
-      await requireProject(ctx, input.projectId);
+      const project = await requireProject(ctx, input.projectId);
+      await assertCanGenerateReport(project.userId, input.projectId);
       const report = await generateAndSaveReport(
         input.projectId,
         input.snapshotId
