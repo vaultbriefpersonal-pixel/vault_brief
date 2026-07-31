@@ -83,6 +83,74 @@ describe("trailingAverageBurn", () => {
   });
 });
 
+describe("trailingAverageBurn — period-length normalisation", () => {
+  it("is bit-for-bit unchanged when no entry carries periodDays", () => {
+    // The behaviour lock. `period_days` does not exist as a column yet, so
+    // EVERY row in the database and every row written today arrives here
+    // absent. Anything but the identity restates published reports.
+    expect(trailingAverageBurn(months("300000", "200000", "100000")).avgUsd).toBe(
+      200_000
+    );
+    expect(trailingAverageBurn(months("333333.33")).avgUsd).toBe(333_333.33);
+    expect(
+      trailingAverageBurn([{ burnRateUsd: "150000", periodDays: null }]).avgUsd
+    ).toBe(150_000);
+    expect(
+      trailingAverageBurn([{ burnRateUsd: "150000", periodDays: undefined }])
+        .avgUsd
+    ).toBe(150_000);
+  });
+
+  it("reduces a long window to a monthly figure before averaging", () => {
+    // A 182-day window that spent $1.2M did NOT burn $1.2M a month; it burned
+    // about $200K a month. Averaged raw against one-month rows it would sit
+    // six times too high and flow straight into runway and the burn trend.
+    const sixMonths = trailingAverageBurn([
+      { burnRateUsd: "1200000", periodDays: 182 },
+    ]);
+    expect(sixMonths.avgUsd).toBeCloseTo(1_200_000 / (182 / 30.4375), 6);
+    expect(sixMonths.avgUsd).toBeCloseTo(200_686.81, 2);
+    expect(sixMonths.monthsUsed).toBe(1);
+  });
+
+  it("averages a long window and a short one as monthly equals, not as peers", () => {
+    // $200K/mo from a six-month window and $200K from a month must average to
+    // $200K, not to $700K.
+    const mixed = trailingAverageBurn([
+      { burnRateUsd: String(200_000 * (182 / 30.4375)), periodDays: 182 },
+      { burnRateUsd: "200000" },
+    ]);
+    expect(mixed.avgUsd).toBeCloseTo(200_000, 6);
+    expect(mixed.monthsUsed).toBe(2);
+  });
+
+  it("does not resurrect a zero-burn period as a real one", () => {
+    // The header's load-bearing rule, unchanged: a zero total is missing data
+    // at any period length. Normalisation runs only on rows that already
+    // cleared the exclusion, so a zero cannot be divided into existence.
+    const result = trailingAverageBurn([
+      { burnRateUsd: "600000", periodDays: 91 },
+      { burnRateUsd: "0", periodDays: 91 },
+      { burnRateUsd: "-1", periodDays: 91 },
+      { burnRateUsd: "not a number", periodDays: 91 },
+    ]);
+    expect(result.monthsUsed).toBe(1);
+    expect(result.monthsConsidered).toBe(3);
+    expect(result.avgUsd).toBeCloseTo(600_000 / (91 / 30.4375), 6);
+  });
+
+  it("ignores a periodDays that cannot be a period length", () => {
+    // Same failure posture as the rest of this module: fall back to the
+    // pre-existing arithmetic rather than emit NaN or Infinity into a figure
+    // an investor reads as a runway.
+    for (const bad of [0, -30, NaN, Infinity]) {
+      expect(
+        trailingAverageBurn([{ burnRateUsd: "100000", periodDays: bad }]).avgUsd
+      ).toBe(100_000);
+    }
+  });
+});
+
 describe("burnTrend", () => {
   it("is stable inside the ±15% dead band, at both edges", () => {
     expect(burnTrend(100, 100)).toBe("stable");

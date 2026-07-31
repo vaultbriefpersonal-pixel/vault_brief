@@ -8,6 +8,7 @@ import {
   type RawTransaction,
 } from "./expense-classifier";
 import { tokenAmountToUsd } from "./price-resolver";
+import { monthsInDateRange } from "./report-period";
 import { fetchSolanaTransfers } from "./solana-sync";
 
 const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY!;
@@ -372,8 +373,25 @@ export async function fetchAndClassify(
     .filter((t) => t.category !== "token_sale")
     .reduce((sum, t) => sum + t.valueUsd, 0);
 
+  // `runwayMonths` is stored in a column called `runway_months`, charted on
+  // the dashboard tile and read as months by anomalies.ts. It has to actually
+  // be months.
+  //
+  // `burnRateUsd` above is this PERIOD's total operating outflows, not a rate —
+  // it has no denominator of its own. `balance / burnRateUsd` therefore yields
+  // "how many of THIS PERIOD the balance covers", which equals months only
+  // while the period is one month long. Over a 181-day grant window the naive
+  // division would store runway in 181-day units under a name that says months,
+  // understating it roughly six-fold with nothing in the output to say so.
+  //
+  // Dividing by the monthly-normalised burn fixes the unit. `monthsInDateRange`
+  // returns EXACTLY 1 for a calendar month — which is every period this
+  // product has ever synced — so the stored figure is bit-for-bit unchanged
+  // for existing behaviour, and only a genuinely non-monthly window is scaled.
+  const periodMonths = monthsInDateRange(period);
+  const burnPerMonthUsd = burnRateUsd / periodMonths;
   const runwayMonths =
-    burnRateUsd > 0 ? totalBalanceUsd / burnRateUsd : null;
+    burnRateUsd > 0 ? totalBalanceUsd / burnPerMonthUsd : null;
 
   const expensesByCategory: ExpenseSummary = {
     payroll: 0,
