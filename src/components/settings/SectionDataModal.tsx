@@ -31,13 +31,20 @@ import {
 
 const SECTION_TITLES: Record<string, string> = {
   actual_vs_budget: "Plan vs Actual",
-  grants_distributed: "Grants Distributed",
+  // "Grants Distributed" is money this project GAVE OUT; the two grant titles
+  // below are money a funder GAVE THIS PROJECT. The modal header is the only
+  // label a founder sees once the modal is open, so it has to name the
+  // direction on its own — "Grants" would be ambiguous in exactly the way the
+  // schema header warns about.
+  grants_distributed: "Grants Distributed (money you gave out)",
   governance_updates: "Governance Updates",
   partners_integrations: "Partners & Integrations",
   asks: "Asks",
   qa_highlights: "Q&A Highlights",
   milestones_completed: "Milestones",
   looking_ahead: "Milestones",
+  grant_fund_usage: "Grant funding received (money awarded to you)",
+  grant_milestone_progress: "Grant funding received (money awarded to you)",
 };
 
 const PERIOD_RE = /^\d{4}-\d{2}$/;
@@ -82,6 +89,17 @@ const submitStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 6,
+};
+
+const ghostBtnStyle: React.CSSProperties = {
+  background: "transparent",
+  border: "1px solid var(--vb-border)",
+  borderRadius: 6,
+  padding: "6px 10px",
+  fontSize: 11,
+  color: "var(--vb-muted)",
+  fontFamily: "var(--font-inter), Inter, sans-serif",
+  cursor: "pointer",
 };
 
 const removeBtnStyle: React.CSSProperties = {
@@ -203,6 +221,17 @@ export function SectionDataModal({
           {(sectionId === "milestones_completed" ||
             sectionId === "looking_ahead") && (
             <MilestonesRenderer projectId={projectId} />
+          )}
+          {/* ONE renderer for both grant sections, not two. They read one
+              dataset: an award, its tranches, and the milestones attached to
+              it. An award has to exist before a tranche or a deliverable can
+              hang off it, so the entry order is fixed either way — two
+              renderers would be this same form with half of it hidden, and
+              the founder who opened the deliverables section first would find
+              no way to create the award the attachment needs. */}
+          {(sectionId === "grant_fund_usage" ||
+            sectionId === "grant_milestone_progress") && (
+            <GrantAwardsRenderer projectId={projectId} />
           )}
         </div>
       </div>
@@ -539,6 +568,762 @@ function GrantsRenderer({ projectId }: { projectId: string }) {
         )}
       />
     </>
+  );
+}
+
+// ─── Grant funding RECEIVED ────────────────────────────────────────────
+//
+// ⚠️ The mirror of GrantsRenderer directly above, and the opposite direction.
+// That one writes the `grants` table: money this project GIVES OUT, with a
+// `recipient`. This one writes `grant_awards` / `grant_tranches`: money a
+// funder GAVE THIS PROJECT, with a `grantor`. Copy its shape, never its
+// labels — "Recipient" and "Grantor" are opposite ends of the same transfer,
+// and a form that borrowed the wrong word would have founders filing their
+// Optimism award as a grant they made to Optimism.
+
+const AWARD_STATUSES = ["active", "completed", "terminated"] as const;
+type AwardStatus = (typeof AWARD_STATUSES)[number];
+
+const AWARD_STATUS_LABELS: Record<AwardStatus, string> = {
+  active: "Active — reporting ongoing",
+  completed: "Completed — work delivered",
+  terminated: "Terminated",
+};
+
+interface AwardFormValues {
+  grantor: string;
+  program: string;
+  awardDate: string;
+  status: AwardStatus;
+  awardAmountUsd: string;
+  awardAmountToken: string;
+  awardTokenSymbol: string;
+  agreementUrl: string;
+  notes: string;
+}
+
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(
+    2,
+    "0"
+  )}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+function emptyAward(): AwardFormValues {
+  return {
+    grantor: "",
+    program: "",
+    awardDate: todayIso(),
+    status: "active",
+    awardAmountUsd: "",
+    awardAmountToken: "",
+    awardTokenSymbol: "",
+    agreementUrl: "",
+    notes: "",
+  };
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const URL_RE = /^https?:\/\/\S+$/;
+
+/**
+ * A blank amount field means "the agreement does not state this figure", which
+ * the column models as NULL and the report prints as "not recorded". It must
+ * never become 0 — "Awarded: $0" is a false statement about a real grant.
+ */
+function blankOrNumber(raw: string): { ok: boolean; value: number | null } {
+  const t = raw.trim();
+  if (!t) return { ok: true, value: null };
+  const n = Number(t);
+  return { ok: Number.isFinite(n) && n >= 0, value: n };
+}
+
+function awardFormErrors(v: AwardFormValues): string[] {
+  const errors: string[] = [];
+  if (!v.grantor.trim()) errors.push("Grantor is required.");
+  if (!ISO_DATE_RE.test(v.awardDate)) errors.push("Award date must be YYYY-MM-DD.");
+  if (!blankOrNumber(v.awardAmountUsd).ok) {
+    errors.push("USD amount must be a non-negative number, or blank.");
+  }
+  const token = blankOrNumber(v.awardAmountToken);
+  if (!token.ok) {
+    errors.push("Token amount must be a non-negative number, or blank.");
+  }
+  if (token.value !== null && !v.awardTokenSymbol.trim()) {
+    errors.push("A token amount needs its token symbol.");
+  }
+  if (v.agreementUrl.trim() && !URL_RE.test(v.agreementUrl.trim())) {
+    errors.push("Agreement link must start with http:// or https://.");
+  }
+  return errors;
+}
+
+/** Shared by the create form and the per-award edit form. */
+function AwardFields({
+  values,
+  onChange,
+}: {
+  values: AwardFormValues;
+  onChange: (next: AwardFormValues) => void;
+}) {
+  const set = (patch: Partial<AwardFormValues>) =>
+    onChange({ ...values, ...patch });
+  return (
+    <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
+      <div>
+        <label style={labelStyle}>Grantor (who awarded it)</label>
+        <input
+          style={inputStyle}
+          value={values.grantor}
+          onChange={(e) => set({ grantor: e.target.value })}
+          placeholder="Optimism Foundation"
+        />
+      </div>
+      <div>
+        <label style={labelStyle}>Program (optional)</label>
+        <input
+          style={inputStyle}
+          value={values.program}
+          onChange={(e) => set({ program: e.target.value })}
+          placeholder="RetroPGF Round 4"
+        />
+      </div>
+      <div>
+        <label style={labelStyle}>Award date</label>
+        <input
+          type="date"
+          style={inputStyle}
+          value={values.awardDate}
+          onChange={(e) => set({ awardDate: e.target.value })}
+        />
+      </div>
+      <div>
+        <label style={labelStyle}>Status</label>
+        <select
+          style={inputStyle}
+          value={values.status}
+          onChange={(e) => set({ status: e.target.value as AwardStatus })}
+        >
+          {AWARD_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {AWARD_STATUS_LABELS[s]}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label style={labelStyle}>Award amount (USD)</label>
+        <input
+          style={inputStyle}
+          type="number"
+          min="0"
+          value={values.awardAmountUsd}
+          onChange={(e) => set({ awardAmountUsd: e.target.value })}
+          placeholder="Leave blank if not in USD"
+        />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8 }}>
+        <div>
+          <label style={labelStyle}>Award amount (tokens)</label>
+          <input
+            style={inputStyle}
+            type="number"
+            min="0"
+            value={values.awardAmountToken}
+            onChange={(e) => set({ awardAmountToken: e.target.value })}
+            placeholder="30000000"
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Symbol</label>
+          <input
+            style={inputStyle}
+            value={values.awardTokenSymbol}
+            onChange={(e) => set({ awardTokenSymbol: e.target.value })}
+            placeholder="OP"
+          />
+        </div>
+      </div>
+      <div style={{ gridColumn: "1 / -1" }}>
+        <label style={labelStyle}>Agreement link (optional)</label>
+        <input
+          style={inputStyle}
+          value={values.agreementUrl}
+          onChange={(e) => set({ agreementUrl: e.target.value })}
+          placeholder="https://..."
+        />
+      </div>
+      <div style={{ gridColumn: "1 / -1" }}>
+        <label style={labelStyle}>Notes (optional)</label>
+        <input
+          style={inputStyle}
+          value={values.notes}
+          onChange={(e) => set({ notes: e.target.value })}
+          placeholder="Reporting due 30 days after each quarter"
+        />
+      </div>
+    </div>
+  );
+}
+
+function FormErrors({ errors }: { errors: string[] }) {
+  if (errors.length === 0) return null;
+  return (
+    <ul
+      style={{
+        margin: "8px 0 0",
+        paddingLeft: 18,
+        fontSize: 11,
+        color: "#f0b847",
+        lineHeight: 1.6,
+      }}
+    >
+      {errors.map((e) => (
+        <li key={e}>{e}</li>
+      ))}
+    </ul>
+  );
+}
+
+function GrantAwardsRenderer({ projectId }: { projectId: string }) {
+  const { data: awards = [], refetch } = trpc.grantAwards.list.useQuery({
+    projectId,
+  });
+  const createAward = trpc.grantAwards.createAward.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  const [form, setForm] = useState<AwardFormValues>(emptyAward());
+  const [showForm, setShowForm] = useState(false);
+  const errors = awardFormErrors(form);
+
+  function submit() {
+    if (errors.length > 0) return;
+    const usd = blankOrNumber(form.awardAmountUsd).value;
+    const token = blankOrNumber(form.awardAmountToken).value;
+    createAward.mutate(
+      {
+        projectId,
+        grantor: form.grantor.trim(),
+        program: form.program.trim() || null,
+        awardAmountUsd: usd,
+        awardAmountToken: token,
+        awardTokenSymbol: token === null ? null : form.awardTokenSymbol.trim(),
+        awardDate: form.awardDate,
+        status: form.status,
+        agreementUrl: form.agreementUrl.trim() || null,
+        notes: form.notes.trim() || null,
+      },
+      {
+        onSuccess: () => {
+          setForm(emptyAward());
+          setShowForm(false);
+        },
+      }
+    );
+  }
+
+  return (
+    <>
+      <p
+        style={{
+          fontSize: 12,
+          color: "var(--vb-muted)",
+          margin: "0 0 14px",
+          lineHeight: 1.5,
+        }}
+      >
+        Grants your project{" "}
+        <strong style={{ color: "var(--vb-text)" }}>received</strong> — an
+        ecosystem or foundation award you report back on. This is not the
+        &ldquo;Grants Distributed&rdquo; section, which records grants you{" "}
+        <em>make to others</em>.
+        <br />
+        Leave the USD amount blank for a token-denominated award: the report
+        quotes the token figure rather than inventing a dollar value the
+        agreement never stated.
+      </p>
+
+      {showForm ? (
+        <div style={{ marginBottom: 16 }}>
+          <AwardFields values={form} onChange={setForm} />
+          <FormErrors errors={errors} />
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button
+              type="button"
+              style={submitStyle}
+              disabled={errors.length > 0 || createAward.isPending}
+              onClick={submit}
+            >
+              <Plus size={12} />{" "}
+              {createAward.isPending ? "Saving…" : "Save award"}
+            </button>
+            <button
+              type="button"
+              style={ghostBtnStyle}
+              onClick={() => {
+                setForm(emptyAward());
+                setShowForm(false);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          style={{ ...submitStyle, marginBottom: 16 }}
+          onClick={() => setShowForm(true)}
+        >
+          <Plus size={12} /> Add a grant you received
+        </button>
+      )}
+
+      {awards.length === 0 ? (
+        <p
+          style={{
+            fontSize: 12,
+            color: "var(--vb-dim)",
+            margin: 0,
+            padding: "12px 0",
+            textAlign: "center",
+          }}
+        >
+          No grant awards recorded yet.
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {awards.map((award) => (
+            <AwardCard
+              key={award.id}
+              projectId={projectId}
+              award={award}
+              onChanged={refetch}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+type AwardRow = {
+  id: string;
+  grantor: string;
+  program: string | null;
+  status: string;
+  awardDate: string;
+  awardAmountUsd: string | null;
+  awardAmountToken: string | null;
+  awardTokenSymbol: string | null;
+  agreementUrl: string | null;
+  notes: string | null;
+  tranches: {
+    id: string;
+    label: string;
+    amountUsd: string;
+    expectedDate: string | null;
+    receivedDate: string | null;
+  }[];
+};
+
+function AwardCard({
+  projectId,
+  award,
+  onChanged,
+}: {
+  projectId: string;
+  award: AwardRow;
+  onChanged: () => void;
+}) {
+  const updateAward = trpc.grantAwards.updateAward.useMutation({
+    onSuccess: () => onChanged(),
+  });
+  const removeAward = trpc.grantAwards.removeAward.useMutation({
+    onSuccess: () => onChanged(),
+  });
+  const createTranche = trpc.grantAwards.createTranche.useMutation({
+    onSuccess: () => onChanged(),
+  });
+  const removeTranche = trpc.grantAwards.removeTranche.useMutation({
+    onSuccess: () => onChanged(),
+  });
+
+  const [editing, setEditing] = useState(false);
+  const [edit, setEdit] = useState<AwardFormValues>(() => ({
+    grantor: award.grantor,
+    program: award.program ?? "",
+    awardDate: String(award.awardDate),
+    status: (AWARD_STATUSES as readonly string[]).includes(award.status)
+      ? (award.status as AwardStatus)
+      : "active",
+    awardAmountUsd: award.awardAmountUsd == null ? "" : String(Number(award.awardAmountUsd)),
+    awardAmountToken:
+      award.awardAmountToken == null ? "" : String(Number(award.awardAmountToken)),
+    awardTokenSymbol: award.awardTokenSymbol ?? "",
+    agreementUrl: award.agreementUrl ?? "",
+    notes: award.notes ?? "",
+  }));
+  const editErrors = awardFormErrors(edit);
+
+  const [label, setLabel] = useState("");
+  const [amountUsd, setAmountUsd] = useState("");
+  const [expectedDate, setExpectedDate] = useState("");
+  const [receivedDate, setReceivedDate] = useState("");
+
+  const trancheAmount = Number(amountUsd);
+  const trancheValid =
+    label.trim().length > 0 &&
+    amountUsd.trim().length > 0 &&
+    Number.isFinite(trancheAmount) &&
+    trancheAmount >= 0 &&
+    (!expectedDate || ISO_DATE_RE.test(expectedDate)) &&
+    (!receivedDate || ISO_DATE_RE.test(receivedDate));
+
+  const received = award.tranches
+    .filter((t) => t.receivedDate)
+    .reduce((sum, t) => sum + Number(t.amountUsd), 0);
+
+  function saveEdit() {
+    if (editErrors.length > 0) return;
+    const token = blankOrNumber(edit.awardAmountToken).value;
+    updateAward.mutate(
+      {
+        id: award.id,
+        grantor: edit.grantor.trim(),
+        program: edit.program.trim() || null,
+        // Explicit null, not undefined: blanking the field in this form means
+        // "the agreement states no such figure", and the router reads
+        // undefined as "leave the stored value alone" — so undefined here
+        // would make the amount impossible to clear once entered.
+        awardAmountUsd: blankOrNumber(edit.awardAmountUsd).value,
+        awardAmountToken: token,
+        awardTokenSymbol: token === null ? null : edit.awardTokenSymbol.trim(),
+        awardDate: edit.awardDate,
+        status: edit.status,
+        agreementUrl: edit.agreementUrl.trim() || null,
+        notes: edit.notes.trim() || null,
+      },
+      { onSuccess: () => setEditing(false) }
+    );
+  }
+
+  function addTranche() {
+    if (!trancheValid) return;
+    createTranche.mutate(
+      {
+        grantAwardId: award.id,
+        label: label.trim(),
+        amountUsd: trancheAmount,
+        expectedDate: expectedDate || null,
+        receivedDate: receivedDate || null,
+      },
+      {
+        onSuccess: () => {
+          setLabel("");
+          setAmountUsd("");
+          setExpectedDate("");
+          setReceivedDate("");
+        },
+      }
+    );
+  }
+
+  return (
+    <div
+      style={{
+        border: "1px solid var(--vb-border)",
+        borderRadius: 8,
+        background: "var(--vb-alt)",
+        padding: 12,
+      }}
+    >
+      {editing ? (
+        <>
+          <AwardFields values={edit} onChange={setEdit} />
+          <FormErrors errors={editErrors} />
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button
+              type="button"
+              style={submitStyle}
+              disabled={editErrors.length > 0 || updateAward.isPending}
+              onClick={saveEdit}
+            >
+              {updateAward.isPending ? "Saving…" : "Save changes"}
+            </button>
+            <button
+              type="button"
+              style={ghostBtnStyle}
+              onClick={() => setEditing(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{ fontSize: 13, color: "var(--vb-text)", fontWeight: 600 }}
+            >
+              {award.grantor}
+              {award.program ? ` — ${award.program}` : ""}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--vb-dim)", marginTop: 2 }}>
+              {award.status} · awarded {String(award.awardDate)} ·{" "}
+              {award.awardAmountUsd != null
+                ? `$${Number(award.awardAmountUsd).toLocaleString()} awarded`
+                : award.awardAmountToken != null
+                  ? `${Number(award.awardAmountToken).toLocaleString()} ${
+                      award.awardTokenSymbol ?? "tokens"
+                    } awarded (no USD figure)`
+                  : "award amount not recorded"}{" "}
+              · ${received.toLocaleString()} received to date
+            </div>
+          </div>
+          <button
+            type="button"
+            style={ghostBtnStyle}
+            onClick={() => setEditing(true)}
+          >
+            Edit
+          </button>
+          <RemoveBtn onClick={() => removeAward.mutate({ id: award.id })} />
+        </div>
+      )}
+
+      {/* Tranches — the disbursement schedule. "Received" is what the report
+          sums for "received to date"; leaving it blank is what marks a
+          tranche as still owed, so it is deliberately not defaulted. */}
+      <div style={{ marginTop: 12 }}>
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--vb-muted)",
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+            marginBottom: 6,
+          }}
+        >
+          Disbursement tranches
+        </div>
+        {award.tranches.length === 0 ? (
+          <p style={{ fontSize: 11, color: "var(--vb-dim)", margin: "0 0 8px" }}>
+            None recorded. Add each payment the agreement schedules.
+          </p>
+        ) : (
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}
+          >
+            {award.tranches.map((t) => (
+              <div
+                key={t.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 12,
+                  color: "var(--vb-text)",
+                }}
+              >
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  {t.label} — ${Number(t.amountUsd).toLocaleString()}
+                  <span style={{ color: "var(--vb-dim)" }}>
+                    {t.expectedDate ? ` · expected ${t.expectedDate}` : ""}
+                    {t.receivedDate
+                      ? ` · received ${t.receivedDate}`
+                      : " · not yet received"}
+                  </span>
+                </span>
+                <RemoveBtn onClick={() => removeTranche.mutate({ id: t.id })} />
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div
+          style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 8 }}
+        >
+          <div>
+            <label style={labelStyle}>Tranche label</label>
+            <input
+              style={inputStyle}
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="Tranche 1 — on signature"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Amount (USD)</label>
+            <input
+              style={inputStyle}
+              type="number"
+              min="0"
+              value={amountUsd}
+              onChange={(e) => setAmountUsd(e.target.value)}
+              placeholder="250000"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Expected</label>
+            <input
+              type="date"
+              style={inputStyle}
+              value={expectedDate}
+              onChange={(e) => setExpectedDate(e.target.value)}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Received</label>
+            <input
+              type="date"
+              style={inputStyle}
+              value={receivedDate}
+              onChange={(e) => setReceivedDate(e.target.value)}
+            />
+          </div>
+        </div>
+        <button
+          type="button"
+          style={{ ...submitStyle, marginTop: 8 }}
+          disabled={!trancheValid || createTranche.isPending}
+          onClick={addTranche}
+        >
+          <Plus size={12} />{" "}
+          {createTranche.isPending ? "Adding…" : "Add tranche"}
+        </button>
+      </div>
+
+      <AwardDeliverables projectId={projectId} awardId={award.id} />
+    </div>
+  );
+}
+
+/**
+ * Attaching milestones to the award.
+ *
+ * Without this the `grant_milestone_progress` section could never become
+ * ready: `milestones.grant_award_id` has no other writer in the product, so
+ * the section would ship permanently empty — the same dead-end the grant
+ * renderer itself was blocked on until the sections existed.
+ *
+ * Milestones themselves are created in the Milestones modal; this only
+ * attaches and detaches, so there is one place a milestone is authored.
+ */
+function AwardDeliverables({
+  projectId,
+  awardId,
+}: {
+  projectId: string;
+  awardId: string;
+}) {
+  const { data: milestones = [], refetch } = trpc.milestones.list.useQuery({
+    projectId,
+  });
+  const update = trpc.milestones.update.useMutation({
+    onSuccess: () => refetch(),
+  });
+  const [pick, setPick] = useState("");
+
+  const attached = milestones.filter(
+    (m) => (m as { grantAwardId?: string | null }).grantAwardId === awardId
+  );
+  const available = milestones.filter(
+    (m) => (m as { grantAwardId?: string | null }).grantAwardId == null
+  );
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 600,
+          color: "var(--vb-muted)",
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+          marginBottom: 6,
+        }}
+      >
+        Deliverables committed under this award
+      </div>
+      {attached.length === 0 ? (
+        <p style={{ fontSize: 11, color: "var(--vb-dim)", margin: "0 0 8px" }}>
+          None attached. Add milestones in the Milestones section first, then
+          attach them here.
+        </p>
+      ) : (
+        <div
+          style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}
+        >
+          {attached.map((m) => (
+            <div
+              key={m.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                color: "var(--vb-text)",
+              }}
+            >
+              <span style={{ flex: 1, minWidth: 0 }}>
+                [{m.status}] {m.title}
+                <span style={{ color: "var(--vb-dim)" }}>
+                  {m.targetDate ? ` · target ${m.targetDate}` : ""}
+                  {m.completedDate ? ` · completed ${m.completedDate}` : ""}
+                </span>
+              </span>
+              <button
+                type="button"
+                style={ghostBtnStyle}
+                onClick={() =>
+                  update.mutate({ id: m.id, grantAwardId: null })
+                }
+              >
+                Detach
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Attach an existing milestone</label>
+          <select
+            style={inputStyle}
+            value={pick}
+            onChange={(e) => setPick(e.target.value)}
+          >
+            <option value="">
+              {available.length === 0
+                ? "No unattached milestones"
+                : "Choose a milestone…"}
+            </option>
+            {available.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.title}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="button"
+          style={submitStyle}
+          disabled={!pick || update.isPending}
+          onClick={() =>
+            update.mutate(
+              { id: pick, grantAwardId: awardId },
+              { onSuccess: () => setPick("") }
+            )
+          }
+        >
+          Attach
+        </button>
+      </div>
+    </div>
   );
 }
 

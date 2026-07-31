@@ -43,6 +43,8 @@ import type {
   Ask,
   QaHighlight,
   ProjectBudget,
+  GrantAward,
+  GrantTranche,
 } from "@/server/db/schema";
 import { formatUsd } from "@/lib/utils";
 import {
@@ -60,6 +62,7 @@ import {
 import { trailingAverageBurn, type BurnSnapshotLike } from "./burn-metrics";
 import {
   burnPeriodDays,
+  dateInPeriod,
   matchesPeriod,
   monthsInPeriod,
   type ReportPeriod,
@@ -118,6 +121,24 @@ export interface ReportSectionContext {
    * off.
    */
   budgets: ProjectBudget[];
+  /**
+   * Grant awards this project RECEIVED, all of them, unfiltered — the grant
+   * sections narrow to the ones already awarded as of `period.end` via
+   * `awardsForPeriod`, exactly as the manual-entry datasets above filter by
+   * `matchesPeriod` rather than being pre-filtered by the caller.
+   *
+   * NOT `grants`, three fields up. That is money this project GAVE OUT and its
+   * reader is an investor assessing deployment efficiency; this is money a
+   * funder gave the project and its reader is that funder. See the header on
+   * `grantAwards` in schema.ts.
+   */
+  grantAwards: GrantAward[];
+  /**
+   * Disbursement lines for the awards above, flat rather than nested. They
+   * travel as a separate array because that is the shape both fetch sites can
+   * produce with one indexed read each; the sections join on `grantAwardId`.
+   */
+  grantTranches: GrantTranche[];
   /**
    * Detected anomalies for this snapshot, from `detectAnomalies(snapshot,
    * trailing)`. Travels in the context so the anomalies section owns both
@@ -825,5 +846,434 @@ export function budgetComparison(ctx: ReportSectionContext): BudgetComparison {
         : null,
   };
   BUDGET_MEMO.set(ctx, result);
+  return result;
+}
+
+// ─── grant funding received ────────────────────────────────────────────────
+//
+// The derived view behind `grant_fund_usage` and `grant_milestone_progress`.
+//
+// ONE RULE SHAPES EVERY FIGURE HERE, and it is the reason this view exists at
+// all rather than the section doing its own arithmetic:
+//
+//   REMAINING GRANT FUNDS CANNOT BE COMPUTED, AND MUST NOT BE.
+//
+// Money is fungible. A $2M treasury that received a $500K grant and spent
+// $300K does not hold $200K of grant money — it holds $2M of money, some
+// unknowable part of which arrived from the grantor. Worse, the opening
+// balance at `period.start` is not recorded anywhere: balances are read LIVE,
+// as of `period.end` (`fetchAllBalances` has no period parameter). So
+// `award − outflows` is not merely imprecise, it is arithmetic over two
+// numbers that do not describe the same pool, printed in a document a funding
+// decision is made from.
+//
+// What this module therefore does NOT expose, at any name: a "remaining",
+// "unspent", "balance of grant funds" or "funds left" field derived from
+// outflows. `undisbursedUsd` below is the ONE remaining-shaped figure, it is
+// `awarded − received`, and it is a fact about the disbursement schedule
+// rather than about the treasury. A future contributor reaching for a
+// spend-derived remaining should read this paragraph and stop.
+
+/**
+ * One disbursement line, resolved against the reporting period.
+ */
+export interface GrantTrancheView {
+  id: string;
+  label: string;
+  amountUsd: number;
+  expectedDate: string | null;
+  receivedDate: string | null;
+  /** Received, and received inside this reporting window specifically. */
+  receivedInPeriod: boolean;
+}
+
+/** One award with its schedule resolved against the period. */
+export interface GrantAwardView {
+  id: string;
+  grantor: string;
+  program: string | null;
+  status: string;
+  awardDate: string;
+  /**
+   * NULL IS A REAL AND COMMON STATE — a grant denominated only in tokens
+   * ("30M OP") has no USD figure anywhere in the agreement, and inventing one
+   * states a precision the grant never had. Every consumer must branch on it;
+   * nothing may coerce it to 0, which would print "Awarded: $0".
+   */
+  awardAmountUsd: number | null;
+  awardAmountToken: number | null;
+  awardTokenSymbol: string | null;
+  agreementUrl: string | null;
+  tranches: GrantTrancheView[];
+  /** Tranches with a `receivedDate` on or before `period.end`. Cumulative. */
+  receivedToDateUsd: number;
+  /** Tranches whose `receivedDate` falls inside the period. */
+  receivedInPeriodUsd: number;
+  /** Every recorded tranche, received or not — the schedule as entered. */
+  scheduledTotalUsd: number;
+  /**
+   * `awardAmountUsd − receivedToDateUsd`: the part of the award still to be
+   * disbursed. Null when the award carries no USD amount, because
+   * "30,000,000 OP − $500,000" is not a subtraction. Never spend-derived.
+   */
+  undisbursedUsd: number | null;
+  /**
+   * True when the recorded tranches do not add up to the award amount, so the
+   * schedule is incomplete or the award figure is stale. Reported rather than
+   * silently reconciled — the two numbers are both founder-entered and the
+   * report cannot know which one is wrong.
+   */
+  scheduleIncomplete: boolean;
+}
+
+/**
+ * Verdict on the founder's tranche entries against the chain.
+ *
+ * Deliberately the same shape and vocabulary as `NetFlowReconciliation` in
+ * treasury-attribution.ts, because it answers the same class of question — two
+ * independent estimates of one quantity, and whether they agree — and a reader
+ * meeting CONSISTENT / DIVERGING / UNAVAILABLE twice in one report should not
+ * have to learn two sets of semantics.
+ */
+export interface GrantReceiptReconciliation {
+  /** Founder-entered: tranches marked received inside the period. */
+  trancheUsd: number;
+  /** Classifier-derived: `incomeByCategory.grant_received`. Null when the
+   * snapshot carries no classified income breakdown at all. */
+  chainUsd: number | null;
+  /** Signed: founder figure minus chain figure. */
+  divergenceUsd: number;
+  /** Fraction (0-1+), not percentage points. Null when not comparable. */
+  divergencePct: number | null;
+  verdict: "consistent" | "diverging" | "unavailable";
+}
+
+/**
+ * Floors for the grant cross-check, deliberately NOT shared with
+ * treasury-attribution.ts's constants despite matching values.
+ *
+ * That threshold is justified by the specific noise between a balance-derived
+ * flow and a transaction-derived one (snapshot-boundary pricing vs execution
+ * pricing, differing windows). This one is justified by different noise: a
+ * tranche agreed at $500,000 and paid in tokens is worth whatever those tokens
+ * were worth on the day, and the classifier prices the transfer while the
+ * founder types the agreement's figure. Same magnitude of expected drift,
+ * different reason — so if one is ever retuned the other must not move with it.
+ */
+const GRANT_RECONCILE_FLOOR_USD = 1_000;
+const GRANT_DIVERGENCE_THRESHOLD = 0.25;
+
+function reconcileGrantReceipts(
+  trancheUsd: number,
+  chainUsd: number | null
+): GrantReceiptReconciliation {
+  const unavailable: GrantReceiptReconciliation = {
+    trancheUsd,
+    chainUsd,
+    divergenceUsd: 0,
+    divergencePct: null,
+    verdict: "unavailable",
+  };
+  if (chainUsd === null || !Number.isFinite(chainUsd)) return unavailable;
+
+  const divergenceUsd = trancheUsd - chainUsd;
+  // Larger of the two magnitudes, so a near-zero on either side cannot send
+  // the ratio to Infinity. Two zeros land here too — nothing was recorded and
+  // nothing was detected, which supports no verdict either way.
+  const denominator = Math.max(Math.abs(trancheUsd), Math.abs(chainUsd));
+  if (denominator < GRANT_RECONCILE_FLOOR_USD) return unavailable;
+
+  const divergencePct = Math.abs(divergenceUsd) / denominator;
+  return {
+    trancheUsd,
+    chainUsd,
+    divergenceUsd,
+    divergencePct,
+    verdict:
+      divergencePct > GRANT_DIVERGENCE_THRESHOLD ? "diverging" : "consistent",
+  };
+}
+
+/**
+ * Awards that already existed as of `period.end`.
+ *
+ * An award signed after the window closed is not a fact about the window, and
+ * reporting it would tell a funder about money that had not been granted yet
+ * when the period they are reading about ended. Status is deliberately NOT
+ * filtered — see `grantFundUsage`.
+ *
+ * Shared by both grant sections' `requires` gates and both fragments, so the
+ * two sections cannot disagree about which awards exist.
+ */
+export function awardsForPeriod(ctx: ReportSectionContext): GrantAward[] {
+  return (ctx.grantAwards ?? []).filter(
+    (a) => a != null && String(a.awardDate) <= ctx.period.end
+  );
+}
+
+export interface GrantFundUsage {
+  awards: GrantAwardView[];
+  /** Sum over awards of tranches received on or before `period.end`. */
+  receivedToDateUsd: number;
+  /** Sum over awards of tranches received inside the period. */
+  receivedInPeriodUsd: number;
+  /** Operating outflows for the period, by category, token_sale excluded. */
+  operatingOutflows: { category: string; usd: number }[];
+  operatingOutflowsUsd: number;
+  reconciliation: GrantReceiptReconciliation;
+  /**
+   * `operatingOutflowsUsd / receivedToDateUsd`, or null when nothing has been
+   * received. NOT a statement about which dollars paid which bill — see the
+   * fungibility rule at the top of this block. The section carries that
+   * disclaimer as a mandatory clause, not an optional one.
+   */
+  coverageRatio: number | null;
+}
+
+const GRANT_USAGE_MEMO = new WeakMap<ReportSectionContext, GrantFundUsage>();
+
+/**
+ * Everything `grant_fund_usage` may state, computed once.
+ *
+ * STATUS IS NOT FILTERED, and that is a decision rather than an omission. The
+ * report a grantor most wants is the FINAL one — and a founder marks the award
+ * `completed` precisely when the work is done, i.e. exactly when that report is
+ * due. Gating on `status === "active"` would make the section vanish at the
+ * moment it matters most. A `terminated` award needs a closing accounting for
+ * the same reason. The status is printed instead, so the reader knows which
+ * kind of report they are holding.
+ */
+export function grantFundUsage(ctx: ReportSectionContext): GrantFundUsage {
+  const cached = GRANT_USAGE_MEMO.get(ctx);
+  if (cached) return cached;
+
+  const tranches = ctx.grantTranches ?? [];
+  const awards: GrantAwardView[] = awardsForPeriod(ctx).map((award) => {
+    const own = tranches
+      .filter((t) => t != null && t.grantAwardId === award.id)
+      .map<GrantTrancheView>((t) => {
+        const receivedDate = t.receivedDate ? String(t.receivedDate) : null;
+        return {
+          id: t.id,
+          label: t.label,
+          amountUsd: toNumber(t.amountUsd),
+          expectedDate: t.expectedDate ? String(t.expectedDate) : null,
+          receivedDate,
+          receivedInPeriod:
+            receivedDate !== null && dateInPeriod(receivedDate, ctx.period),
+        };
+      });
+
+    const receivedToDateUsd = own
+      // `<= period.end` and not `dateInPeriod`: this figure is cumulative by
+      // definition — "received to date" includes tranches paid long before the
+      // window opened, which is exactly what a grantor is asking about.
+      .filter((t) => t.receivedDate !== null && t.receivedDate <= ctx.period.end)
+      .reduce((sum, t) => sum + t.amountUsd, 0);
+    const receivedInPeriodUsd = own
+      .filter((t) => t.receivedInPeriod)
+      .reduce((sum, t) => sum + t.amountUsd, 0);
+    const scheduledTotalUsd = own.reduce((sum, t) => sum + t.amountUsd, 0);
+
+    const awardAmountUsd =
+      award.awardAmountUsd == null ? null : toNumber(award.awardAmountUsd);
+    const awardAmountToken =
+      award.awardAmountToken == null ? null : toNumber(award.awardAmountToken);
+
+    return {
+      id: award.id,
+      grantor: award.grantor,
+      program: award.program ?? null,
+      status: award.status,
+      awardDate: String(award.awardDate),
+      awardAmountUsd,
+      awardAmountToken,
+      awardTokenSymbol: award.awardTokenSymbol ?? null,
+      agreementUrl: award.agreementUrl ?? null,
+      tranches: own,
+      receivedToDateUsd,
+      receivedInPeriodUsd,
+      scheduledTotalUsd,
+      undisbursedUsd:
+        awardAmountUsd === null ? null : awardAmountUsd - receivedToDateUsd,
+      // Only when a schedule exists at all: an award with no tranches entered
+      // yet is not an inconsistent schedule, it is an unstarted one.
+      scheduleIncomplete:
+        awardAmountUsd !== null &&
+        own.length > 0 &&
+        Math.abs(scheduledTotalUsd - awardAmountUsd) > 1,
+    };
+  });
+
+  const receivedToDateUsd = awards.reduce(
+    (sum, a) => sum + a.receivedToDateUsd,
+    0
+  );
+  const receivedInPeriodUsd = awards.reduce(
+    (sum, a) => sum + a.receivedInPeriodUsd,
+    0
+  );
+
+  // `token_sale` excluded exactly as `expense_breakdown` excludes it: a
+  // rebalance is a treasury operation, not money spent on the work the grant
+  // paid for, and counting it here would inflate the outflow figure a funder
+  // reads as "what you spent".
+  const rawExpenses =
+    (ctx.snapshot.expensesByCategory as Record<string, unknown> | null) ?? null;
+  const operatingOutflows = rawExpenses
+    ? Object.entries(rawExpenses)
+        .map(([category, value]) => ({ category, usd: Number(value) }))
+        .filter(
+          (e) =>
+            e.category !== "token_sale" && Number.isFinite(e.usd) && e.usd > 0
+        )
+        .sort((a, b) => b.usd - a.usd)
+    : [];
+  const operatingOutflowsUsd = operatingOutflows.reduce(
+    (sum, e) => sum + e.usd,
+    0
+  );
+
+  // The chain side of the cross-check, read through `splitIncome` so the
+  // "was the classifier even run?" distinction is the same one
+  // `protocol_revenue` makes. Unclassified is null, not zero: "we ran the
+  // classifier and found no grant inflow" and "we never classified this
+  // period" support different sentences, and only one of them is a divergence.
+  const income = splitIncome(ctx.snapshot.incomeByCategory);
+  const chainUsd = income.classified
+    ? income.nonRecurring.entries.find((e) => e.category === "grant_received")
+        ?.usd ?? 0
+    : null;
+
+  // Founder side is the IN-PERIOD tranche sum, never the cumulative one. The
+  // classifier figure covers this period and nothing else, so comparing it
+  // against "received to date" would score every award whose tranches predate
+  // the window as DIVERGING — a false alarm that gets louder the longer the
+  // grant has been running.
+  const reconciliation = reconcileGrantReceipts(receivedInPeriodUsd, chainUsd);
+
+  const result: GrantFundUsage = {
+    awards,
+    receivedToDateUsd,
+    receivedInPeriodUsd,
+    operatingOutflows,
+    operatingOutflowsUsd,
+    reconciliation,
+    coverageRatio:
+      receivedToDateUsd > 0 ? operatingOutflowsUsd / receivedToDateUsd : null,
+  };
+  GRANT_USAGE_MEMO.set(ctx, result);
+  return result;
+}
+
+// ─── grant deliverables ────────────────────────────────────────────────────
+
+export interface GrantDeliverableView {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  targetDate: string | null;
+  completedDate: string | null;
+  /**
+   * `completedDate − targetDate` in whole days for a finished deliverable;
+   * `period.end − targetDate` for one still open with a target already past.
+   * Positive means late. Null when no target date was set, or when an open
+   * deliverable's target is still ahead — neither supports a slippage figure.
+   */
+  slippageDays: number | null;
+  /** True when the target has passed and the deliverable is not completed. */
+  overdue: boolean;
+  /** Completed inside this reporting window, as opposed to earlier. */
+  completedInPeriod: boolean;
+}
+
+export interface GrantAwardDeliverables {
+  award: GrantAwardView;
+  deliverables: GrantDeliverableView[];
+}
+
+/**
+ * Whole days between two 'YYYY-MM-DD' values, or null if either is
+ * unparseable. Both parse as UTC midnight, so the subtraction is exact and
+ * immune to the local timezone the report is generated in — the same reasoning
+ * `gapInDays` in report-sections.ts spells out.
+ */
+function dayDelta(from: string, to: string): number | null {
+  const a = new Date(from).getTime();
+  const b = new Date(to).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.round((b - a) / 86_400_000);
+}
+
+const DELIVERABLES_MEMO = new WeakMap<
+  ReportSectionContext,
+  GrantAwardDeliverables[]
+>();
+
+/**
+ * Deliverables committed under each award, grouped by award.
+ *
+ * DELIBERATELY NOT PERIOD-FILTERED, and the choice is the opposite of
+ * `completedMilestones` in report-evidence.ts. That helper answers "what
+ * shipped this period?", so a date filter is the whole point. This one answers
+ * a grantor's question — "where are you against what you committed to?" — and
+ * the answer must include the deliverables that have NOT shipped, which carry
+ * no `completedDate` to filter on and would therefore be dropped entirely by
+ * one. A filter here would systematically hide the late work and show only the
+ * finished work: an omission with a direction, in a document written for the
+ * party bearing the risk.
+ *
+ * The period is not discarded, it is demoted to a LABEL: `completedInPeriod`
+ * marks what shipped inside the window, so the report can distinguish "shipped
+ * this period" from "shipped earlier" without dropping a row.
+ */
+export function grantDeliverables(
+  ctx: ReportSectionContext
+): GrantAwardDeliverables[] {
+  const cached = DELIVERABLES_MEMO.get(ctx);
+  if (cached) return cached;
+
+  const usage = grantFundUsage(ctx);
+  const result = usage.awards
+    .map((award) => ({
+      award,
+      deliverables: (ctx.milestones ?? [])
+        .filter((m) => m != null && m.grantAwardId === award.id)
+        .map<GrantDeliverableView>((m) => {
+          const targetDate = m.targetDate ? String(m.targetDate) : null;
+          const completedDate = m.completedDate ? String(m.completedDate) : null;
+          const completed = m.status === "completed" && completedDate !== null;
+          const overdue =
+            !completed && targetDate !== null && targetDate < ctx.period.end;
+          return {
+            id: m.id,
+            title: m.title,
+            description: m.description ?? null,
+            status: m.status,
+            targetDate,
+            completedDate,
+            slippageDays:
+              targetDate === null
+                ? null
+                : completed
+                  ? dayDelta(targetDate, completedDate as string)
+                  : overdue
+                    ? dayDelta(targetDate, ctx.period.end)
+                    : null,
+            overdue,
+            completedInPeriod:
+              completed && dateInPeriod(completedDate as string, ctx.period),
+          };
+        })
+        .sort((a, b) =>
+          String(a.targetDate ?? "9999-12-31").localeCompare(
+            String(b.targetDate ?? "9999-12-31")
+          )
+        ),
+    }))
+    .filter((g) => g.deliverables.length > 0);
+
+  DELIVERABLES_MEMO.set(ctx, result);
   return result;
 }

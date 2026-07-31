@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateReportContent } from "./prompts";
+import { buildReportPrompts, validateReportContent } from "./prompts";
 import type { TreasurySnapshot } from "@/server/db/schema";
 
 // `validateReportContent` (renamed from `validateReportNumbers`) is the
@@ -142,5 +142,134 @@ describe("validateReportContent — forbidden-phrase scan (A7)", () => {
       clean
     );
     expect(result.passed).toBe(true);
+  });
+});
+
+// ─── grant data reaching the prompt ────────────────────────────────────────
+//
+// End-to-end through `buildReportPrompts`, not through a hand-built context.
+// The unit tests in report-sections.test.ts prove the sections render given a
+// context; these prove the two new optional inputs actually REACH one. That is
+// a separate failure: three call sites build a context, and a field dropped
+// between the options bag and `ReportSectionContext` would leave every section
+// gated off with no error anywhere.
+
+const grantProject = {
+  id: "p1",
+  name: "Test Protocol",
+  tokenSymbol: null,
+} as unknown as Parameters<typeof buildReportPrompts>[0]["project"];
+
+const grantSnapshot = {
+  id: "s1",
+  projectId: "p1",
+  snapshotDate: "2026-04-30",
+  totalBalanceUsd: "8500000",
+  expensesByCategory: { payroll: 300_000 },
+  incomeByCategory: { grant_received: 250_000 },
+} as unknown as TreasurySnapshot;
+
+const AWARD = {
+  id: "award-1",
+  projectId: "p1",
+  grantor: "Optimism Foundation",
+  program: null,
+  awardAmountUsd: "2000000",
+  awardAmountToken: null,
+  awardTokenSymbol: null,
+  awardDate: "2026-01-15",
+  reportingStartDate: null,
+  status: "active",
+  agreementUrl: null,
+  notes: null,
+};
+
+const TRANCHE = {
+  id: "t1",
+  grantAwardId: "award-1",
+  projectId: "p1",
+  label: "Tranche 1",
+  amountUsd: "250000",
+  expectedDate: null,
+  receivedDate: "2026-04-10",
+  txHash: null,
+  notes: null,
+};
+
+/** Every section on, so nothing is hidden by the default config. */
+const ALL_ON = [
+  { id: "grant_fund_usage", enabled: true },
+  { id: "grant_milestone_progress", enabled: true },
+];
+
+describe("buildReportPrompts — grant awards", () => {
+  it("defaults both grant inputs to empty, so every existing caller is unchanged", () => {
+    const { user, system } = buildReportPrompts({
+      snapshot: grantSnapshot,
+      project: grantProject,
+      storedSections: ALL_ON,
+    });
+    expect(user).not.toContain("Grant funding received");
+    expect(system).not.toContain("### Grant Funding Received");
+  });
+
+  it("carries awards and tranches through to the rendered section", () => {
+    const { user, system } = buildReportPrompts({
+      snapshot: grantSnapshot,
+      project: grantProject,
+      grantAwards: [AWARD] as never,
+      grantTranches: [TRANCHE] as never,
+      storedSections: ALL_ON,
+    });
+    expect(user).toContain("## Grant funding received and its use");
+    expect(user).toContain("Awarded: $2.0M");
+    expect(user).toContain("Received to date: $250.0K");
+    expect(system).toContain("### Grant Funding Received");
+  });
+
+  it("carries grant deliverables through when a milestone is attached", () => {
+    const { user } = buildReportPrompts({
+      snapshot: grantSnapshot,
+      project: grantProject,
+      milestones: [
+        {
+          id: "m1",
+          projectId: "p1",
+          title: "Ship the SDK",
+          description: null,
+          status: "completed",
+          targetDate: "2026-04-01",
+          completedDate: "2026-04-15",
+          grantAwardId: "award-1",
+        },
+      ] as never,
+      grantAwards: [AWARD] as never,
+      grantTranches: [TRANCHE] as never,
+      storedSections: ALL_ON,
+    });
+    expect(user).toContain("## Grant deliverable progress");
+    expect(user).toContain("Ship the SDK");
+  });
+
+  it("never puts a spend-derived remaining figure in the finished prompt", () => {
+    // The same guarantee as the section-level test, asserted on the actual
+    // string handed to the model: $250K received, $300K spent — so a
+    // `received - spent` figure would be -$50.0K, and `awarded - spent`
+    // $1.7M. Neither may appear anywhere in either prompt.
+    const { user, system } = buildReportPrompts({
+      snapshot: grantSnapshot,
+      project: grantProject,
+      grantAwards: [AWARD] as never,
+      grantTranches: [TRANCHE] as never,
+      storedSections: ALL_ON,
+    });
+    for (const text of [user, system]) {
+      expect(text).not.toContain("-$50.0K");
+      expect(text).not.toContain("$1.7M");
+    }
+    // And the legal one is present, with its definition attached.
+    expect(user).toContain(
+      "Not yet disbursed under the award (awarded minus received to date): $1.8M"
+    );
   });
 });

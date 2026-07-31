@@ -72,6 +72,13 @@ function ctxOf(over: Partial<ReportSectionContext> = {}): ReportSectionContext {
     partners: [],
     asks: [],
     qaHighlights: [],
+    // Added deliberately rather than left to the cast below to supply: this
+    // builder ends in `as ReportSectionContext`, so a context missing a field
+    // compiles silently. The evidence ledger does not read grant data today —
+    // both grant sections narrate directly — but a builder that omits half the
+    // context is a trap for whoever adds the first grant-derived signal.
+    grantAwards: [],
+    grantTranches: [],
     anomalies: [],
     total,
     minSignificant: total > 0 ? total * 0.001 : 0,

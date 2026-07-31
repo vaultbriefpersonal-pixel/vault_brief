@@ -22,6 +22,12 @@ const MANUAL_DATA_SECTIONS = new Set([
   "qa_highlights",
   "milestones_completed",
   "looking_ahead",
+  // Both grant sections route to one renderer: they read a single dataset
+  // (an award, its tranches, the milestones attached to it), and an award has
+  // to exist before either of the other two can. See the dispatch comment in
+  // SectionDataModal.
+  "grant_fund_usage",
+  "grant_milestone_progress",
 ]);
 
 /**
