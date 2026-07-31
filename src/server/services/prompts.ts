@@ -12,6 +12,7 @@ import type {
 import { formatUsd } from "@/lib/utils";
 import type { Anomaly } from "./anomalies";
 import { changeSignificanceFloor } from "./report-derived";
+import { periodFromSnapshot } from "./report-period";
 import {
   buildSystemPrompt,
   buildUserPrompt,
@@ -76,9 +77,17 @@ export function buildReportPrompts(
     storedSections = null,
   } = input;
   const total = Number(snapshot.totalBalanceUsd ?? 0);
-  // 'YYYY-MM' for matching against per-row period text. Snapshot date is
-  // a YYYY-MM-DD string from a date column; sliced cleanly.
-  const period = String(snapshot.snapshotDate).slice(0, 7);
+  // The reporting window the snapshot describes. Falls back to the calendar
+  // month ending on `snapshotDate` while `period_start` does not exist —
+  // which reconstructs, rather than guesses, the period of every snapshot
+  // written to date, since every write path has only ever produced a calendar
+  // month. See `periodFromSnapshot`.
+  //
+  // `getSectionReadiness` in the projects router derives it the SAME way, for
+  // the reason `changeSignificanceFloor` documents: two derivations can
+  // disagree, and then the constructor UI's readiness chip promises a section
+  // the report declines to render.
+  const period = periodFromSnapshot(snapshot);
   const ctx: ReportSectionContext = {
     snapshot,
     prevSnapshot,

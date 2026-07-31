@@ -5,6 +5,7 @@ import {
   type EvidenceItem,
 } from "./report-evidence";
 import { getSectionById, type ReportSectionContext } from "./report-sections";
+import { periodFromRange, periodFromSnapshot } from "./report-period";
 import type { TreasurySnapshot, Project, ProjectBudget } from "@/server/db/schema";
 
 // The tests that matter here are the ones about what the ledger REFUSES to
@@ -62,7 +63,10 @@ function ctxOf(over: Partial<ReportSectionContext> = {}): ReportSectionContext {
     trailing: [],
     project: project(),
     milestones: [],
-    period: String(snap.snapshotDate).slice(0, 7),
+    // The calendar month ending on the snapshot date — exactly what the bare
+    // `snapshotDate.slice(0, 7)` string stood for, and what
+    // `periodFromSnapshot` reconstructs while `period_start` does not exist.
+    period: periodFromSnapshot(snap),
     grants: [],
     governanceProposals: [],
     partners: [],
@@ -361,6 +365,77 @@ describe("milestones", () => {
       ctxOf({ milestones: [delayed] as ReportSectionContext["milestones"] })
     );
     expect(negatives.map((n) => n.claim).join(" ")).toContain("Mainnet v2");
+  });
+
+  // `milestones.completedDate` is a real `date` column, so the period match is
+  // the exact one and not a 'YYYY-MM' prefix. For a month the two agree; for a
+  // window starting mid-month only the exact one is right.
+  it("matches on the real date, not the month, at a custom period's edge", () => {
+    const period = periodFromRange("2026-04-14", "2026-09-30");
+    const before = {
+      id: "m4",
+      title: "Shipped on the 3rd",
+      status: "completed",
+      completedDate: "2026-04-03",
+    };
+    const after = {
+      id: "m5",
+      title: "Shipped on the 20th",
+      status: "completed",
+      completedDate: "2026-04-20",
+    };
+    const { positives } = buildEvidenceLedger(
+      ctxOf({
+        period,
+        milestones: [before, after] as ReportSectionContext["milestones"],
+      })
+    );
+    const claims = positives.map((p) => p.claim).join(" ");
+    // Both sit in 2026-04, which the period touches — a month-prefix match
+    // would have admitted the one dated eleven days before the period began.
+    expect(claims).toContain("Shipped on the 20th");
+    expect(claims).not.toContain("Shipped on the 3rd");
+  });
+});
+
+describe("partners across a custom period", () => {
+  const partner = (period: string, name: string) =>
+    ({ id: `p-${period}`, period, name, type: "integration", notes: null }) as
+      unknown as ReportSectionContext["partners"][number];
+
+  it("includes rows from every month the period touches", () => {
+    const { positives } = buildEvidenceLedger(
+      ctxOf({
+        period: periodFromRange("2026-02-14", "2026-07-31"),
+        partners: [partner("2026-02", "Boundary"), partner("2026-05", "Middle")],
+      })
+    );
+    const claims = positives.map((p) => p.claim).join(" ");
+    expect(claims).toContain("Boundary");
+    expect(claims).toContain("Middle");
+  });
+
+  it("quotes the ROW's own month, never the period identifier", () => {
+    const { positives } = buildEvidenceLedger(
+      ctxOf({
+        period: periodFromRange("2026-02-14", "2026-07-31"),
+        partners: [partner("2026-05", "Middle")],
+      })
+    );
+    const figures = positives.map((p) => p.figure).join(" ");
+    expect(figures).toContain("recorded against 2026-05");
+    // "recorded against 2026-02-14..2026-07-31" would be a false statement
+    // about where the founder filed the row.
+    expect(figures).not.toContain("2026-02-14..2026-07-31");
+  });
+
+  it("still quotes the period's own month for a monthly report", () => {
+    const { positives } = buildEvidenceLedger(
+      ctxOf({ partners: [partner("2026-04", "Monthly Co")] })
+    );
+    expect(positives.map((p) => p.figure).join(" ")).toContain(
+      "recorded against 2026-04"
+    );
   });
 });
 

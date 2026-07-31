@@ -446,12 +446,21 @@ export const qaHighlights = pgTable("qa_highlights", {
 // Per-project, per-period, manually entered — the same shape as the five
 // tables above, and `period` is deliberately the identical 'YYYY-MM'
 // text column as grants/partners/qaHighlights rather than a date or a
-// range. The report pipeline already derives its period as
-// `snapshotDate.slice(0, 7)` (see ReportSectionContext.period), so
-// matching a budget row to a report is plain string equality: no date
-// arithmetic, no timezone class of bug, and the period-string validation
-// the other manual sections already use is reusable unchanged. A
-// quarterly budget is simply three rows.
+// range. Matching a budget row to a report is set membership against the
+// months the reporting period touches (`matchesPeriod` in
+// report-period.ts, reading `ReportSectionContext.period`): for a
+// calendar month that is exactly the string equality this originally
+// described, with no date arithmetic and no timezone class of bug, and
+// the period-string validation the other manual sections use is reusable
+// unchanged.
+//
+// "A quarterly budget is simply three rows" was the design intent here
+// and is still ASPIRATIONAL, not implemented: `buildSide` in
+// report-derived.ts builds `new Map(itemised.map(...))`, so three rows
+// for the same category collapse to the last one. Plan vs Actual
+// therefore gates itself to `period.kind === "month"` rather than
+// reporting one month's plan against a quarter's actuals. See the
+// deferred backlog for what finishing it requires.
 //
 // Deliberately NO foreign key to treasury_snapshots: a budget is entered
 // *before* the period it describes has been synced, so the snapshot row

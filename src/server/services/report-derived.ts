@@ -58,6 +58,7 @@ import {
   type TreasuryComposition,
 } from "./treasury-composition";
 import { trailingAverageBurn } from "./burn-metrics";
+import { matchesPeriod, type ReportPeriod } from "./report-period";
 import type { Anomaly } from "./anomalies";
 
 // ─── the context ───────────────────────────────────────────────────────────
@@ -84,8 +85,21 @@ export interface ReportSectionContext {
   trailing: TreasurySnapshot[];
   project: Project;
   milestones: Milestone[];
-  /** 'YYYY-MM' derived from snapshot.snapshotDate; used for period match. */
-  period: string;
+  /**
+   * The reporting window this report covers, as a value — see
+   * `report-period.ts`. Derived once per report from the snapshot
+   * (`periodFromSnapshot`), and derived the SAME way by the readiness
+   * endpoint, for the reason `changeSignificanceFloor` below spells out.
+   *
+   * It was a bare 'YYYY-MM' string until grant reporting needed a window that
+   * starts on the 14th and spans six months. Consumers must go through the
+   * module's predicates rather than comparing strings: `matchesPeriod` for
+   * month-tagged manual-entry rows, `dateInPeriod` for rows with a real `date`
+   * column, `period.tag` where a stable identifier is printed (it is exactly
+   * the old 'YYYY-MM' for a calendar month, which is what keeps existing
+   * prompt text and the `llm_cache` key unchanged).
+   */
+  period: ReportPeriod;
   grants: Grant[];
   governanceProposals: GovernanceProposal[];
   partners: Partner[];
@@ -93,9 +107,10 @@ export interface ReportSectionContext {
   qaHighlights: QaHighlight[];
   /**
    * Manually entered plan rows for the project, across every period — the
-   * Plan vs Actual section filters to `ctx.period` itself, matching how
-   * `grants` and the other manual-entry datasets travel. Empty when the
-   * founder has never typed a budget, which is what gates the section off.
+   * Plan vs Actual section filters to the months `ctx.period` touches,
+   * matching how `grants` and the other manual-entry datasets travel. Empty
+   * when the founder has never typed a budget, which is what gates the section
+   * off.
    */
   budgets: ProjectBudget[];
   /**
@@ -558,9 +573,25 @@ export interface BudgetComparison {
   planUpdatedAt: Date | null;
 }
 
-/** Rows for a period, or an empty array. Tolerates a context built without budgets. */
+/**
+ * Rows for a period, or an empty array. Tolerates a context built without
+ * budgets.
+ *
+ * `matchesPeriod` is set membership against the months the period touches, so
+ * a calendar month returns exactly the rows the old `b.period === ctx.period`
+ * string equality returned — identical output, identical order.
+ *
+ * DELIBERATELY NOT FOLDED. For a multi-month period this returns several rows
+ * per (kind, category), and `buildSide`'s `new Map(itemised.map(...))` keeps
+ * the LAST of them — one arbitrary month's plan against the whole window's
+ * actuals. That is why `actual_vs_budget.requires` gates on
+ * `ctx.period.kind === "month"` and `decisionLedger` skips budget entries for
+ * anything else: the fold cannot be written correctly until the ACTUALS are
+ * aligned to the period, and `buildSide` reads one snapshot's JSONB. See the
+ * deferred backlog.
+ */
 export function budgetsForPeriod(ctx: ReportSectionContext): ProjectBudget[] {
-  return (ctx.budgets ?? []).filter((b) => b.period === ctx.period);
+  return (ctx.budgets ?? []).filter((b) => matchesPeriod(b.period, ctx.period));
 }
 
 function toNumber(raw: unknown): number {
@@ -694,6 +725,10 @@ const BUDGET_MEMO = new WeakMap<ReportSectionContext, BudgetComparison>();
  * Plan vs actual for `ctx.period`. Memoized per context like `attributionOf`,
  * because `requires()`, the fragment and (through them) readiness all call it
  * on the same object.
+ *
+ * Only meaningful when `ctx.period.kind === "month"` — see `budgetsForPeriod`.
+ * Both callers that can put a figure in front of a reader
+ * (`actual_vs_budget.requires` and `decisionLedger`) gate on that.
  */
 export function budgetComparison(ctx: ReportSectionContext): BudgetComparison {
   const cached = BUDGET_MEMO.get(ctx);

@@ -37,6 +37,7 @@ import {
   liquidReservesUsd,
 } from "./treasury-liquidity";
 import { burnTrend, liquidRunwayMonths } from "./burn-metrics";
+import { dateInPeriod, matchesPeriod } from "./report-period";
 import type { Anomaly } from "./anomalies";
 import {
   attributionOf,
@@ -209,10 +210,12 @@ function treasuryGrowth(ctx: ReportSectionContext): EvidenceItem | null {
  * Milestones completed inside the reporting period.
  *
  * The `milestones` table has no period column — completion is dated, not
- * scoped — so the period match is derived from `completedDate`'s 'YYYY-MM'
- * prefix, the same shape `prompts.ts` derives `ctx.period` from. Without the
- * date filter this would surface a milestone completed two years ago as a win
- * this month, every month, forever.
+ * scoped — so this matches on the real `completedDate` against the period's
+ * actual boundaries rather than on a 'YYYY-MM' prefix. For a calendar month
+ * the two are identical; for a window that starts on the 14th the date match
+ * is exact where a prefix match would pull in the first thirteen days.
+ * Without any filter this would surface a milestone completed two years ago
+ * as a win this month, every month, forever.
  */
 function completedMilestones(ctx: ReportSectionContext): EvidenceItem[] {
   return ctx.milestones
@@ -221,7 +224,7 @@ function completedMilestones(ctx: ReportSectionContext): EvidenceItem[] {
         m != null &&
         m.status === "completed" &&
         m.completedDate != null &&
-        String(m.completedDate).slice(0, 7) === ctx.period
+        dateInPeriod(m.completedDate, ctx.period)
     )
     .slice(0, MAX_MILESTONE_ITEMS)
     .map((m, i) =>
@@ -235,16 +238,25 @@ function completedMilestones(ctx: ReportSectionContext): EvidenceItem[] {
     );
 }
 
-/** Partners announced in this reporting period. Period-scoped by column. */
+/**
+ * Partners announced in this reporting period. Period-scoped by column, and
+ * that column is a calendar month — so the match is set membership over the
+ * months the period touches.
+ *
+ * The figure quotes the ROW's own month, not the period's identifier. For a
+ * monthly report the two are the same string; for a six-month window they are
+ * not, and "recorded against 2026-02-14..2026-07-31" would be a false
+ * statement about where the row was filed.
+ */
 function newPartners(ctx: ReportSectionContext): EvidenceItem[] {
   return ctx.partners
-    .filter((p) => p != null && p.period === ctx.period)
+    .filter((p) => p != null && matchesPeriod(p.period, ctx.period))
     .slice(0, MAX_MILESTONE_ITEMS)
     .map((p, i) =>
       item(
         `partner-new-${i}`,
         `New partner or integration announced this period: ${p.name}`,
-        `${p.type ? `${p.type}, ` : ""}recorded against ${ctx.period}${
+        `${p.type ? `${p.type}, ` : ""}recorded against ${p.period}${
           p.notes ? ` — ${p.notes}` : ""
         }`
       )
@@ -780,7 +792,19 @@ export function decisionLedger(
   }
 
   // 3. Material budget variances — plan vs actual, founder-entered.
-  const cmp = budgetComparison(ctx);
+  //
+  // Gated on a calendar month for exactly the reason `actual_vs_budget` is
+  // (see `budgetsForPeriod`), and the gate has to be repeated HERE because
+  // this is a second, independent path from the budget rows to the reader:
+  // `decisionLedger` calls `budgetComparison` directly, never through the
+  // section's `requires`. Without it, gating the section would hide the table
+  // while a variance computed from one arbitrary month's plan against a
+  // six-month window's actuals still arrived in Recommendations, labelled
+  // MATERIAL and quoted as a figure the model is instructed to cite verbatim.
+  const cmp =
+    ctx.period.kind === "month"
+      ? budgetComparison(ctx)
+      : { expense: null, income: null, planUpdatedAt: null };
   const budgetLines: BudgetLine[] = [
     ...(cmp.expense ? [...cmp.expense.lines, cmp.expense.total] : []),
     ...(cmp.income ? [...cmp.income.lines, cmp.income.total] : []),

@@ -42,6 +42,11 @@ import {
   type ReportSectionContext,
 } from "./report-derived";
 import type { TreasuryComposition } from "./treasury-composition";
+import {
+  longGapDaysFor,
+  matchesPeriod,
+  type ReportPeriod,
+} from "./report-period";
 import { decisionLedger, evidenceOf, formatEvidenceItems } from "./report-evidence";
 
 // `ReportSectionContext` moved to report-derived.ts, which both this module
@@ -91,8 +96,29 @@ export interface ReportSection {
    * Instructions appended to the system prompt for this section's
    * shape rules. Always included when the section is enabled (even if
    * `requires` is false — the system prompt is just rules, no data).
+   *
+   * THIS FIELD IS THE MONTHLY TEXT, and stays a plain string on purpose. It
+   * is what the dashboard, the tests and anything without a context read. A
+   * section whose rules are month-denominated adds `systemPromptFragmentFor`
+   * below rather than turning this into a closure.
    */
   systemPromptFragment: string;
+  /**
+   * Period-aware form of `systemPromptFragment`, consulted by
+   * `buildSystemPrompt` when present.
+   *
+   * CONTRACT: for a period with `kind === "month"` it MUST return
+   * `systemPromptFragment` byte for byte. A monthly report's prompts are
+   * hashed into the `llm_cache` key and have already been sent to investors;
+   * a section that quietly rewords its own rules would restate them. The
+   * contract is machine-checked — see the test that runs every section's
+   * resolver against a monthly context and compares to the static field.
+   *
+   * A second field rather than widening `systemPromptFragment` to a union:
+   * the static string remains readable at a glance in a 2000-line file, and
+   * nothing that already reads it has to learn how to resolve one.
+   */
+  systemPromptFragmentFor?: (ctx: ReportSectionContext) => string;
   /**
    * Human-readable reason why a section won't render with current
    * data. Shown in the constructor UI as a chip when `requires()` is
@@ -101,8 +127,24 @@ export interface ReportSection {
    *     features we haven't built yet
    *   • "Needs <Y>" for sections waiting on user data
    * If omitted, the editor falls back to a generic "Not yet ready".
+   *
+   * Like `systemPromptFragment`, this is the MONTHLY text and stays a plain
+   * string: `SECTION_LIBRARY_META` ships it to the client, where no context
+   * exists to resolve a closure against.
    */
   notReadyHint?: string;
+  /**
+   * Period-aware form of `notReadyHint`, consulted by `evaluateReadiness`
+   * (which does have a context) when present. Same contract as
+   * `systemPromptFragmentFor`: a monthly period must yield `notReadyHint`
+   * verbatim, and the same test checks it.
+   *
+   * Exists because a section can now be unavailable for two unrelated
+   * reasons — the founder has not entered data yet, or the reporting period
+   * is a shape the section cannot honestly measure — and a chip that gives
+   * the wrong one sends the founder off to fix something that is not broken.
+   */
+  notReadyHintFor?: (ctx: ReportSectionContext) => string;
 }
 
 // ─── prompt formatters ─────────────────────────────────────────────────────
@@ -123,13 +165,82 @@ function gapInDays(
   return Math.round((curr - prev) / 86_400_000);
 }
 
+// ─── period-aware prose ────────────────────────────────────────────────────
+//
+// This file was written when every report was a calendar month, and it says so
+// in about twenty places: "vs last month", "this month's burn", "Monthly burn
+// rate", "Generate a monthly investor report". Most of that text is prompt
+// prose the model copies into the document, so for a six-month grant window it
+// would not merely read oddly — it would put the word "month" in front of a
+// figure covering half a year.
+//
+// Every helper below is a PAIR: the exact string this file emitted before the
+// period became a value, returned whenever `period.kind === "month"`, and a
+// period-correct alternative otherwise. Small named helpers rather than
+// `kind === "month" ? ... : ...` inlined into a dozen template literals —
+// inlined, the monthly text stops being greppable and the next person cannot
+// tell at a glance which branch is the one already in production.
+//
+// The discipline that makes this safe is the one `monthsInPeriod` and
+// `longGapDaysFor` already follow in report-period.ts: branch on `kind`, never
+// on length. A 31-day custom window is not a month and must not inherit the
+// month wording just because it is about that long.
+
+function isMonthly(period: ReportPeriod): boolean {
+  return period.kind === "month";
+}
+
+/** "last month" — what the previous snapshot is called in prompt prose. */
+function lastPeriodPhrase(period: ReportPeriod): string {
+  return isMonthly(period) ? "last month" : "the previous reporting period";
+}
+
+/** "previous month" — the adjectival form, for "Change vs ___". */
+function previousPeriodPhrase(period: ReportPeriod): string {
+  return isMonthly(period) ? "previous month" : "previous reporting period";
+}
+
 /**
- * Beyond this the balance-derived flow and the period's transaction totals
- * cover visibly different windows, so cross-comparing them is a mistake the
- * prompt has to name out loud. 45 days clears a normal monthly cadence
- * (28-31 days) plus a late sync, without excusing a skipped period.
+ * The label for the stored `runway_months` column's denominator.
+ *
+ * A helper rather than two literals because the string appears twice — the
+ * measurable branch and the NOT MEASURABLE branch of Financial Health — and a
+ * reader comparing the two lines has to see the same denominator named the
+ * same way. Two literals drift; this cannot.
  */
-const LONG_GAP_DAYS = 45;
+function storedRunwayLabel(period: ReportPeriod): string {
+  return isMonthly(period)
+    ? "Runway (total treasury ÷ this month's burn)"
+    : "Runway (total treasury ÷ this period's operating outflows)";
+}
+
+/**
+ * The month-granularity disclosure, appended to sections fed by manual-entry
+ * tables whose only period column is a calendar month.
+ *
+ * Those rows carry 'YYYY-MM' and nothing finer, so a period running
+ * 2026-02-14 → 2026-07-31 cannot tell a partner recorded against `2026-02` on
+ * the 3rd from one recorded on the 20th. The choice is to drop the whole
+ * boundary month (losing real items with no trace) or to include it and say
+ * so. Saying so is this codebase's established idiom — the long-gap note below
+ * is the same move.
+ *
+ * Empty string for a monthly period, and for a month-ALIGNED custom one: when
+ * the window stops on month boundaries, "the whole of February" and the rows
+ * tagged `2026-02` are the same set and there is nothing to disclose. Returned
+ * as an empty string rather than null so callers can append unconditionally.
+ */
+function monthGranularityNote(period: ReportPeriod): string {
+  if (isMonthly(period) || period.monthAligned) return "";
+  return "\n\n*Manually-entered items are recorded by calendar month. The first and last months of this period are included in full and may contain items dated outside it.*";
+}
+
+// The module-private `LONG_GAP_DAYS = 45` that used to live here is now
+// `longGapDaysFor(ctx.period)` in report-period.ts. It returns exactly 45 for
+// a calendar month — so the threshold every shipped monthly report was written
+// against is unchanged — and scales for a longer window, because a 60-day gap
+// either side of a 181-day period is not the coverage problem the same 60 days
+// are either side of a 30-day one.
 
 /** Investor-facing names. Field names like `walletSetUsd` mean nothing to a reader. */
 const DRIVER_LABELS: Record<AttributionDriver, string> = {
@@ -240,6 +351,21 @@ function liquidityLines(
 
 // ─── individual sections ───────────────────────────────────────────────────
 
+/**
+ * The rule text, parameterised on the one phrase that is month-denominated.
+ *
+ * One builder feeding both `systemPromptFragment` (called with the literal
+ * monthly phrase) and `systemPromptFragmentFor` (called with the period's
+ * phrase) is what makes the byte-identity contract structural rather than a
+ * promise: `lastPeriodPhrase` returns exactly "last month" for a calendar
+ * month, so the two calls cannot produce different strings for a monthly
+ * report. Every section below that has a `*For` resolver is shaped this way.
+ */
+function executiveSummaryRules(lastPeriod: string): string {
+  return `### Executive Summary
+3-4 sentences. State the treasury position, biggest change vs ${lastPeriod}, and one forward-looking statement. Use exact numbers. Never fabricate data.`;
+}
+
 const executiveSummary: ReportSection = {
   id: "executive_summary",
   title: "Executive Summary",
@@ -248,8 +374,9 @@ const executiveSummary: ReportSection = {
   defaultEnabled: true,
   requires: () => true,
   userPromptFragment: () => "", // handled implicitly by snapshot context
-  systemPromptFragment: `### Executive Summary
-3-4 sentences. State the treasury position, biggest change vs last month, and one forward-looking statement. Use exact numbers. Never fabricate data.`,
+  systemPromptFragment: executiveSummaryRules("last month"),
+  systemPromptFragmentFor: (ctx) =>
+    executiveSummaryRules(lastPeriodPhrase(ctx.period)),
 };
 
 /**
@@ -529,6 +656,25 @@ function treasuryOverviewHasContent(ctx: ReportSectionContext): boolean {
   return ctx.total > 0 || compositionOf(ctx).totalUsd > 0;
 }
 
+/**
+ * See `executiveSummaryRules` for why this is a builder. The "Previous Month
+ * section" reference in the last clause is NOT parameterised: it names the
+ * `## Previous Month Treasury` heading that Month-over-Month still emits
+ * verbatim on its fallback path, and a rule that stops naming the heading it
+ * gates on is a gate that silently stops matching.
+ */
+function treasuryOverviewRules(previousPeriod: string): string {
+  return `### Treasury Overview
+- Table: Asset | Balance | % of Total. Render the bucket lines the input gives you (stablecoins, liquid crypto, the project's own token, other assets), then a second table of the individual holdings when the input lists them.
+- **Only include rows where Balance > $0.** Skip categories the project does not currently hold — do NOT emit "$0 / 0%" placeholder rows. If the input doesn't list a balance for an asset, that asset doesn't exist in this treasury; pretend it's not even on the menu.
+- **Every figure here is derived at read time from the per-token holdings stored with the snapshot.** It is an approximation at the margins, not an audited balance sheet. Never call it audited, verified or exact.
+- **A holding rolled into the "smaller holdings not listed individually" line must never be named.** Do not guess what is in it, do not itemise it, do not describe it. It is a long tail of small and often worthless positions, and naming any of them gives a spam airdrop the same standing as a real position.
+- **Holdings with no price feed are reported as a count and nothing else.** They are excluded from every total in the input, so never add them to one, never estimate their value, and never imply the treasury is larger because of them. State the count and that they are unpriced.
+- Report a small figure as the small figure it is. If the input says stablecoins are $1,136 against a treasury of $1.06B, say exactly that — a treasury holding almost no stablecoins is a material fact about its liquidity, not a rounding error to omit.
+- Total treasury value.
+- Change vs ${previousPeriod} (absolute and percentage) — only if a Previous Month section appears in the input.`;
+}
+
 const treasuryOverview: ReportSection = {
   id: "treasury_overview",
   title: "Treasury Overview",
@@ -564,15 +710,9 @@ const treasuryOverview: ReportSection = {
       "\n\n"
     )}`;
   },
-  systemPromptFragment: `### Treasury Overview
-- Table: Asset | Balance | % of Total. Render the bucket lines the input gives you (stablecoins, liquid crypto, the project's own token, other assets), then a second table of the individual holdings when the input lists them.
-- **Only include rows where Balance > $0.** Skip categories the project does not currently hold — do NOT emit "$0 / 0%" placeholder rows. If the input doesn't list a balance for an asset, that asset doesn't exist in this treasury; pretend it's not even on the menu.
-- **Every figure here is derived at read time from the per-token holdings stored with the snapshot.** It is an approximation at the margins, not an audited balance sheet. Never call it audited, verified or exact.
-- **A holding rolled into the "smaller holdings not listed individually" line must never be named.** Do not guess what is in it, do not itemise it, do not describe it. It is a long tail of small and often worthless positions, and naming any of them gives a spam airdrop the same standing as a real position.
-- **Holdings with no price feed are reported as a count and nothing else.** They are excluded from every total in the input, so never add them to one, never estimate their value, and never imply the treasury is larger because of them. State the count and that they are unpriced.
-- Report a small figure as the small figure it is. If the input says stablecoins are $1,136 against a treasury of $1.06B, say exactly that — a treasury holding almost no stablecoins is a material fact about its liquidity, not a rounding error to omit.
-- Total treasury value.
-- Change vs previous month (absolute and percentage) — only if a Previous Month section appears in the input.`,
+  systemPromptFragment: treasuryOverviewRules("previous month"),
+  systemPromptFragmentFor: (ctx) =>
+    treasuryOverviewRules(previousPeriodPhrase(ctx.period)),
   notReadyHint: "Run a sync to fetch wallet balances first.",
 };
 
@@ -692,6 +832,51 @@ const treasuryConcentration: ReportSection = {
     "Needs a synced snapshot with per-token balances (run a sync), plus either own-token concentration or thin stablecoin cover.",
 };
 
+/**
+ * The disclosure fired when the two snapshots being differenced sit further
+ * apart than `longGapDaysFor(period)`.
+ *
+ * THE PROSE HAD TO CHANGE ALONGSIDE THE THRESHOLD, not just the comparison.
+ * The monthly sentence says the gap is "far longer than one reporting period",
+ * and that clause INVERTS for a long window: a 60-day gap against a 181-day
+ * grant period is shorter than the period, so the existing warning would be
+ * telling the model the opposite of what is true. Both branches say the same
+ * load-bearing thing — the balance-derived flow and the transaction totals
+ * cover different windows and must not be reconciled — but only the monthly
+ * one may claim the gap is the longer of the two.
+ *
+ * The monthly branch is the pre-existing sentence, byte for byte.
+ */
+function longGapNote(gapDays: number, period: ReportPeriod): string {
+  if (isMonthly(period)) {
+    return `NOTE: these snapshots are ${gapDays} days apart, far longer than one reporting period. The flow figure above covers that entire ${gapDays}-day window, while the inflow, outflow and net flow totals elsewhere in this input cover only the reporting period. Do NOT compare, reconcile or add the two. Do NOT present the flow figure as this period's movement — say explicitly that it spans ${gapDays} days.`;
+  }
+  return `NOTE: these snapshots are ${gapDays} days apart, while the reporting period covers ${period.days} days (${period.start} to ${period.end}). The two windows do not line up. The flow figure above covers that entire ${gapDays}-day window between snapshots, while the inflow, outflow and net flow totals elsewhere in this input cover the reporting period. Do NOT compare, reconcile or add the two. Do NOT present the flow figure as this period's movement — say explicitly that it spans ${gapDays} days between balance readings.`;
+}
+
+/**
+ * See `executiveSummaryRules` for why this is a builder.
+ *
+ * Only the rule HEADING is month-denominated — it is the name the model is
+ * told to render the section under, and "Month-over-Month" over a six-month
+ * window is a false label before a single figure is written. The two block
+ * names quoted in the first bullet ("## Treasury change", "## Previous Month
+ * Treasury") are NOT parameterised: they are the literal headings
+ * `userPromptFragment` emits, and this bullet is the gate that matches them.
+ * Heading and rule move together or the gate silently stops firing.
+ */
+function monthOverMonthRules(heading: string): string {
+  return `### ${heading} (CONDITIONAL)
+- Only render if a "## Treasury change" block (or the legacy "## Previous Month Treasury" block) appears in the input.
+- Open with a single sentence summarising the delta with a directional verb ("grew", "shrank by", "held steady at"). Don't dramatize a 0.5% move.
+- **When the input carries a "Where that change came from" breakdown, naming the driver is MANDATORY, not optional.** The delta never stands alone: the very next sentence states which component moved it, quoting the input's own figures. A total change reported without its attribution is an incomplete answer, not a shorter one.
+- **If price movement of assets already held is the dominant driver, say so plainly and do not call it growth.** The treasury was re-priced; the team did not bring money in. Do not use "grew", "gained", "raised", "inflow", "added", or any verb implying the project earned or received value. The shape to use: "Treasury value rose $4.9M, driven almost entirely by the price of assets already held; net asset flows were roughly flat."
+- **"Newly-tracked or dropped wallets" is NEVER an inflow or an outflow.** It is a change in what is being measured — wallets added to or removed from coverage. Report it as coverage expanding or contracting, with its figure stated separately. Describing it as a deposit, a raise, a withdrawal, or growth is a false statement about the treasury.
+- "Unattributed" means a price feed was missing for part of the treasury, not that value appeared or vanished. Report it as unattributed and, when it is large relative to the total change, say the change is only partly explained.
+- Report the cross-check line as given. CONSISTENT means the two independent estimates agree and the flow figure can be stated directly. DIVERGING means they disagree — say the balance-derived flow is not confirmed by the recorded transactions and hedge accordingly. UNAVAILABLE means no comparison was possible — never present the flow figure as verified.
+- **Never assert a cause the input does not support.** The input names components, not reasons. "Driven by price movement" is supported — it is a component the data measures. "Driven by the funding round", "on the back of revenue", "following the partnership announcement" are NOT, unless that cause appears verbatim elsewhere in this input. When no cause is available, name the component and stop.`;
+}
+
 const previousMonthComparison: ReportSection = {
   id: "previous_month_comparison",
   title: "Month-over-Month",
@@ -806,26 +991,38 @@ const previousMonthComparison: ReportSection = {
       }
     }
 
-    if (gapDays !== null && gapDays > LONG_GAP_DAYS) {
-      lines.push(
-        "",
-        `NOTE: these snapshots are ${gapDays} days apart, far longer than one reporting period. The flow figure above covers that entire ${gapDays}-day window, while the inflow, outflow and net flow totals elsewhere in this input cover only the reporting period. Do NOT compare, reconcile or add the two. Do NOT present the flow figure as this period's movement — say explicitly that it spans ${gapDays} days.`
-      );
+    if (gapDays !== null && gapDays > longGapDaysFor(ctx.period)) {
+      lines.push("", longGapNote(gapDays, ctx.period));
     }
 
     return `\n## Treasury change (${ctx.snapshot.snapshotDate} vs ${ctx.prevSnapshot.snapshotDate}${gapLabel})\n${lines.join("\n")}`;
   },
-  systemPromptFragment: `### Month-over-Month (CONDITIONAL)
-- Only render if a "## Treasury change" block (or the legacy "## Previous Month Treasury" block) appears in the input.
-- Open with a single sentence summarising the delta with a directional verb ("grew", "shrank by", "held steady at"). Don't dramatize a 0.5% move.
-- **When the input carries a "Where that change came from" breakdown, naming the driver is MANDATORY, not optional.** The delta never stands alone: the very next sentence states which component moved it, quoting the input's own figures. A total change reported without its attribution is an incomplete answer, not a shorter one.
-- **If price movement of assets already held is the dominant driver, say so plainly and do not call it growth.** The treasury was re-priced; the team did not bring money in. Do not use "grew", "gained", "raised", "inflow", "added", or any verb implying the project earned or received value. The shape to use: "Treasury value rose $4.9M, driven almost entirely by the price of assets already held; net asset flows were roughly flat."
-- **"Newly-tracked or dropped wallets" is NEVER an inflow or an outflow.** It is a change in what is being measured — wallets added to or removed from coverage. Report it as coverage expanding or contracting, with its figure stated separately. Describing it as a deposit, a raise, a withdrawal, or growth is a false statement about the treasury.
-- "Unattributed" means a price feed was missing for part of the treasury, not that value appeared or vanished. Report it as unattributed and, when it is large relative to the total change, say the change is only partly explained.
-- Report the cross-check line as given. CONSISTENT means the two independent estimates agree and the flow figure can be stated directly. DIVERGING means they disagree — say the balance-derived flow is not confirmed by the recorded transactions and hedge accordingly. UNAVAILABLE means no comparison was possible — never present the flow figure as verified.
-- **Never assert a cause the input does not support.** The input names components, not reasons. "Driven by price movement" is supported — it is a component the data measures. "Driven by the funding round", "on the back of revenue", "following the partnership announcement" are NOT, unless that cause appears verbatim elsewhere in this input. When no cause is available, name the component and stop.`,
+  systemPromptFragment: monthOverMonthRules("Month-over-Month"),
+  systemPromptFragmentFor: (ctx) =>
+    monthOverMonthRules(
+      isMonthly(ctx.period) ? "Month-over-Month" : "Period-over-Period"
+    ),
   notReadyHint: "Needs at least one prior monthly snapshot.",
+  notReadyHintFor: (ctx) =>
+    isMonthly(ctx.period)
+      ? "Needs at least one prior monthly snapshot."
+      : "Needs at least one prior snapshot to compare against.",
 };
+
+/** See `executiveSummaryRules` for why this is a builder. */
+function financialHealthRules(burnLine: string): string {
+  return `### Financial Health
+- **Lead with the liquid runway** — "Runway (liquid reserves ÷ ...)" — and identify what it divides: spendable reserves (stablecoins plus liquid crypto) over average burn. It is the figure an investor can act on, and it is the headline.
+- The input may carry TWO runway figures with different denominators. Report both only when you also state what separates them, and NEVER present the total-treasury figure as the headline when the input shows the project holds its own token. The total-treasury figure counts that token as spendable, and a DAO cannot sell its own token at size without moving the price against itself — worst of all in the moment it most needs to sell. Quoting it alone overstates survival time, often by years.
+- A runway figure marked NOT MEASURABLE or NOT COMPUTABLE is not a runway of zero and not a short runway. Say the period gives no basis for the figure, in one clause, and move on — never print "0 months", never imply the money has run out, and never substitute the other runway figure in its place.
+- When the trailing average is flagged THIN SAMPLE, state how many periods it covers in the same sentence that quotes any figure derived from it. A one-month "trailing average" presented as three months misrepresents the evidence even when the number is right.
+- Report the burn trend only as the input labels it (accelerating / stable / decelerating), and only against the trailing average. Do not infer a trend from a single period, and do not explain the cause of one — the input carries no causes.
+- When the input lists the liquidity breakdown, give the split in one or two sentences: how much is stablecoins, how much is volatile-but-liquid crypto, how much is the project's own token, how much is unrecognised. Assets in the "Other" bucket are unrecognised, NOT confirmed illiquid — say "not classified" rather than asserting they cannot be sold.
+- ${burnLine} (only if available).
+- Inflows and outflows totals — only the ones the input provides.
+- When the input gives a net flow, report it alongside inflows and outflows — it is what reconciles them, and omitting it leaves the reader unable to tell whether the treasury took in more than it paid out. Preserve its sign: a negative net flow means the project paid out more than it received, and must read that way. Never state it as a bare positive figure.
+- Do NOT echo "Not available" for missing fields. Drop the bullet.`;
+}
 
 const financialHealth: ReportSection = {
   id: "financial_health",
@@ -845,8 +1042,17 @@ const financialHealth: ReportSection = {
     const currentBurn = Number(snapshot.burnRateUsd ?? 0);
 
     if (snapshot.burnRateUsd) {
+      // The stored column is this period's operating outflows. Calling it a
+      // MONTHLY burn rate is true by construction while every period is a
+      // calendar month, and false the moment one is not — normalising the
+      // figure itself is a later phase, so this branch only stops the label
+      // from asserting a denominator the number does not have.
       lines.push(
-        `- Monthly burn rate (this period): ${formatUsd(currentBurn)}`
+        isMonthly(ctx.period)
+          ? `- Monthly burn rate (this period): ${formatUsd(currentBurn)}`
+          : `- Operating outflows over the reporting period (${ctx.period.days} days, ${ctx.period.start} to ${ctx.period.end}): ${formatUsd(
+              currentBurn
+            )} — this is a PERIOD TOTAL, not a monthly rate. Do not describe it as monthly burn.`
       );
     }
 
@@ -877,13 +1083,19 @@ const financialHealth: ReportSection = {
       snapshot.runwayMonths == null ? null : Number(snapshot.runwayMonths);
     if (storedRunway != null && Number.isFinite(storedRunway) && storedRunway > 0) {
       lines.push(
-        `- Runway (total treasury ÷ this month's burn): ${storedRunway.toFixed(
+        `- ${storedRunwayLabel(ctx.period)}: ${storedRunway.toFixed(
           1
-        )} months — an UPPER BOUND only: it counts the project's own token and every unrecognised asset as spendable, and divides by a single month`
+        )} months — an UPPER BOUND only: it counts the project's own token and every unrecognised asset as spendable, and divides by ${
+          isMonthly(ctx.period)
+            ? "a single month"
+            : `a single ${ctx.period.days}-day period rather than by a month, so the figure is NOT in months at all`
+        }`
       );
     } else if (currentBurn <= 0) {
       lines.push(
-        `- Runway (total treasury ÷ this month's burn): NOT MEASURABLE this period — no operating outflows were recorded, so the ratio has no denominator. This does NOT mean the runway is zero or short; do not report it as a number, and do not imply the project is out of money.`
+        `- ${storedRunwayLabel(
+          ctx.period
+        )}: NOT MEASURABLE this period — no operating outflows were recorded, so the ratio has no denominator. This does NOT mean the runway is zero or short; do not report it as a number, and do not imply the project is out of money.`
       );
     }
 
@@ -939,19 +1151,25 @@ const financialHealth: ReportSection = {
 
     return `\n## Financial Metrics\n${lines.join("\n")}`;
   },
-  systemPromptFragment: `### Financial Health
-- **Lead with the liquid runway** — "Runway (liquid reserves ÷ ...)" — and identify what it divides: spendable reserves (stablecoins plus liquid crypto) over average burn. It is the figure an investor can act on, and it is the headline.
-- The input may carry TWO runway figures with different denominators. Report both only when you also state what separates them, and NEVER present the total-treasury figure as the headline when the input shows the project holds its own token. The total-treasury figure counts that token as spendable, and a DAO cannot sell its own token at size without moving the price against itself — worst of all in the moment it most needs to sell. Quoting it alone overstates survival time, often by years.
-- A runway figure marked NOT MEASURABLE or NOT COMPUTABLE is not a runway of zero and not a short runway. Say the period gives no basis for the figure, in one clause, and move on — never print "0 months", never imply the money has run out, and never substitute the other runway figure in its place.
-- When the trailing average is flagged THIN SAMPLE, state how many periods it covers in the same sentence that quotes any figure derived from it. A one-month "trailing average" presented as three months misrepresents the evidence even when the number is right.
-- Report the burn trend only as the input labels it (accelerating / stable / decelerating), and only against the trailing average. Do not infer a trend from a single period, and do not explain the cause of one — the input carries no causes.
-- When the input lists the liquidity breakdown, give the split in one or two sentences: how much is stablecoins, how much is volatile-but-liquid crypto, how much is the project's own token, how much is unrecognised. Assets in the "Other" bucket are unrecognised, NOT confirmed illiquid — say "not classified" rather than asserting they cannot be sold.
-- Monthly burn rate (only if available).
-- Inflows and outflows totals — only the ones the input provides.
-- When the input gives a net flow, report it alongside inflows and outflows — it is what reconciles them, and omitting it leaves the reader unable to tell whether the treasury took in more than it paid out. Preserve its sign: a negative net flow means the project paid out more than it received, and must read that way. Never state it as a bare positive figure.
-- Do NOT echo "Not available" for missing fields. Drop the bullet.`,
+  systemPromptFragment: financialHealthRules("Monthly burn rate"),
+  systemPromptFragmentFor: (ctx) =>
+    financialHealthRules(
+      isMonthly(ctx.period)
+        ? "Monthly burn rate"
+        : "Operating outflows for the reporting period, labelled with the number of days they cover"
+    ),
   notReadyHint: "Needs at least one period with inflows or outflows.",
 };
+
+/** See `executiveSummaryRules` for why this is a builder. */
+function expenseBreakdownRules(
+  previousPeriod: string,
+  aPreviousPeriod: string
+): string {
+  return `### Operating Expenses (CONDITIONAL)
+- Render as a category table only when the input lists at least one operating expense category.
+- Notable changes vs ${previousPeriod} — only if ${aPreviousPeriod} was provided AND there's a real delta to discuss. Otherwise skip.`;
+}
 
 const expenseBreakdown: ReportSection = {
   id: "expense_breakdown",
@@ -975,9 +1193,12 @@ const expenseBreakdown: ReportSection = {
       .map(([k, v]) => `- ${k}: ${formatUsd(v)}`)
       .join("\n")}`;
   },
-  systemPromptFragment: `### Operating Expenses (CONDITIONAL)
-- Render as a category table only when the input lists at least one operating expense category.
-- Notable changes vs previous month — only if a previous month was provided AND there's a real delta to discuss. Otherwise skip.`,
+  systemPromptFragment: expenseBreakdownRules("previous month", "a previous month"),
+  systemPromptFragmentFor: (ctx) =>
+    expenseBreakdownRules(
+      previousPeriodPhrase(ctx.period),
+      isMonthly(ctx.period) ? "a previous month" : "a previous period"
+    ),
   notReadyHint: "Needs operating outflows in this period (rebalances don't count).",
 };
 
@@ -1051,8 +1272,27 @@ const actualVsBudget: ReportSection = {
   // ships enabled and then silently never appears teaches the founder that
   // the toggle means nothing; one they opt into does what they asked.
   defaultEnabled: false,
-  requires: (ctx) => budgetsForPeriod(ctx).length > 0,
+  // TWO gates, and the second one is not a nicety.
+  //
+  // `project_budgets.period` is a calendar month, and `buildSide` collapses
+  // duplicate categories with `new Map(itemised.map(...))` — last row wins. So
+  // a six-month period would put ONE arbitrary month's plan next to the
+  // period's actuals. Worse, those actuals come from `ctx.snapshot`'s
+  // expensesByCategory JSONB, which covers whatever window that single
+  // snapshot was synced for. Plan and actual would describe different
+  // stretches of time, every variance would be wrong by the ratio between
+  // them, in the same direction, and `makeLine` would label the large ones
+  // MATERIAL — a confidently wrong number in a document sent to a funder.
+  //
+  // Refusing beats misleading, which is this codebase's established position
+  // (see SyncNowButton's disabled backfill options). For a calendar month
+  // nothing changes: `matchesPeriod` returns the same single month's rows and
+  // the section renders byte-identically. The fold, and the actuals alignment
+  // it depends on, are specified in the deferred backlog.
+  requires: (ctx) =>
+    ctx.period.kind === "month" && budgetsForPeriod(ctx).length > 0,
   userPromptFragment: (ctx) => {
+    if (ctx.period.kind !== "month") return "";
     const cmp = budgetComparison(ctx);
     const blocks: string[] = [];
     if (cmp.expense) blocks.push(...budgetSideBlock(cmp.expense));
@@ -1065,7 +1305,7 @@ const actualVsBudget: ReportSection = {
     const revised = cmp.planUpdatedAt
       ? `\nThe plan was last revised ${formatDate(cmp.planUpdatedAt)}.`
       : "";
-    return `\n## Plan vs actual (${ctx.period})\nPlanned figures are the founder's own budget for this period, entered by hand. Actual figures are measured from synced on-chain activity. Every line below carries its own MATERIAL / within-tolerance verdict — that verdict is the input's, not yours to re-derive.${revised}\n\n${blocks.join(
+    return `\n## Plan vs actual (${ctx.period.tag})\nPlanned figures are the founder's own budget for this period, entered by hand. Actual figures are measured from synced on-chain activity. Every line below carries its own MATERIAL / within-tolerance verdict — that verdict is the input's, not yours to re-derive.${revised}\n\n${blocks.join(
       "\n"
     )}`;
   },
@@ -1080,6 +1320,13 @@ const actualVsBudget: ReportSection = {
 - Do not project the variance forward. Operational commentary — what to do about a variance — belongs in the Recommendations section, not here.`,
   notReadyHint:
     "Click Edit data to enter a budget for this period — one total, or a figure per category.",
+  // The section has two unrelated reasons to be unavailable, and pointing a
+  // founder at "Edit data" when the real blocker is the shape of the period
+  // sends them to fix something that is not broken.
+  notReadyHintFor: (ctx) =>
+    ctx.period.kind === "month"
+      ? "Click Edit data to enter a budget for this period — one total, or a figure per category."
+      : "Plan vs actual compares a monthly budget against a monthly actual. A custom reporting period would put a multi-month plan next to one window's spending; that comparison is not yet supported.",
 };
 
 const protocolRevenue: ReportSection = {
@@ -1356,10 +1603,9 @@ const grantsDistributed: ReportSection = {
   description:
     "Grant commitments and disbursements for the period. Foundation-shaped projects.",
   defaultEnabled: false,
-  requires: (ctx) =>
-    ctx.grants.some((g) => g.period === ctx.period),
+  requires: (ctx) => ctx.grants.some((g) => matchesPeriod(g.period, ctx.period)),
   userPromptFragment: (ctx) => {
-    const list = ctx.grants.filter((g) => g.period === ctx.period);
+    const list = ctx.grants.filter((g) => matchesPeriod(g.period, ctx.period));
     if (list.length === 0) return "";
     const committed = list
       .filter((g) => g.status === "committed")
@@ -1373,7 +1619,9 @@ const grantsDistributed: ReportSection = {
           g.category ? `, ${g.category}` : ""
         })${g.notes ? ` — ${g.notes}` : ""}`
     );
-    return `\n## Grants this period\n- Committed: ${formatUsd(committed)}\n- Disbursed: ${formatUsd(disbursed)}\n\nGrant list:\n${lines.join("\n")}`;
+    return `\n## Grants this period\n- Committed: ${formatUsd(committed)}\n- Disbursed: ${formatUsd(
+      disbursed
+    )}\n\nGrant list:\n${lines.join("\n")}${monthGranularityNote(ctx.period)}`;
   },
   systemPromptFragment: `### Grants Distributed (CONDITIONAL)
 - Only render when the input includes a "## Grants this period" block.
@@ -1427,10 +1675,10 @@ const governanceUpdates: ReportSection = {
     "Proposals voted, voting turnout, key governance forum activity. DAO-shaped projects.",
   defaultEnabled: false,
   requires: (ctx) =>
-    ctx.governanceProposals.some((p) => p.period === ctx.period),
+    ctx.governanceProposals.some((p) => matchesPeriod(p.period, ctx.period)),
   userPromptFragment: (ctx) => {
-    const list = ctx.governanceProposals.filter(
-      (p) => p.period === ctx.period
+    const list = ctx.governanceProposals.filter((p) =>
+      matchesPeriod(p.period, ctx.period)
     );
     if (list.length === 0) return "";
     const lines = list.map((p) => {
@@ -1443,7 +1691,9 @@ const governanceUpdates: ReportSection = {
           : "";
       return `- ${tag} ${p.title}${link}${tail}`;
     });
-    return `\n## Governance this period\n${lines.join("\n")}`;
+    return `\n## Governance this period\n${lines.join("\n")}${monthGranularityNote(
+      ctx.period
+    )}`;
   },
   systemPromptFragment: `### Governance Updates (CONDITIONAL)
 - Only render when the input includes a "## Governance this period" block.
@@ -1516,9 +1766,10 @@ const partnersIntegrations: ReportSection = {
   description:
     "New partnerships, integrations, exchange listings, bridges. Off by default — user opts in.",
   defaultEnabled: false,
-  requires: (ctx) => ctx.partners.some((p) => p.period === ctx.period),
+  requires: (ctx) =>
+    ctx.partners.some((p) => matchesPeriod(p.period, ctx.period)),
   userPromptFragment: (ctx) => {
-    const list = ctx.partners.filter((p) => p.period === ctx.period);
+    const list = ctx.partners.filter((p) => matchesPeriod(p.period, ctx.period));
     if (list.length === 0) return "";
     const lines = list.map((p) => {
       const type = p.type ? ` (${p.type})` : "";
@@ -1526,7 +1777,9 @@ const partnersIntegrations: ReportSection = {
       const tail = p.notes ? ` · ${p.notes}` : "";
       return `- ${p.name}${type}${link}${tail}`;
     });
-    return `\n## Partners this period\n${lines.join("\n")}`;
+    return `\n## Partners this period\n${lines.join("\n")}${monthGranularityNote(
+      ctx.period
+    )}`;
   },
   systemPromptFragment: `### Partners & Integrations (CONDITIONAL)
 - Only render when the input includes a "## Partners this period" block.
@@ -1693,6 +1946,14 @@ const recommendations: ReportSection = {
     "Needs at least one verified finding (liquidity, concentration, budget variance, or a named holding) to ground a recommendation.",
 };
 
+/** See `executiveSummaryRules` for why this is a builder. */
+function lookingAheadRules(nextPeriod: string): string {
+  return `### Looking Ahead (CONDITIONAL)
+- Include this section ONLY when the input contains either active milestones or a recent funding round.
+- If neither is present, OMIT the section entirely. Never write generic placeholders like "the team plans to focus on continuing core development" or "specific milestones are not available at this time" — silence is better than filler.
+- When included: name specific milestones (with target dates if known) or tie ${nextPeriod} focus to the funding round just raised.`;
+}
+
 const lookingAhead: ReportSection = {
   id: "looking_ahead",
   title: "Looking Ahead",
@@ -1723,10 +1984,9 @@ const lookingAhead: ReportSection = {
       )
       .join("\n")}`;
   },
-  systemPromptFragment: `### Looking Ahead (CONDITIONAL)
-- Include this section ONLY when the input contains either active milestones or a recent funding round.
-- If neither is present, OMIT the section entirely. Never write generic placeholders like "the team plans to focus on continuing core development" or "specific milestones are not available at this time" — silence is better than filler.
-- When included: name specific milestones (with target dates if known) or tie next-month focus to the funding round just raised.`,
+  systemPromptFragment: lookingAheadRules("next-month"),
+  systemPromptFragmentFor: (ctx) =>
+    lookingAheadRules(isMonthly(ctx.period) ? "next-month" : "forward-looking"),
   notReadyHint: "Add an active milestone or recent funding round.",
 };
 
@@ -1762,17 +2022,19 @@ const qaHighlights: ReportSection = {
     "Curated questions + answers from a tokenholder call or AMA. Manually entered.",
   defaultEnabled: false,
   requires: (ctx) =>
-    ctx.qaHighlights.some((q) => q.period === ctx.period),
+    ctx.qaHighlights.some((q) => matchesPeriod(q.period, ctx.period)),
   userPromptFragment: (ctx) => {
     const list = ctx.qaHighlights
-      .filter((q) => q.period === ctx.period)
+      .filter((q) => matchesPeriod(q.period, ctx.period))
       .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
     if (list.length === 0) return "";
     const blocks = list.map(
       (q) =>
         `Q: ${q.question}\nA: ${q.answer}${q.askedBy ? ` _— ${q.askedBy}_` : ""}`
     );
-    return `\n## Q&A this period\n${blocks.join("\n\n")}`;
+    return `\n## Q&A this period\n${blocks.join("\n\n")}${monthGranularityNote(
+      ctx.period
+    )}`;
   },
   systemPromptFragment: `### Q&A Highlights (CONDITIONAL)
 - Only render when the input contains a "## Q&A this period" block.
@@ -1885,7 +2147,12 @@ export function evaluateReadiness(
     return {
       id: s.id,
       ready,
-      reason: ready ? undefined : s.notReadyHint ?? "Not yet ready",
+      // The period-aware hint wins where a section defines one; it is
+      // contractually the same string as `notReadyHint` for a calendar month,
+      // so today's chips are unchanged.
+      reason: ready
+        ? undefined
+        : s.notReadyHintFor?.(ctx) ?? s.notReadyHint ?? "Not yet ready",
     };
   });
 }
@@ -1967,6 +2234,21 @@ export function resolveSections(
   return result;
 }
 
+/**
+ * A section's rules, period-aware where the section says so.
+ *
+ * Exported for the byte-identity test, which runs this against a monthly
+ * context for every section in the library and asserts the result equals the
+ * static `systemPromptFragment` — the machine-checked half of the contract
+ * documented on `systemPromptFragmentFor`.
+ */
+export function resolveSystemRules(
+  section: ReportSection,
+  ctx: ReportSectionContext
+): string {
+  return section.systemPromptFragmentFor?.(ctx) ?? section.systemPromptFragment;
+}
+
 export function buildSystemPrompt(
   enabled: ReportSection[],
   ctx: ReportSectionContext
@@ -1977,12 +2259,23 @@ export function buildSystemPrompt(
         ALWAYS_INCLUDE_RULE.has(s.id) ||
         s.userPromptFragment(ctx).trim().length > 0
     )
-    .map((s) => s.systemPromptFragment)
+    .map((s) => resolveSystemRules(s, ctx))
     .filter(Boolean)
     .join("\n\n");
+  // "monthly investor report" is the product's own description of itself and
+  // has to stop being one for a grant window — but the monthly branch is the
+  // pre-existing sentence, character for character, because this string is
+  // hashed into the `llm_cache` key (report-generator.ts) and every cached
+  // monthly report would miss on a single changed word.
+  const reportKind = isMonthly(ctx.period)
+    ? "a monthly investor report"
+    : `an investor report covering ${ctx.period.label} (${ctx.period.days} days, ${ctx.period.start} to ${ctx.period.end})`;
+  const headlineKpis = isMonthly(ctx.period)
+    ? "treasury total, monthly burn"
+    : "treasury total, operating outflows for the period";
   return `You are Vault Brief AI, a financial analyst for Web3 projects.
 
-Generate a monthly investor report in Markdown format from the provided treasury data.
+Generate ${reportKind} in Markdown format from the provided treasury data.
 
 ## Report Structure (only render the sections below, in the order shown):
 
@@ -1991,14 +2284,14 @@ ${sectionRules}
 ## Rules:
 - Use ONLY the provided data. Never invent numbers.
 - **Silence beats placeholders.** If a data point is missing, OMIT the bullet/row/sub-section entirely. Never write "Not available", "N/A", "—", "(no data)", "TBD", or any equivalent filler in the final report. Investors should not see traces of missing data — they should see a tighter report instead.
-- The only exception: top-level numbered KPIs (treasury total, monthly burn) where dropping the number would leave the section blank. In that one case, write "Not yet available — first sync" with a brief explanation.
+- The only exception: top-level numbered KPIs (${headlineKpis}) where dropping the number would leave the section blank. In that one case, write "Not yet available — first sync" with a brief explanation.
 - Keep the tone professional but accessible. Write for a VC partner, not an accountant.
 - **Never include cents.** No ".00", no ".50". Round and abbreviate:
   - Amounts >= $1,000,000 → "$1.2M" (one decimal)
   - Amounts >= $1,000 → "$48K" (no decimals, K-suffix)
   - Amounts < $1,000 → "$420" (whole dollars)
   Inputs in this prompt are already pre-formatted — copy that style verbatim.
-- Compare to previous month whenever data is available.
+- Compare to ${isMonthly(ctx.period) ? "previous month" : "the previous reporting period"} whenever data is available.
 - **Never write your own disclaimer, risk warning, or "not financial advice" notice.** The platform renders one automatically on every surface this report reaches. Writing your own duplicates it and risks contradicting its exact wording.
 - Do not use excessive formatting. Clean, readable paragraphs.
 - Total length: 800-1600 words.
@@ -2028,7 +2321,26 @@ export function buildUserPrompt(
       `- Amount raised: ${formatUsd(Number(ctx.project.lastFundingAmount))}`
     );
   }
-  ctxLines.push(`- Report period: ${formatDate(ctx.snapshot.snapshotDate)}`);
+  // The ONLY place the period is stated to the model, and until now it printed
+  // the END DATE alone — "April 2026" for a month, which happens to read as a
+  // period, and would read as a single day for a grant window.
+  //
+  // The monthly branch keeps `formatDate(snapshotDate)` verbatim, including
+  // its known local-timezone bug (it renders a UTC date with
+  // `toLocaleDateString`, so '2026-04-01' is "March 2026" west of Greenwich —
+  // see the deferred backlog). Swapping it for `ctx.period.label`, which is
+  // UTC-correct and would usually produce the identical string, is NOT safe
+  // here: the prompts are hashed into the `llm_cache` key, and a
+  // timezone-dependent difference of one word would invalidate the cache for
+  // existing projects. Fixing that bug is its own task, with its own blast
+  // radius.
+  ctxLines.push(
+    `- Report period: ${
+      isMonthly(ctx.period)
+        ? formatDate(ctx.snapshot.snapshotDate)
+        : `${ctx.period.label} (${ctx.period.start} to ${ctx.period.end}, ${ctx.period.days} days)`
+    }`
+  );
 
   const dataBlocks = enabled
     .filter((s) => s.requires(ctx))
