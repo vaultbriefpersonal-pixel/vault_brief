@@ -57,8 +57,9 @@ import {
   composeTreasury,
   type TreasuryComposition,
 } from "./treasury-composition";
-import { trailingAverageBurn } from "./burn-metrics";
+import { trailingAverageBurn, type BurnSnapshotLike } from "./burn-metrics";
 import {
+  burnPeriodDays,
   matchesPeriod,
   monthsInPeriod,
   type ReportPeriod,
@@ -296,6 +297,31 @@ export interface BurnBasis {
 }
 
 /**
+ * A trailing row reduced to what `trailingAverageBurn` needs, with its period
+ * length attached — the last piece of the per-month normalisation.
+ *
+ * `burnRateUsd` is a stored PERIOD TOTAL. Until `period_start` existed there
+ * was no way to know what window a prior row's total covered, so every row
+ * normalised by exactly 1. Now there is, and the alternative to using it is a
+ * trailing average that adds a 181-day window's total to three months' totals
+ * and divides by four.
+ *
+ * `periodDays` IS OMITTED FOR A CALENDAR MONTH — `burnPeriodDays` returns
+ * undefined for one, which that field defines as exactly one month. A day
+ * count cannot carry the exemption itself (31 is both a January and an
+ * arbitrary 31-day window), and passing 31 for a January would divide its burn
+ * by 1.0185 and restate every already-published 31-day report by 1.8%. Since
+ * every snapshot in the database is a calendar month, every row comes through
+ * here with `periodDays` absent and the arithmetic is bit-for-bit what it was.
+ */
+function toBurnEntry(snapshot: TreasurySnapshot): BurnSnapshotLike {
+  return {
+    burnRateUsd: snapshot?.burnRateUsd,
+    periodDays: burnPeriodDays(snapshot),
+  };
+}
+
+/**
  * The best available burn denominator, in preference order: the trailing
  * average, then this period's burn, then nothing. The fallback exists because
  * a project on its first or second report has no trailing history and would
@@ -314,7 +340,10 @@ export interface BurnBasis {
  * path is untouched.
  */
 export function burnBasis(ctx: ReportSectionContext): BurnBasis {
-  const trailing = trailingAverageBurn(ctx.trailing, TRAILING_BURN_MONTHS);
+  const trailing = trailingAverageBurn(
+    ctx.trailing?.map(toBurnEntry),
+    TRAILING_BURN_MONTHS
+  );
   if (trailing.monthsUsed > 0) {
     return {
       avgUsd: trailing.avgUsd,

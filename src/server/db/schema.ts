@@ -205,6 +205,27 @@ export const treasurySnapshots = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     snapshotDate: date("snapshot_date").notNull(),
+    /**
+     * Inclusive first day of the window every FLOW column on this row covers
+     * (inflows, outflows, burn, the category breakdowns, the GitHub counters).
+     * `snapshot_date` is the inclusive last day; balances are a point-in-time
+     * read as of it and are not a flow.
+     *
+     * NULLABLE ON PURPOSE, and NULL is not "unknown": it reads as "the calendar
+     * month ending on snapshot_date". Every write path that has ever existed
+     * produced exactly a calendar month (`getLastMonthPeriod`, data-sync.ts,
+     * and the backfill loop in trpc/routers/projects.ts), so the fallback in
+     * `periodFromSnapshot` (report-period.ts) RECONSTRUCTS the true period of a
+     * pre-migration row rather than inventing one — and computes the identical
+     * value the migration's backfill writes. Read the period through that
+     * helper, never off this column directly, so both cases stay equivalent.
+     *
+     * Mirrors `scripts/migrations/add-snapshot-period.mjs` exactly
+     * (`ADD COLUMN IF NOT EXISTS period_start DATE`, no NOT NULL, no default):
+     * a drift here is what makes a later `drizzle-kit push` propose a diff
+     * instead of a no-op. See docs/MIGRATIONS.md.
+     */
+    periodStart: date("period_start"),
 
     // Balances (USD at snapshot time)
     totalBalanceUsd: numeric("total_balance_usd", { precision: 20, scale: 2 }),

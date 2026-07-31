@@ -10,6 +10,10 @@ import {
   DAYS_PER_MONTH,
   longGapDaysFor,
   comparablePeriods,
+  comparableTrailing,
+  burnPeriodDays,
+  snapshotPeriodStart,
+  snapshotPeriodConflicts,
   assertPeriodSupported,
 } from "./report-period";
 
@@ -686,5 +690,307 @@ describe("assertPeriodSupported", () => {
   it("accepts a Date for today", () => {
     expect(assertPeriodSupported(periodOfMonth("2026-07"), new Date("2026-07-31T18:00:00Z")).ok)
       .toBe(true);
+  });
+});
+
+// в”Ђв”Ђв”Ђ Phase 4: the stored period в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+//
+// These four helpers are the testable core of a change that otherwise lives in
+// data-sync.ts and report-generator.ts, neither of which can be unit-tested at
+// all (both import `db`), and whose migration cannot be run anywhere before a
+// human applies it to production. Same reasoning that put the sampling rule in
+// transaction-sample.ts: the decision moves here, the caller just calls it.
+
+/**
+ * The two Date constructors data-sync.ts's `getLastMonthPeriod` uses, verbatim.
+ * LOCAL, deliberately вЂ” reproducing the skew is the point of these tests, and a
+ * UTC-built fixture would test a code path the product does not have.
+ */
+function localMonthRange(year: number, month1: number) {
+  return {
+    start: new Date(year, month1 - 1, 1),
+    end: new Date(year, month1, 0, 23, 59, 59),
+  };
+}
+/** What data-sync.ts stores in `snapshot_date`, from the same range. */
+function snapshotDateOf(range: { end: Date }) {
+  return range.end.toISOString().split("T")[0];
+}
+
+describe("snapshotPeriodStart", () => {
+  it("stores the first of the snapshot's month for a calendar month", () => {
+    const june = localMonthRange(2026, 6);
+    const snapshotDate = snapshotDateOf(june);
+    expect(snapshotPeriodStart(june, snapshotDate)).toBe(
+      `${snapshotDate.slice(0, 7)}-01`
+    );
+  });
+
+  it("writing the column cannot change the period of a monthly snapshot", () => {
+    // THE LOAD-BEARING INVARIANT. `periodFromSnapshot` reconstructs a NULL
+    // period_start as the calendar month ending on snapshot_date. If storing a
+    // value produced anything else, applying the migration would restate
+    // reports that have already been sent. Asserted across a whole year so 28-,
+    // 30- and 31-day months are all covered, and phrased against the fallback
+    // rather than a literal so it holds in EVERY timezone: the naive
+    // `period.start.toISOString()` fails this at UTC+2, where June converts to
+    // 2026-05-31..2026-06-30 вЂ” 31 days, kind "custom", burn divided by 1.0185
+    // and every published figure 1.8% off.
+    for (let month = 1; month <= 12; month++) {
+      const range = localMonthRange(2026, month);
+      const snapshotDate = snapshotDateOf(range);
+      const stored = periodFromSnapshot({
+        snapshotDate,
+        periodStart: snapshotPeriodStart(range, snapshotDate),
+      });
+      expect(stored).toEqual(periodFromSnapshot({ snapshotDate }));
+    }
+  });
+
+  it("keeps a monthly sync on the calendar-month path, so nothing normalises", () => {
+    const january = localMonthRange(2026, 1);
+    const snapshotDate = snapshotDateOf(january);
+    const period = periodFromSnapshot({
+      snapshotDate,
+      periodStart: snapshotPeriodStart(january, snapshotDate),
+    });
+    expect(period.kind).toBe("month");
+    expect(monthsInPeriod(period)).toBe(1);
+  });
+
+  it("stores the real start for a window that is not a calendar month", () => {
+    const grant = {
+      start: new Date(2026, 1, 14),
+      end: new Date(2026, 6, 31, 23, 59, 59),
+    };
+    const snapshotDate = snapshotDateOf(grant);
+    // Asserted against the same UTC projection `snapshot_date` gets, so the
+    // pair stays internally consistent whatever the generator's timezone.
+    expect(snapshotPeriodStart(grant, snapshotDate)).toBe(
+      grant.start.toISOString().split("T")[0]
+    );
+  });
+
+  it("degrades to the calendar month rather than inventing an impossible range", () => {
+    const snapshotDate = "2026-06-30";
+    const backwards = {
+      start: new Date(2026, 11, 1),
+      end: new Date(2026, 5, 30, 23, 59, 59),
+    };
+    expect(snapshotPeriodStart(backwards, snapshotDate)).toBe("2026-06-01");
+    const broken = { start: new Date("nope"), end: new Date("nope") };
+    expect(snapshotPeriodStart(broken, snapshotDate)).toBe("2026-06-01");
+  });
+
+  it("throws on an unparseable snapshot date rather than guessing one", () => {
+    expect(() =>
+      snapshotPeriodStart(localMonthRange(2026, 6), "whenever")
+    ).toThrow(/unparseable snapshotDate/);
+  });
+});
+
+describe("snapshotPeriodConflicts", () => {
+  it("allows a re-sync of the same period вЂ” the upsert must still overwrite", () => {
+    const row = { snapshotDate: "2026-06-30", periodStart: "2026-06-01" };
+    expect(snapshotPeriodConflicts(row, row).ok).toBe(true);
+  });
+
+  it("refuses a different period ending on the same day", () => {
+    const result = snapshotPeriodConflicts(
+      { snapshotDate: "2026-07-31", periodStart: "2026-07-01" },
+      { snapshotDate: "2026-07-31", periodStart: "2026-02-14" }
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.existingStart).toBe("2026-07-01");
+    expect(result.incomingStart).toBe("2026-02-14");
+    // The refusal has to name the real cause, not "duplicate key".
+    expect(result.reason).toContain("2026-07-31");
+    expect(result.reason).toContain("2026-07-01");
+    expect(result.reason).toContain("2026-02-14");
+    expect(result.reason).toContain("under an existing report");
+  });
+
+  it("treats a NULL stored period_start as the calendar month, not as a waiver", () => {
+    // THE DOCUMENTED CHOICE. Every row in the table is pre-backfill today, so
+    // waiving the check on NULL would wave through the single most likely
+    // instance of the bug: a grant window landing on an existing monthly
+    // snapshot's date. Resolved through periodFromSnapshot instead.
+    const preBackfill = { snapshotDate: "2026-07-31", periodStart: null };
+    expect(
+      snapshotPeriodConflicts(preBackfill, {
+        snapshotDate: "2026-07-31",
+        periodStart: "2026-07-01",
+      }).ok
+    ).toBe(true);
+    expect(
+      snapshotPeriodConflicts(preBackfill, {
+        snapshotDate: "2026-07-31",
+        periodStart: "2026-02-14",
+      }).ok
+    ).toBe(false);
+  });
+
+  it("treats an absent period_start field the same as a NULL one", () => {
+    expect(
+      snapshotPeriodConflicts(
+        { snapshotDate: "2026-07-31" },
+        { snapshotDate: "2026-07-31", periodStart: "2026-07-01" }
+      ).ok
+    ).toBe(true);
+  });
+
+  it("is not a conflict when there is no row to overwrite", () => {
+    const incoming = { snapshotDate: "2026-07-31", periodStart: "2026-02-14" };
+    expect(snapshotPeriodConflicts(null, incoming).ok).toBe(true);
+    expect(snapshotPeriodConflicts(undefined, incoming).ok).toBe(true);
+  });
+
+  it("is not a conflict when the dates differ вЂ” different rows cannot collide", () => {
+    expect(
+      snapshotPeriodConflicts(
+        { snapshotDate: "2026-06-30", periodStart: "2026-06-01" },
+        { snapshotDate: "2026-07-31", periodStart: "2026-07-01" }
+      ).ok
+    ).toBe(true);
+  });
+
+  it("accepts Date values on either side", () => {
+    expect(
+      snapshotPeriodConflicts(
+        { snapshotDate: new Date("2026-07-31T00:00:00Z"), periodStart: null },
+        {
+          snapshotDate: "2026-07-31",
+          periodStart: new Date("2026-07-01T00:00:00Z"),
+        }
+      ).ok
+    ).toBe(true);
+  });
+
+  it("fails open on unparseable input rather than losing a whole sync", () => {
+    expect(
+      snapshotPeriodConflicts(
+        { snapshotDate: "not a date" },
+        { snapshotDate: "2026-07-31", periodStart: "2026-02-14" }
+      ).ok
+    ).toBe(true);
+    expect(() =>
+      snapshotPeriodConflicts(
+        { snapshotDate: "2026-07-31" },
+        { snapshotDate: "also not a date" }
+      )
+    ).not.toThrow();
+  });
+});
+
+describe("comparableTrailing", () => {
+  const MONTHS = [
+    { snapshotDate: "2026-06-30", periodStart: "2026-06-01" },
+    { snapshotDate: "2026-05-31", periodStart: "2026-05-01" },
+    { snapshotDate: "2026-04-30", periodStart: "2026-04-01" },
+    { snapshotDate: "2026-03-31", periodStart: "2026-03-01" },
+    { snapshotDate: "2026-02-28", periodStart: "2026-02-01" },
+  ];
+
+  it("is the identity for monthly snapshots вЂ” today's behaviour, unchanged", () => {
+    // 28 vs 31 days is 3, against a floor of 7, so every calendar month is
+    // comparable with every other and the first three survive, in order.
+    expect(comparableTrailing(periodOfMonth("2026-07"), MONTHS)).toEqual(
+      MONTHS.slice(0, 3)
+    );
+  });
+
+  it("works identically before the backfill, with no period_start at all", () => {
+    const preBackfill = MONTHS.map((m) => ({ snapshotDate: m.snapshotDate }));
+    expect(comparableTrailing(periodOfMonth("2026-07"), preBackfill)).toEqual(
+      preBackfill.slice(0, 3)
+    );
+  });
+
+  it("skips an odd-length window and reaches further back to fill the slots", () => {
+    const withGrantWindow = [
+      MONTHS[0],
+      { snapshotDate: "2026-05-31", periodStart: "2025-12-02" }, // 181 days
+      MONTHS[2],
+      MONTHS[3],
+    ];
+    expect(comparableTrailing(periodOfMonth("2026-07"), withGrantWindow)).toEqual([
+      MONTHS[0],
+      MONTHS[2],
+      MONTHS[3],
+    ]);
+  });
+
+  it("returns nothing for a first grant-window report, gating comparisons off", () => {
+    // Correct, not a loss: month-over-month, the forecast and anomalies all
+    // read `trailing`, and none of them can honestly compare 168 days to 30.
+    expect(comparableTrailing(GRANT_WINDOW, MONTHS)).toEqual([]);
+  });
+
+  it("respects the limit and its edges", () => {
+    expect(comparableTrailing(periodOfMonth("2026-07"), MONTHS, 1)).toEqual([
+      MONTHS[0],
+    ]);
+    expect(comparableTrailing(periodOfMonth("2026-07"), MONTHS, 0)).toEqual([]);
+    expect(comparableTrailing(periodOfMonth("2026-07"), MONTHS, 99)).toEqual(
+      MONTHS
+    );
+  });
+
+  it("skips a malformed candidate instead of failing the whole report", () => {
+    const withJunk = [{ snapshotDate: "nope" }, ...MONTHS];
+    expect(comparableTrailing(periodOfMonth("2026-07"), withJunk)).toEqual(
+      MONTHS.slice(0, 3)
+    );
+  });
+
+  it("returns an empty list for a missing or non-array input", () => {
+    expect(comparableTrailing(APRIL, null)).toEqual([]);
+    expect(comparableTrailing(APRIL, undefined)).toEqual([]);
+    expect(comparableTrailing(APRIL, [])).toEqual([]);
+  });
+});
+
+describe("burnPeriodDays", () => {
+  it("is undefined for a calendar month вЂ” the field's 'exactly one month'", () => {
+    expect(
+      burnPeriodDays({ snapshotDate: "2026-04-30", periodStart: "2026-04-01" })
+    ).toBeUndefined();
+  });
+
+  it("is undefined for a 31-day January, the 1.8% restatement trap", () => {
+    // A raw day count cannot carry the exemption: 31 is a January AND an
+    // arbitrary 31-day window. Passing 31 here would divide January's burn by
+    // 1.0185 and restate every already-published 31-day report.
+    expect(
+      burnPeriodDays({ snapshotDate: "2026-01-31", periodStart: "2026-01-01" })
+    ).toBeUndefined();
+  });
+
+  it("is undefined before the backfill, so legacy rows normalise by 1", () => {
+    expect(burnPeriodDays({ snapshotDate: "2026-04-30" })).toBeUndefined();
+    expect(
+      burnPeriodDays({ snapshotDate: "2026-04-30", periodStart: null })
+    ).toBeUndefined();
+  });
+
+  it("is the day count for a genuine custom window", () => {
+    expect(
+      burnPeriodDays({ snapshotDate: "2026-07-31", periodStart: "2026-02-14" })
+    ).toBe(168);
+    // An arbitrary 30-day window is NOT exempt, unlike the January above.
+    expect(
+      burnPeriodDays({ snapshotDate: "2026-07-31", periodStart: "2026-07-02" })
+    ).toBe(30);
+  });
+
+  it("is undefined for unusable input rather than poisoning an average", () => {
+    expect(burnPeriodDays(null)).toBeUndefined();
+    expect(burnPeriodDays(undefined)).toBeUndefined();
+    expect(burnPeriodDays({ snapshotDate: "nope" })).toBeUndefined();
+    // The shape report-sections.test.ts uses for its trailing fixtures.
+    expect(
+      burnPeriodDays({} as unknown as { snapshotDate: string })
+    ).toBeUndefined();
   });
 });
