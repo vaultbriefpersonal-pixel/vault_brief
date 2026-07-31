@@ -33,6 +33,7 @@ export type IncomeCategory =
   | "token_sale_inflow" // Stablecoins received from selling project tokens
   | "staking_reward" // Yield from staking, LP rewards
   | "airdrop" // Tokens received from external airdrops
+  | "grant_received" // Funds received from an ecosystem grant program
   | "other_income"; // Catch-all for unclassified inflows
 
 /**
@@ -51,6 +52,7 @@ export const INCOME_CATEGORIES: IncomeCategory[] = [
   "token_sale_inflow",
   "staking_reward",
   "airdrop",
+  "grant_received",
   "other_income",
 ];
 
@@ -179,6 +181,13 @@ function ruleBasedClassifyIncoming(tx: RawTransaction): IncomeCategory | null {
   }
   // Tiny inflows are noise — dust transfers, refunds, gas top-ups.
   if (tx.valueUsd > 0 && tx.valueUsd < 100) return "other_income";
+  // Deliberately no rule for `grant_received`: there is no reliable address
+  // list for grant-program treasuries, and a wrong hard-coded rule here would
+  // beat the LLM's judgement at 0.9 confidence. The hook for one already
+  // exists in the plan — the grant-awards table records a `grantor` per award,
+  // and those addresses could later seed a known-set the way
+  // KNOWN_EXCHANGE_ADDRESSES does above. Until that data exists, the prompt
+  // hint does the work.
   return null;
 }
 
@@ -275,7 +284,7 @@ async function classifyWithAI(
   const isOutgoing = direction === "out";
   const validCategories = isOutgoing
     ? "payroll, infrastructure, marketing, grants, legal, token_sale, operational, other"
-    : "revenue, funding_round, token_sale_inflow, staking_reward, airdrop, other_income";
+    : "revenue, funding_round, token_sale_inflow, staking_reward, airdrop, grant_received, other_income";
 
   const fallbackCategory: AnyCategory = isOutgoing ? "other" : "other_income";
 
@@ -290,7 +299,7 @@ async function classifyWithAI(
   const directionLabel = isOutgoing ? "outgoing (expenses)" : "incoming (income)";
   const directionHints = isOutgoing
     ? `Hints: payroll = recurring transfers to multiple EOAs; infrastructure = SaaS/cloud (often USDC); grants = one-off larger transfers to single recipients; token_sale = stablecoins to a CEX/OTC; operational = small misc spend.`
-    : `Hints: funding_round = large stablecoin transfer from a known investor wallet (often >$500K); revenue = recurring smaller stablecoin inflows from many sources; token_sale_inflow = stablecoins from a CEX in exchange for project tokens; staking_reward = recurring tokens from a known protocol; airdrop = unsolicited tokens from a contract.`;
+    : `Hints: funding_round = large stablecoin transfer from a known investor wallet (often >$500K); revenue = recurring smaller stablecoin inflows from many sources; token_sale_inflow = stablecoins from a CEX in exchange for project tokens; staking_reward = recurring tokens from a known protocol; airdrop = unsolicited tokens from a contract; grant_received = an award paid out of a foundation, DAO or ecosystem-program treasury — the sender is a program multisig that funds many unrelated teams and typically pays in scheduled tranches, and nothing is given back for the money. Decide grant_received vs funding_round on the counterparty, not the amount: a program/foundation treasury paying against a public award is grant_received; a single investor or fund wallet buying equity or a token warrant is funding_round.`;
 
   const prompt = `Classify these ${directionLabel} crypto transactions.
 Categories: ${validCategories}
