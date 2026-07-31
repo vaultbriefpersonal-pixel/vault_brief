@@ -14,6 +14,8 @@ import {
   asks,
   qaHighlights,
   projectBudgets,
+  grantAwards,
+  grantTranches,
 } from "./schema";
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -35,6 +37,10 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   asks: many(asks),
   qaHighlights: many(qaHighlights),
   budgets: many(projectBudgets),
+  // Awards RECEIVED. `grants` above is money given out — see the header
+  // comment on grantAwards in schema.ts; the two are not interchangeable.
+  grantAwards: many(grantAwards),
+  grantTranches: many(grantTranches),
 }));
 
 export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
@@ -85,6 +91,13 @@ export const milestonesRelations = relations(milestones, ({ one }) => ({
     fields: [milestones.projectId],
     references: [projects.id],
   }),
+  // Optional — null for ordinary roadmap work, which is most milestones.
+  // The FK is ON DELETE SET NULL, so this relation resolving to undefined
+  // after a grant record is deleted is the expected state, not a broken join.
+  grantAward: one(grantAwards, {
+    fields: [milestones.grantAwardId],
+    references: [grantAwards.id],
+  }),
 }));
 
 export const grantsRelations = relations(grants, ({ one }) => ({
@@ -128,6 +141,35 @@ export const qaHighlightsRelations = relations(qaHighlights, ({ one }) => ({
 export const projectBudgetsRelations = relations(projectBudgets, ({ one }) => ({
   project: one(projects, {
     fields: [projectBudgets.projectId],
+    references: [projects.id],
+  }),
+}));
+
+// Awards RECEIVED — the mirror of grantsRelations above. Kept apart on
+// purpose; see the header on grantAwards in schema.ts.
+export const grantAwardsRelations = relations(
+  grantAwards,
+  ({ one, many }) => ({
+    project: one(projects, {
+      fields: [grantAwards.projectId],
+      references: [projects.id],
+    }),
+    tranches: many(grantTranches),
+    // Deliverables attributed to this award. `many` even though most awards
+    // have none: the FK lives on milestones and is nullable.
+    milestones: many(milestones),
+  })
+);
+
+export const grantTranchesRelations = relations(grantTranches, ({ one }) => ({
+  award: one(grantAwards, {
+    fields: [grantTranches.grantAwardId],
+    references: [grantAwards.id],
+  }),
+  // The denormalised owner handle, not a second path to the same row: this is
+  // what the ownership guard reads. See the column comment in schema.ts.
+  project: one(projects, {
+    fields: [grantTranches.projectId],
     references: [projects.id],
   }),
 }));
