@@ -10,6 +10,12 @@ import {
 import { tokenAmountToUsd } from "./price-resolver";
 import { monthsInDateRange } from "./report-period";
 import { fetchSolanaTransfers } from "./solana-sync";
+import {
+  MAX_TRANSFER_PAGES,
+  TRANSFERS_PER_PAGE_HEX,
+  maxReasonableTxUsd,
+  transferCategoriesFor,
+} from "./transfer-fetch-policy";
 
 const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY!;
 
@@ -170,15 +176,60 @@ export interface TransactionSyncResult {
   warnings: SyncWarning[];
 }
 
+/**
+ * One wallet-direction's transfer history, plus anything that went wrong
+ * getting it.
+ *
+ * The warnings are the point. This used to return a bare array and answer
+ * three very different situations with the same empty one: the chain is not
+ * supported, the RPC call failed, and the wallet genuinely had no transfers.
+ * Downstream those read identically — as zero burn and zero inflows, which is
+ * a finding, and a wrong one. Every path that cannot return complete history
+ * now says so out loud, and `fetchAndClassify` surfaces it through the
+ * `SyncWarning` channel the dashboard already renders.
+ */
+interface TransferFetchResult {
+  transfers: AlchemyTransfer[];
+  warnings: SyncWarning[];
+}
+
+/**
+ * Every transfer for one wallet, in one direction, over one period.
+ *
+ * Pages to exhaustion rather than taking Alchemy's first 1000 and stopping —
+ * the previous single-request version silently dropped everything past the
+ * first page, which on a busy treasury is most of the period. `MAX_TRANSFER_PAGES`
+ * bounds a pathological address, and hitting it is reported as truncation
+ * rather than absorbed.
+ *
+ * Never throws: a failure here must not lose the OTHER direction's data, which
+ * is fetched in parallel by the caller. Failures come back as warnings
+ * alongside whatever was successfully retrieved before the failure.
+ */
 async function fetchAlchemyTransfers(
   walletAddress: string,
   chain: string,
   periodStart: Date,
   periodEnd: Date,
   direction: "from" | "to"
-): Promise<AlchemyTransfer[]> {
+): Promise<TransferFetchResult> {
+  const warn = (error: string): SyncWarning => ({
+    walletAddress,
+    chain,
+    error,
+  });
+
   const rpcUrl = CHAIN_ALCHEMY_URLS[chain];
-  if (!rpcUrl) return [];
+  if (!rpcUrl) {
+    return {
+      transfers: [],
+      warnings: [
+        warn(
+          `No Alchemy endpoint is configured for chain "${chain}", so no transfer history could be read. Figures derived from transactions (burn, inflows, outflows) do not include this wallet.`
+        ),
+      ],
+    };
+  }
 
   // Convert period bounds to block numbers so Alchemy doesn't scan the full chain.
   // Resolved in parallel — both calls hit the same RPC and benefit from the cache.
@@ -187,53 +238,121 @@ async function fetchAlchemyTransfers(
     getBlockByTimestamp(chain, periodEnd),
   ]);
 
-  const body = {
-    id: 1,
-    jsonrpc: "2.0",
-    method: "alchemy_getAssetTransfers",
-    params: [
-      {
-        [direction === "from" ? "fromAddress" : "toAddress"]: walletAddress,
-        fromBlock,
-        toBlock,
-        category: ["external", "erc20"],
-        withMetadata: true,
-        excludeZeroValue: true,
-        maxCount: "0x3e8", // 1000
-      },
-    ],
+  const categories = transferCategoriesFor(chain);
+  const transfers: AlchemyTransfer[] = [];
+  const warnings: SyncWarning[] = [];
+  let pageKey: string | undefined;
+  let pages = 0;
+
+  while (pages < MAX_TRANSFER_PAGES) {
+    const body = {
+      id: 1,
+      jsonrpc: "2.0",
+      method: "alchemy_getAssetTransfers",
+      params: [
+        {
+          [direction === "from" ? "fromAddress" : "toAddress"]: walletAddress,
+          fromBlock,
+          toBlock,
+          category: categories,
+          withMetadata: true,
+          excludeZeroValue: true,
+          maxCount: TRANSFERS_PER_PAGE_HEX,
+          ...(pageKey ? { pageKey } : {}),
+        },
+      ],
+    };
+
+    let data: {
+      result?: { transfers?: AlchemyTransfer[]; pageKey?: string };
+      error?: { message?: string };
+    };
+    try {
+      const res = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        warnings.push(
+          warn(
+            `Alchemy returned HTTP ${res.status} while reading ${direction === "from" ? "outgoing" : "incoming"} transfers${
+              pages > 0 ? ` (after ${pages} page(s) succeeded)` : ""
+            }. Transaction-derived figures for this wallet are incomplete.`
+          )
+        );
+        break;
+      }
+      data = await res.json();
+    } catch (err) {
+      warnings.push(
+        warn(
+          `Could not reach Alchemy while reading ${direction === "from" ? "outgoing" : "incoming"} transfers: ${
+            err instanceof Error ? err.message : String(err)
+          }. Transaction-derived figures for this wallet are incomplete.`
+        )
+      );
+      break;
+    }
+
+    // A JSON-RPC error carries HTTP 200. The most likely cause here is a
+    // category this network does not serve — Alchemy scopes `internal` to
+    // Ethereum and Polygon mainnet, and `transferCategoriesFor` encodes that,
+    // but the mapping is ours and could go stale against their support matrix.
+    // Say which categories were asked for so the cause is diagnosable rather
+    // than a bare "request failed".
+    if (data.error) {
+      warnings.push(
+        warn(
+          `Alchemy rejected the transfer query (categories: ${categories.join(
+            ", "
+          )}): ${data.error.message ?? "unknown error"}. Transaction-derived figures for this wallet are incomplete.`
+        )
+      );
+      break;
+    }
+
+    transfers.push(...(data.result?.transfers ?? []));
+    pages += 1;
+    pageKey = data.result?.pageKey;
+    if (!pageKey) break;
+  }
+
+  // Reached the cap with more pages still waiting. This is the one case where
+  // we have a lot of data and it is still not all of it — the least visible
+  // failure mode and therefore the one most worth stating.
+  if (pageKey && pages >= MAX_TRANSFER_PAGES) {
+    warnings.push(
+      warn(
+        `More than ${MAX_TRANSFER_PAGES * 1000} ${direction === "from" ? "outgoing" : "incoming"} transfers in this period; reading stopped at the page cap. Transaction-derived figures for this wallet are a partial view.`
+      )
+    );
+  }
+
+  // Alchemy's block-range bounds are inclusive of whole blocks, so the edges
+  // can carry transfers a few seconds outside the period. Filter to the real
+  // window.
+  return {
+    transfers: transfers.filter((t) => {
+      const ts = t.metadata?.blockTimestamp
+        ? new Date(t.metadata.blockTimestamp).getTime()
+        : 0;
+      return ts >= periodStart.getTime() && ts <= periodEnd.getTime();
+    }),
+    warnings,
   };
-
-  const res = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) return [];
-  const data = await res.json();
-
-  const transfers: AlchemyTransfer[] = data.result?.transfers ?? [];
-
-  // Filter by date
-  return transfers.filter((t) => {
-    const ts = t.metadata?.blockTimestamp
-      ? new Date(t.metadata.blockTimestamp).getTime()
-      : 0;
-    return ts >= periodStart.getTime() && ts <= periodEnd.getTime();
-  });
 }
 
-// Sanity cap per tx. Scam-airdrop tokens often spoof real symbols (fake "USDC")
-// so symbol-based pricing returns a real price, multiplied by a huge supply
-// blows totals into the trillions. Real DAO/SaaS treasury moves rarely exceed
-// $50M in a single tx; we treat anything beyond as poisoned and zero it out.
-// Better miss a real whale tx than report fake quintillions.
-const MAX_REASONABLE_TX_USD = 50_000_000;
-
+/**
+ * `maxTxUsd` is the caller's treasury-scaled sanity ceiling (see
+ * `maxReasonableTxUsd`). Passed in rather than read from a module constant
+ * because it depends on the project's own balance: a flat ceiling silently
+ * zeroed a legitimate $60M transfer on a $1.06B treasury.
+ */
 async function transferToRaw(
   t: AlchemyTransfer,
-  direction: "in" | "out"
+  direction: "in" | "out",
+  maxTxUsd: number
 ): Promise<RawTransaction> {
   const symbol = (t.asset ?? "ETH").toUpperCase();
   const amount = parseFloat(t.value ?? "0");
@@ -244,7 +363,18 @@ async function transferToRaw(
   // Resolve USD value at the actual block time. Caller can still see the raw
   // token amount via the `value` field — `valueUsd` is now the real number.
   const { usd, priceUnknown } = await tokenAmountToUsd(symbol, amount, blockTs);
-  const cleanUsd = usd > MAX_REASONABLE_TX_USD ? 0 : usd;
+  const capped = usd > maxTxUsd;
+  const cleanUsd = capped ? 0 : usd;
+
+  // A zeroed transfer used to leave no trace at all — the row simply read $0
+  // and nothing said why. Log it: on a real treasury this fires for spoofed
+  // scam tickers, and on a large one it is the first sign the ceiling needs
+  // revisiting.
+  if (capped) {
+    console.warn(
+      `[sync] transfer ${t.hash} (${symbol}) priced at $${usd.toFixed(0)}, above the $${maxTxUsd.toFixed(0)} sanity cap — zeroed and flagged priceUnknown`
+    );
+  }
 
   return {
     // Spread-when-present rather than `uniqueId: t.uniqueId`: an explicit
@@ -264,7 +394,7 @@ async function transferToRaw(
     direction,
     // Flag suspiciously-priced rows as priceUnknown so they don't poison
     // burn-rate downstream and can be inspected separately.
-    priceUnknown: priceUnknown || usd > MAX_REASONABLE_TX_USD,
+    priceUnknown: priceUnknown || capped,
   };
 }
 
@@ -277,23 +407,41 @@ export async function fetchAndClassify(
   const allIncoming: RawTransaction[] = [];
   const warnings: SyncWarning[] = [];
 
+  // Scaled off the treasury rather than a flat ceiling — see maxReasonableTxUsd.
+  const maxTxUsd = maxReasonableTxUsd(totalBalanceUsd);
+
   // allSettled instead of all — one bad wallet (RPC down, bogus address)
   // shouldn't kill the whole snapshot. Failed wallets surface as warnings.
   const walletResults = await Promise.allSettled(
     wallets.map(async (wallet) => {
       if (wallet.chain === "solana") {
         const transfers = await fetchSolanaTransfers(wallet.address, period);
-        return { wallet, outgoing: [] as RawTransaction[], incoming: [] as RawTransaction[], solana: transfers };
+        return {
+          wallet,
+          outgoing: [] as RawTransaction[],
+          incoming: [] as RawTransaction[],
+          solana: transfers,
+          fetchWarnings: [] as SyncWarning[],
+        };
       }
       const [outgoing, incoming] = await Promise.all([
         fetchAlchemyTransfers(wallet.address, wallet.chain, period.start, period.end, "from"),
         fetchAlchemyTransfers(wallet.address, wallet.chain, period.start, period.end, "to"),
       ]);
       const [outgoingRaw, incomingRaw] = await Promise.all([
-        Promise.all(outgoing.map((t) => transferToRaw(t, "out"))),
-        Promise.all(incoming.map((t) => transferToRaw(t, "in"))),
+        Promise.all(outgoing.transfers.map((t) => transferToRaw(t, "out", maxTxUsd))),
+        Promise.all(incoming.transfers.map((t) => transferToRaw(t, "in", maxTxUsd))),
       ]);
-      return { wallet, outgoing: outgoingRaw, incoming: incomingRaw, solana: null as RawTransaction[] | null };
+      return {
+        wallet,
+        outgoing: outgoingRaw,
+        incoming: incomingRaw,
+        solana: null as RawTransaction[] | null,
+        // Incomplete history is not a failed wallet — we have data, just not
+        // all of it. Carried out separately from the allSettled rejection path
+        // so a partial read is disclosed rather than passing as complete.
+        fetchWarnings: [...outgoing.warnings, ...incoming.warnings],
+      };
     })
   );
   walletResults.forEach((res, i) => {
@@ -306,6 +454,10 @@ export async function fetchAndClassify(
       });
       console.warn(`[sync] wallet ${wallet.address} (${wallet.chain}) failed:`, res.reason);
       return;
+    }
+    warnings.push(...res.value.fetchWarnings);
+    for (const w of res.value.fetchWarnings) {
+      console.warn(`[sync] ${w.walletAddress} (${w.chain}): ${w.error}`);
     }
     if (res.value.solana) {
       for (const t of res.value.solana) {
