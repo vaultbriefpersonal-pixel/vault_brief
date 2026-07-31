@@ -42,7 +42,7 @@ import {
   type ReportSectionContext,
 } from "./report-derived";
 import type { TreasuryComposition } from "./treasury-composition";
-import { evidenceOf, formatEvidenceItems } from "./report-evidence";
+import { decisionLedger, evidenceOf, formatEvidenceItems } from "./report-evidence";
 
 // `ReportSectionContext` moved to report-derived.ts, which both this module
 // and report-evidence.ts import. Re-exported here so every existing import
@@ -345,7 +345,7 @@ const keyTakeaways: ReportSection = {
 - Draw from the headline figures and both evidence lists. Do NOT introduce an item that is not in the block, and do NOT restate a figure with a different value, a different denominator, or a different period than the block gives it.
 - **This is not a summary of the sections below.** Do not write "as detailed below", do not preview section names, and do not repeat the Executive Summary's sentences in bullet form. Each bullet states a fact and its number, and stands alone.
 - Give the concerns the same weight as the positives. A takeaways list that quietly drops every negative item from a block that contains them is a misrepresentation of the period, not an editorial choice.
-- No recommendations, no advice, no verdict on how the quarter "went". State what the numbers are.`,
+- State what the numbers are, not a verdict on how the quarter "went". Operational commentary belongs in the Recommendations section, not here.`,
 };
 
 const wins: ReportSection = {
@@ -390,7 +390,7 @@ const lowsConcerns: ReportSection = {
 1-2 bullet points naming real concerns: missed milestones (status='delayed'), runway shrinking, unexplained outflows, anomaly hits with negative direction. If there's nothing material to flag, write a single sentence acknowledging it ("No material concerns this period — burn and runway tracking to plan."). Don't manufacture a concern.
 - **When the input contains a "## Verified concerns" block, select ONLY from that list**, quoting each item's figure. Do NOT introduce a concern that is not on the list. The list is the complete set the data supports, so fewer items means fewer bullets — and an absent block means the data supports none, which is the "nothing material to flag" case above, not an invitation to find one elsewhere.
 - Items labelled a data-quality caveat (diverging estimates, unattributed change, a changed wallet set) are exactly that: statements about what could be measured, not about how the business performed. Report them as measurement limits and never as losses, outflows, or mismanagement.
-- **No alarmism and no advice.** State the concern and its figure. Do not write "critical", "dangerous", "urgent", or a survival timeline, and do not recommend a course of action — that is financial advice, and this section does not give it.`,
+- **No alarmism.** State the concern and its figure. Do not write "critical", "dangerous", "urgent", or a survival timeline. Operational commentary — what to do about a concern — belongs in the Recommendations section, not here.`,
 };
 
 // ─── treasury composition (buckets + per-asset rows) ───────────────────────
@@ -686,7 +686,7 @@ const treasuryConcentration: ReportSection = {
 - Only render when the input contains a "## Treasury concentration and liquidity" block. Two sentences, maximum.
 - Sentence one states the fact, with the input's own figures: what share of the treasury is the project's own token, and how many months of burn the stablecoin holdings cover.
 - Sentence two states the mechanism, once: a project's own token cannot be sold at size without moving its price against the project, and it is worth least in exactly the conditions that would force a sale — so it does not behave like reserves.
-- **No alarmism and no advice.** Do not write "critical", "dangerous", "at risk", "urgent", or a survival timeline. Do not recommend diversifying, selling, hedging, raising, or extending runway — that is financial advice, and this section does not give it. State the position and the mechanism; the reader draws the conclusion.
+- **No alarmism.** Do not write "critical", "dangerous", "at risk", "urgent", or a survival timeline. State the position and the mechanism — operational commentary such as diversifying, hedging, or extending runway belongs in the Recommendations section, not here. **Never**, in any section including Recommendations, advise the reader to buy, sell, or hold the token itself — that ban is absolute and untouched by this relaxation.
 - The figures are derived from per-token balances and are approximate at the margins. Never present the split as audited or exact, and never restate the "Other assets" bucket as confirmed-illiquid — it is unclassified.`,
   notReadyHint:
     "Needs a synced snapshot with per-token balances (run a sync), plus either own-token concentration or thin stablecoin cover.",
@@ -1077,7 +1077,7 @@ const actualVsBudget: ReportSection = {
 - **Under-spend is not automatically good news, and must never be framed as a win, a saving, efficiency, or discipline.** Spending less than planned frequently means a hire that did not happen, an audit that stalled, a program that never launched — outcomes that show up as *lower* spend and *worse* execution. Report it as a gap between plan and actual, in the same neutral register you use for an overspend. If the input does not say why the money went unspent, say nothing about why.
 - Do not attribute any variance to a cause. The input carries planned figures, actual figures and the founder's own notes — nothing else. A cause that does not appear verbatim in this input is fabrication, including plausible ones.
 - Where a line is marked "not in the plan", say the spend fell outside the budget rather than quoting a percentage — a percentage against a zero base is not a number.
-- Do not project the variance forward, and do not tell the project what to do about it.`,
+- Do not project the variance forward. Operational commentary — what to do about a variance — belongs in the Recommendations section, not here.`,
   notReadyHint:
     "Click Edit data to enter a budget for this period — one total, or a figure per category.",
 };
@@ -1664,8 +1664,33 @@ const nextPeriodForecast: ReportSection = {
 - **Never project, mention, or imply a future token price, market cap, or valuation** — not as a number, not as a direction, not as a range. The input contains no price projection because a price projection cannot be made honestly, and inventing one is the single worst error available in this section.
 - Do not attach a probability, a confidence level, or a word like "likely", "conservative", "comfortable" or "healthy" to the projection. It is arithmetic with no error bars.
 - If the input says the projection breaks down or the projected figure is negative, say that the trailing average cannot be extended this far — never report a negative balance, a runway of zero, or a date the project runs out of money.
-- No advice. Do not suggest raising, cutting, extending, or diversifying anything.`,
+- State the extended figures only. Operational commentary — whether to raise, cut, extend, or diversify anything — belongs in the Recommendations section, not here.`,
   notReadyHint: "Needs at least two prior snapshots to average.",
+};
+
+const recommendations: ReportSection = {
+  id: "recommendations",
+  title: "Recommendations",
+  description:
+    "2-4 bullets of operational commentary for the treasury's own operators, each grounded in a figure from this report. Never investment advice about the project's token.",
+  defaultEnabled: true,
+  requires: (ctx) => decisionLedger(ctx).length > 0,
+  userPromptFragment: (ctx) => {
+    const ledger = decisionLedger(ctx);
+    if (ledger.length === 0) return "";
+    return `\n## Decision ledger (${ctx.snapshot.snapshotDate})\nEvery recommendation below MUST cite one of these findings, quoting its figure exactly as given. Do not cite a figure that is not on this list.\n${ledger
+      .map((e) => `- ${e.finding}: ${e.figure}`)
+      .join("\n")}`;
+  },
+  systemPromptFragment: `### Recommendations
+- 2-4 bullets of operational commentary for the TREASURY'S OWN OPERATORS — the team managing this treasury — never advice to the reader as an outside investor deciding whether to buy, sell, or hold the project's token.
+- **Every recommendation must cite a figure from the "## Decision ledger" block, quoted exactly as given.** A recommendation with no citable figure is an opinion this section does not carry. If the ledger holds only one item, write one bullet; never pad to reach four.
+- **Absolute, non-negotiable: never mention, project, or imply a future token price, market cap, or valuation** — this ban is not relaxed anywhere in this report, and this section is not an exception.
+- **Absolute, non-negotiable: never advise the reader to buy, sell, or hold the token**, in any wording, at any confidence.
+- Each bullet is a recommendation ABOUT the treasury's own management — e.g. "Given concentration of 91% in [token], consider a diversification policy" or "Given a liquid runway of 4.2 months, consider building stablecoin reserves before the next raise." A bare restatement of a ledger figure with no recommendation attached belongs in the section that figure came from, not here.
+- If the decision ledger is empty, this section produces nothing — never invent a recommendation to fill space.`,
+  notReadyHint:
+    "Needs at least one verified finding (liquidity, concentration, budget variance, or a named holding) to ground a recommendation.",
 };
 
 const lookingAhead: ReportSection = {
@@ -1787,6 +1812,7 @@ export const SECTION_LIBRARY: readonly ReportSection[] = [
   partnersIntegrations,
   anomalies,
   nextPeriodForecast,
+  recommendations,
   lookingAhead,
   asks,
   qaHighlights,
@@ -1973,6 +1999,7 @@ ${sectionRules}
   - Amounts < $1,000 → "$420" (whole dollars)
   Inputs in this prompt are already pre-formatted — copy that style verbatim.
 - Compare to previous month whenever data is available.
+- **Never write your own disclaimer, risk warning, or "not financial advice" notice.** The platform renders one automatically on every surface this report reaches. Writing your own duplicates it and risks contradicting its exact wording.
 - Do not use excessive formatting. Clean, readable paragraphs.
 - Total length: 800-1600 words.
 - **The budget is shared across every section above, and it is not a target to fill.** If the input is thin, write a short report — padding is the failure mode this whole prompt is built to avoid. But the ceiling is not permission to drop a section either: when the word count is under pressure, tighten prose everywhere before removing anything the input supports. A section silently omitted because the budget ran out is indistinguishable, to the reader, from a section the data could not support.`;

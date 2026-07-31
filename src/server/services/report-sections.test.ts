@@ -307,6 +307,124 @@ describe("library placement of the new sections", () => {
   });
 });
 
+describe("recommendations — placement and default", () => {
+  it("sits directly after next_period_forecast and before looking_ahead", () => {
+    expect(LIBRARY_IDS[LIBRARY_IDS.indexOf("next_period_forecast") + 1]).toBe(
+      "recommendations"
+    );
+    expect(LIBRARY_IDS[LIBRARY_IDS.indexOf("recommendations") + 1]).toBe(
+      "looking_ahead"
+    );
+  });
+
+  it("ships on by default", () => {
+    expect(DEFAULT_IDS).toContain("recommendations");
+  });
+
+  it("splices into a config saved before it existed, landing directly after next_period_forecast", () => {
+    const stored = fullConfig().filter((e) => e.id !== "recommendations");
+    const result = ids(stored);
+    expect(result).toEqual(LIBRARY_IDS);
+    expect(result[result.indexOf("next_period_forecast") + 1]).toBe(
+      "recommendations"
+    );
+  });
+});
+
+describe("recommendations — requires", () => {
+  const recommendations = section("recommendations");
+
+  it("is false when the context has no evidence, liquidity, budget, or composition to cite", () => {
+    const ctx = contextWith({ balancesDetail: undefined, burnRateUsd: undefined });
+    expect(recommendations.requires(ctx)).toBe(false);
+  });
+
+  it("is true once the treasury has at least one priced holding for compositionOf to surface", () => {
+    const ctx = contextWith({
+      balancesDetail: [
+        {
+          walletAddress: "0xaaa",
+          chain: "ethereum",
+          tokens: [
+            {
+              symbol: "USDC",
+              amount: 1_000_000,
+              priceUsd: 1,
+              valueUsd: 1_000_000,
+              contractAddress: null,
+            },
+          ],
+        },
+      ],
+    });
+    expect(recommendations.requires(ctx)).toBe(true);
+  });
+});
+
+describe("relaxed 'no advice' bans redirect to Recommendations; absolute bans survive verbatim", () => {
+  // The five places that used to blanket-prohibit operational commentary.
+  // Four were found by grepping report-sections.ts for
+  // recommend|advice|advise|guidance|prescribe (key_takeaways, lows_concerns,
+  // treasury_concentration, next_period_forecast). The fifth — actual_vs_budget's
+  // "do not tell the project what to do about it" — used none of those words
+  // and only turned up on a broader search for the operational-commentary
+  // category itself.
+  const RELAXED_SECTION_IDS = [
+    "key_takeaways",
+    "lows_concerns",
+    "treasury_concentration",
+    "actual_vs_budget",
+    "next_period_forecast",
+  ];
+
+  it("each relaxed section's system prompt now redirects to the Recommendations section", () => {
+    for (const id of RELAXED_SECTION_IDS) {
+      expect(section(id).systemPromptFragment).toContain(
+        "Recommendations section"
+      );
+    }
+  });
+
+  it("next_period_forecast still absolutely bans projecting token price, market cap, or valuation", () => {
+    expect(section("next_period_forecast").systemPromptFragment).toContain(
+      "Never project, mention, or imply a future token price, market cap, or valuation"
+    );
+  });
+
+  it("next_period_forecast's forbidden-verbs / conditional-framing rule survives untouched", () => {
+    const fragment = section("next_period_forecast").systemPromptFragment;
+    expect(fragment).toContain(
+      "Forbidden verbs and phrasings, without exception:"
+    );
+    expect(fragment).toContain('"will", "expects to", "is on track to"');
+  });
+
+  it("treasury_concentration still absolutely bans buy/sell/hold advice about the token itself", () => {
+    expect(section("treasury_concentration").systemPromptFragment).toContain(
+      "advise the reader to buy, sell, or hold the token itself"
+    );
+  });
+
+  it("the new recommendations section restates both absolute bans in its own rules", () => {
+    const fragment = section("recommendations").systemPromptFragment;
+    expect(fragment).toMatch(
+      /never mention, project, or imply a future token price, market cap, or valuation/i
+    );
+    expect(fragment).toMatch(
+      /never advise the reader to buy, sell, or hold the token/i
+    );
+  });
+});
+
+describe("buildSystemPrompt — platform disclaimer rule", () => {
+  it("tells the model never to write its own disclaimer", () => {
+    const system = buildSystemPrompt(resolveSections(null), contextWith({}));
+    expect(system).toContain(
+      "Never write your own disclaimer, risk warning"
+    );
+  });
+});
+
 describe("protocol_revenue — requires", () => {
   const revenue = section("protocol_revenue");
 
@@ -1114,9 +1232,10 @@ describe("treasury_concentration", () => {
     expect(out).toContain("- Stablecoin cover: 6.2 months");
   });
 
-  it("forbids alarmism and advice in its system prompt", () => {
+  it("forbids alarmism, and still absolutely bans buy/sell/hold advice about the token itself (P1.2 relaxed blanket 'no advice' to redirect operational commentary to Recommendations)", () => {
+    expect(concentration.systemPromptFragment).toContain("No alarmism.");
     expect(concentration.systemPromptFragment).toContain(
-      "No alarmism and no advice"
+      "advise the reader to buy, sell, or hold the token itself"
     );
     expect(concentration.systemPromptFragment).toContain(
       "Two sentences, maximum."

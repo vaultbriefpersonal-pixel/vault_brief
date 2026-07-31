@@ -14,6 +14,7 @@ import {
   GitHubSparkline,
 } from "./pdf-charts";
 import type { TreasurySnapshot } from "@/server/db/schema";
+import { REPORT_DISCLAIMER } from "@/lib/report-disclaimer";
 
 interface PDFTemplateProps {
   projectName: string;
@@ -176,6 +177,16 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: LIGHT_GRAY,
     paddingTop: 6,
+  },
+  // Rendered once at the end of the document content — NOT `fixed`, unlike
+  // `footer` above, which repeats on every page and has no room to spare.
+  disclaimer: {
+    fontSize: 8,
+    color: MID_GRAY,
+    marginTop: 16,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: LIGHT_GRAY,
   },
 });
 
@@ -550,6 +561,12 @@ export function VaultBriefPDF({
             </View>
           );
         })}
+
+        {/* Platform disclaimer — rendered once, at the end of the document
+            content, not per-page like the footer below. The LLM is
+            instructed (report-sections.ts's Rules block) never to write its
+            own, so this is the only disclaimer that reaches the PDF. */}
+        <Text style={styles.disclaimer}>{REPORT_DISCLAIMER}</Text>
 
         {/* Footer — left: project website (if present) → falls back to brand
             attribution. Right: page N of M. Both shrink to fit on each page. */}

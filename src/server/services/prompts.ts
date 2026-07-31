@@ -109,7 +109,50 @@ export function buildReportPrompts(
   };
 }
 
-export function validateReportNumbers(
+/**
+ * Phrases that violate the report's absolute guardrails (decision 2: the ban
+ * on projecting a future token price/market cap/valuation, and the ban on
+ * advising the reader to buy, sell, or hold the token, both stay non-negotiable
+ * even after Recommendations was allowed to carry operational commentary).
+ *
+ * Word-boundary-aware and phrase-specific on purpose. Banning the bare word
+ * "reach" would also catch "reserves would reach approximately $1.2M" — a
+ * legitimate conditional projection the Next Period Projection section is
+ * explicitly told to write. "will reach" (an assertion) and "would reach" (a
+ * conditional) are different phrases; only the first is forbidden.
+ */
+const FORBIDDEN_PHRASES: readonly { pattern: RegExp; note: string }[] = [
+  {
+    pattern: /\bwill reach\b/i,
+    note: "implies a confident future prediction, not a mechanical projection",
+  },
+  {
+    pattern: /\bprojected market cap\b/i,
+    note: "projects a future valuation, which is banned absolutely",
+  },
+  {
+    pattern: /\binvestors should\b/i,
+    note: "advises the reader directly — that is investment advice",
+  },
+  {
+    pattern: /\bguaranteed\b/i,
+    note: "asserts a certainty this report cannot support",
+  },
+  {
+    pattern: /\bshould buy\b/i,
+    note: "advises the reader to buy the token — the regulated line this report does not cross",
+  },
+  {
+    pattern: /\bshould sell\b/i,
+    note: "advises the reader to sell the token — the regulated line this report does not cross",
+  },
+  {
+    pattern: /\bshould hold\b/i,
+    note: "advises the reader to hold the token — the regulated line this report does not cross",
+  },
+];
+
+export function validateReportContent(
   markdown: string,
   snapshot: TreasurySnapshot
 ): { passed: boolean; issues: string[] } {
@@ -127,6 +170,13 @@ export function validateReportNumbers(
       markdown.includes(total.toFixed(0));
     if (!hasTotal && total > 1000) {
       issues.push(`Total balance ${formatUsd(total)} not found in report`);
+    }
+  }
+
+  for (const { pattern, note } of FORBIDDEN_PHRASES) {
+    const match = markdown.match(pattern);
+    if (match) {
+      issues.push(`Forbidden phrase found: "${match[0]}" — ${note}`);
     }
   }
 
