@@ -2,11 +2,31 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/server/db";
-import { projects, reports, treasurySnapshots } from "@/server/db/schema";
-import { and, eq, desc } from "drizzle-orm";
+import {
+  grantAwards,
+  projects,
+  reports,
+  treasurySnapshots,
+} from "@/server/db/schema";
+import { and, eq, asc, desc } from "drizzle-orm";
 import { formatDate } from "@/lib/utils";
 import { ReportsEmptyState } from "@/components/reports/ReportsEmptyState";
-import { GenerateReportButton } from "@/components/reports/GenerateReportButton";
+import { ReportPeriodPicker } from "@/components/reports/ReportPeriodPicker";
+import {
+  balanceBasisOf,
+  reconstructionMetaOf,
+} from "@/server/services/report-derived";
+import type { PeriodSnapshotChoice } from "@/server/services/report-period-options";
+
+/**
+ * How many recent snapshots the period picker gets to resolve against.
+ *
+ * Two years of monthly syncs, which comfortably covers the 12-month
+ * reconstruction horizon `assertPeriodSupported` enforces — a period older
+ * than that is refused before coverage is even considered, so a deeper read
+ * could not change any answer.
+ */
+const PICKER_SNAPSHOT_LIMIT = 24;
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -47,15 +67,32 @@ export default async function ReportsPage({ params }: Props) {
     orderBy: [desc(reports.periodEnd)],
   });
 
-  // Latest snapshot drives the manual-generate empty state.
-  const latestSnapshot = await db.query.treasurySnapshots.findFirst({
+  // Every period the picker may resolve against, newest first. A report is
+  // generated FROM a snapshot and covers exactly that snapshot's window, so the
+  // set of reportable periods IS the set of stored snapshots — see
+  // `buildPeriodOptions`.
+  const snapshotRows = await db.query.treasurySnapshots.findMany({
     where: eq(treasurySnapshots.projectId, projectId),
     orderBy: [desc(treasurySnapshots.snapshotDate)],
+    limit: PICKER_SNAPSHOT_LIMIT,
   });
+  const latestSnapshot = snapshotRows[0];
 
-  const latestSnapshotHasReport = latestSnapshot
-    ? reportList.some((r) => r.snapshotId === latestSnapshot.id)
-    : false;
+  // Provenance is resolved HERE, through the single readers of the two
+  // columns, so `report-period-options.ts` never touches `balance_basis` or
+  // `reconstruction_meta` itself and there stays exactly one reader of each.
+  const snapshotChoices: PeriodSnapshotChoice[] = snapshotRows.map((s) => ({
+    id: s.id,
+    snapshotDate: s.snapshotDate,
+    periodStart: s.periodStart,
+    basis: balanceBasisOf(s),
+    reconstruction: reconstructionMetaOf(s),
+  }));
+
+  const awards = await db.query.grantAwards.findMany({
+    where: eq(grantAwards.projectId, projectId),
+    orderBy: [asc(grantAwards.awardDate)],
+  });
 
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
@@ -67,14 +104,26 @@ export default async function ReportsPage({ params }: Props) {
               ? { id: latestSnapshot.id, snapshotDate: latestSnapshot.snapshotDate }
               : null
           }
-          latestSnapshotHasReport={latestSnapshotHasReport}
         />
       ) : (
         <>
-          <GenerateReportButton
+          <ReportPeriodPicker
             projectId={projectId}
-            latestSnapshotId={latestSnapshot?.id ?? null}
-            latestSnapshotHasReport={latestSnapshotHasReport}
+            snapshots={snapshotChoices}
+            grantAwards={awards.map((a) => ({
+              id: a.id,
+              grantor: a.grantor,
+              awardDate: a.awardDate,
+              reportingStartDate: a.reportingStartDate,
+            }))}
+            // `reportList` is ordered by periodEnd desc, so the head is the
+            // latest period already reported on — what "since last report"
+            // continues from.
+            lastReportPeriodEnd={reportList[0]?.periodEnd ?? null}
+            // Resolved server-side as a UTC day. Letting the browser supply it
+            // would let a client in another timezone build a different option
+            // list than the one that was server-rendered.
+            today={new Date().toISOString().slice(0, 10)}
           />
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {reportList.map((report) => (

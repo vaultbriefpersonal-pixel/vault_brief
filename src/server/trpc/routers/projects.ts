@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, eq, gte, lte, lt, desc, or, inArray } from "drizzle-orm";
+import { and, eq, lt, desc, or, inArray } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import {
   projects,
@@ -756,12 +756,19 @@ export const projectsRouter = router({
 
       // ── Pass 2: oldest → newest, write the buffered rows ──────────────────
       const snapshotIds: string[] = [];
+      // The newest row that actually made it to the database. Held as the ROW,
+      // not just its id, because the dedup check below and the report's own
+      // period both have to be derived from what was written rather than from
+      // `periods[last]` — which is a different thing whenever the newest period
+      // is the one that failed.
+      let latestSnapshot: Awaited<ReturnType<typeof writeSnapshot>> | undefined;
       for (let i = 0; i < periods.length; i++) {
         const row = prepared[i];
         if (!row) continue;
         try {
           const snap = await writeSnapshot(row);
           snapshotIds.push(snap.id);
+          latestSnapshot = snap; // loop runs oldest → newest, so this ends on the newest
         } catch (err) {
           errors.push({
             period: periodLabel(periods[i]),
@@ -770,8 +777,7 @@ export const projectsRouter = router({
         }
       }
 
-      const latestSnapshotId = snapshotIds[snapshotIds.length - 1];
-      if (!latestSnapshotId) {
+      if (!latestSnapshot) {
         return {
           snapshotIds,
           reportId: null,
@@ -782,14 +788,42 @@ export const projectsRouter = router({
 
       // Only generate a report for the most recent period. Older periods
       // remain data-only — comparisons surface them anyway.
-      const latestPeriod = periods[periods.length - 1];
-      const periodEndStr = latestPeriod.end.toISOString().split("T")[0];
-      const periodStartStr = latestPeriod.start.toISOString().split("T")[0];
+      //
+      // DEDUP ON THE PERIOD ITSELF, NOT ON A RANGE OVER `periodEnd`.
+      //
+      // This used to ask "does a report exist whose periodEnd falls anywhere
+      // inside this month?":
+      //
+      //     gte(reports.periodEnd, periodStartStr), lte(reports.periodEnd, periodEndStr)
+      //
+      // While every report was a calendar month that was an equality in
+      // disguise — the only periodEnd that can land in a month is that month's
+      // last day. It stops being one the moment arbitrary periods exist: a
+      // grant report ending on the 14th sits inside the month's range, matches,
+      // and SUPPRESSES that month's monthly report entirely. The founder gets
+      // no monthly report and no error, and the missing row looks like a sync
+      // that never ran.
+      //
+      // Matching on the whole period `(periodStart, periodEnd)` says what was
+      // actually meant — "has this exact window already been reported?" — and
+      // is strictly better than the alternative of restricting the check to
+      // month-shaped reports: it needs no notion of month-shape, no schema
+      // change, and it also lets two DIFFERENT windows that happen to end on
+      // the same day coexist, which is the whole point of arbitrary periods.
+      //
+      // The period is read from the written row through `periodFromSnapshot`,
+      // NOT from `latestPeriod.start.toISOString()`. That projection is the
+      // local-vs-UTC bug `snapshotPeriodStart` exists to avoid: at UTC+2 a June
+      // period projects to '2026-05-31', so the old range silently began a day
+      // early and would have matched MAY's report as well. Deriving it from the
+      // row is also what guarantees this predicate compares against exactly the
+      // two strings `createReportRecord` is about to write.
+      const reportPeriod = periodFromSnapshot(latestSnapshot);
       const existing = await ctx.db.query.reports.findFirst({
         where: and(
           eq(reports.projectId, input.projectId),
-          gte(reports.periodEnd, periodStartStr),
-          lte(reports.periodEnd, periodEndStr)
+          eq(reports.periodStart, reportPeriod.start),
+          eq(reports.periodEnd, reportPeriod.end)
         ),
       });
 
@@ -803,7 +837,14 @@ export const projectsRouter = router({
       }
 
       try {
-        const report = await generateAndSaveReport(input.projectId, latestSnapshotId);
+        // Period passed EXPLICITLY. This path must not inherit whatever
+        // `createReportRecord` defaults to; it reports on the row it just
+        // wrote, over that row's own window, and says so.
+        const report = await generateAndSaveReport(
+          input.projectId,
+          latestSnapshot.id,
+          reportPeriod
+        );
         return {
           snapshotIds,
           reportId: report.id,

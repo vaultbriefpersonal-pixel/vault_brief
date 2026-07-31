@@ -1,8 +1,12 @@
 import { z } from "zod";
-import { eq, asc, desc } from "drizzle-orm";
+import { eq, and, asc, desc, sql } from "drizzle-orm";
 import { after } from "next/server";
 import { router, protectedProcedure } from "../trpc";
-import { reports, reportEngagements } from "@/server/db/schema";
+import {
+  reports,
+  reportEngagements,
+  treasurySnapshots,
+} from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { requireProject, requireReport } from "../guards";
 import {
@@ -10,7 +14,21 @@ import {
   generateAndSaveReport,
 } from "@/server/services/report-generator";
 import { renderAndStorePDF } from "@/server/services/pdf-storage";
-import { assertTrialActive, assertCanGenerateReport } from "@/server/lib/plan-limits";
+import {
+  assertTrialActive,
+  assertCanGenerateReport,
+  FREE_REPORT_LIMIT,
+} from "@/server/lib/plan-limits";
+import {
+  assertPeriodSupported,
+  periodFromRange,
+  periodFromSnapshot,
+} from "@/server/services/report-period";
+
+/** A `date` column as it travels over the wire. */
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "expected a 'YYYY-MM-DD' date");
 
 export const reportsRouter = router({
   list: protectedProcedure
@@ -231,19 +249,138 @@ export const reportsRouter = router({
       return { url: `/api/reports/${input.reportId}/pdf` };
     }),
 
+  /**
+   * Read-only mirror of the free-plan report cap, so the picker can say
+   * "you have used your one free report" BEFORE the founder configures a
+   * whole period and then eats a FORBIDDEN at the end of it.
+   *
+   * THE POLICY DOES NOT LIVE HERE. `assertCanGenerateReport` in
+   * plan-limits.ts is the enforcement point and stays the only one — this
+   * query literally CALLS it and reports whether it threw, rather than
+   * re-deriving the rule. That is deliberate: a second copy of "is the owner
+   * on a paid plan, and how many reports has this project used" is one edit
+   * away from a free-tier hole, and a hole in a read-only mirror is invisible
+   * because the mirror is the thing everyone looks at. Nobody should later
+   * "fix" the duplication by moving the policy up here — there is no
+   * duplication to fix.
+   *
+   * The counts below are for DISPLAY ONLY and are never consulted for the
+   * verdict; `allowed` comes from the enforcement point or from nowhere.
+   */
+  canGenerate: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const project = await requireProject(ctx, input.projectId);
+
+      const [row] = await ctx.db
+        .select({ count: sql<number>`count(*)` })
+        .from(reports)
+        .where(eq(reports.projectId, input.projectId));
+      const used = Number(row?.count ?? 0);
+
+      try {
+        await assertCanGenerateReport(project.userId, input.projectId);
+        return { allowed: true, reason: null, used, limit: FREE_REPORT_LIMIT };
+      } catch (err) {
+        // Only the plan refusal is an answer; anything else is a real fault
+        // and must not be reported to the UI as "you are out of reports".
+        if (err instanceof TRPCError && err.code === "FORBIDDEN") {
+          return {
+            allowed: false,
+            reason: err.message,
+            used,
+            limit: FREE_REPORT_LIMIT,
+          };
+        }
+        throw err;
+      }
+    }),
+
+  /**
+   * Generate a report from a snapshot, over the period THAT SNAPSHOT COVERS.
+   *
+   * `period` is optional and defaults to `periodFromSnapshot(snapshot)`, so
+   * every existing caller is unchanged. When supplied it is an ASSERTION, not
+   * an override: the server checks it against the snapshot's own window and
+   * refuses a mismatch. A report's period is a property of the data it was
+   * built from — the flows are measured over the snapshot's window and the
+   * balances are as of its end — so a report that claims a different window is
+   * simply a false document, and accepting one from an API caller would be the
+   * exact error this whole plan exists to avoid.
+   *
+   * `assertPeriodSupported` runs HERE, server-side, and not only in the
+   * picker: the UI's disabled options are a courtesy, the gate is this.
+   * Its refusal `reason` is passed through verbatim — that text was written
+   * to be read by the founder, and paraphrasing it loses the explanation of
+   * why the product cannot reach that far back.
+   */
   generate: protectedProcedure
     .input(
       z.object({
         projectId: z.string().uuid(),
         snapshotId: z.string().uuid(),
+        period: z.object({ start: isoDate, end: isoDate }).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const project = await requireProject(ctx, input.projectId);
       await assertCanGenerateReport(project.userId, input.projectId);
+
+      // Scoped to the project, not fetched by id alone. `generateReport` and
+      // `createReportRecord` both look the snapshot up by primary key with no
+      // ownership filter, so without this a caller could name their own
+      // project and someone else's snapshot and have the other treasury's
+      // figures written into a report they own.
+      const snapshot = await ctx.db.query.treasurySnapshots.findFirst({
+        where: and(
+          eq(treasurySnapshots.id, input.snapshotId),
+          eq(treasurySnapshots.projectId, input.projectId)
+        ),
+      });
+      if (!snapshot) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No snapshot for this project with that id",
+        });
+      }
+
+      const snapshotPeriod = periodFromSnapshot(snapshot);
+      let period = snapshotPeriod;
+      if (input.period) {
+        try {
+          period = periodFromRange(input.period.start, input.period.end);
+        } catch (err) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: err instanceof Error ? err.message : "Invalid period",
+          });
+        }
+        if (
+          period.start !== snapshotPeriod.start ||
+          period.end !== snapshotPeriod.end
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              `That snapshot covers ${snapshotPeriod.label} ` +
+              `(${snapshotPeriod.start} to ${snapshotPeriod.end}), not ${period.label} ` +
+              `(${period.start} to ${period.end}). A report's period is the period of the ` +
+              "snapshot it is generated from — its balances are as of that snapshot's end and " +
+              "its flows are measured over that window — so it cannot be relabelled. " +
+              "Sync the period you want, then generate from the snapshot it produces.",
+          });
+        }
+      }
+
+      const support = assertPeriodSupported(period, new Date());
+      if (!support.ok) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: support.reason });
+      }
+
       const report = await generateAndSaveReport(
         input.projectId,
-        input.snapshotId
+        input.snapshotId,
+        period
       );
 
       // Same fix as regenerate above, same reason: this used to await
