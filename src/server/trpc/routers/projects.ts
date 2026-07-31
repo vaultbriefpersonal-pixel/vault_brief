@@ -32,6 +32,7 @@ import { createMonthlySnapshot } from "@/server/services/data-sync";
 import { generateAndSaveReport } from "@/server/services/report-generator";
 import { evaluateReadiness } from "@/server/services/report-sections";
 import { changeSignificanceFloor } from "@/server/services/report-derived";
+import { periodFromSnapshot } from "@/server/services/report-period";
 
 // Mirror of validation in walletsRouter — keep in sync. Inlined here so the
 // create-project mutation can validate wallets before any DB writes (one
@@ -478,7 +479,12 @@ export const projectsRouter = router({
       }
 
       const total = Number(snapshot.totalBalanceUsd ?? 0);
-      const period = String(snapshot.snapshotDate).slice(0, 7);
+      // Derived exactly as `buildReportPrompts` derives it, and for the same
+      // reason `minSignificant` below is: two derivations of the same named
+      // field can disagree, and then this endpoint's readiness chip says a
+      // section will render while the report that actually runs decides it
+      // will not. Several sections now gate on `period.kind`.
+      const period = periodFromSnapshot(snapshot);
       const readiness = evaluateReadiness({
         snapshot,
         prevSnapshot,

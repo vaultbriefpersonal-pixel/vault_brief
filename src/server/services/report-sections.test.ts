@@ -2,13 +2,16 @@ import { describe, it, expect } from "vitest";
 import {
   buildSystemPrompt,
   buildUserPrompt,
+  evaluateReadiness,
   getSectionById,
   resolveSections,
+  resolveSystemRules,
   SECTION_LIBRARY,
   type ReportSection,
   type ReportSectionContext,
   type SectionConfigEntry,
 } from "./report-sections";
+import { decisionLedger } from "./report-evidence";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "./expense-classifier";
 import {
   changeSignificanceFloor,
@@ -17,6 +20,12 @@ import {
   INCOME_CATEGORY_NAMES,
   RECURRING_INCOME_FLOOR_USD,
 } from "./report-derived";
+import {
+  longGapDaysFor,
+  periodFromRange,
+  periodOfMonth,
+  type ReportPeriod,
+} from "./report-period";
 import type { TreasurySnapshot } from "@/server/db/schema";
 
 // These tests are about ordering, not content, so everything is asserted on
@@ -250,7 +259,10 @@ function contextWith(
     trailing: [],
     project: { name: "Test Protocol" },
     milestones: [],
-    period: "2026-04",
+    // The whole of April 2026 — `kind: "month"`, `tag: "2026-04"`. Exactly the
+    // period the bare "2026-04" string used to stand for, so every assertion
+    // below is unchanged. Overridable via `extra` for the custom-period tests.
+    period: periodOfMonth("2026-04"),
     grants: [],
     governanceProposals: [],
     partners: [],
@@ -2156,5 +2168,525 @@ describe("previous_month_comparison — rows matched only by symbol", () => {
     const fragment = section("previous_month_comparison").userPromptFragment(ctx);
     expect(fragment).toContain("quantity moved, price unchanged");
     expect(fragment).not.toContain("stored token identity");
+  });
+});
+
+// ─── the long-gap disclosure ───────────────────────────────────────────────
+//
+// PINNING TESTS, written before the 45-day constant was generalised to
+// `longGapDaysFor(ctx.period)`. This block had no coverage anywhere in the
+// repo — no unit test, no smoke assertion, no e2e — so the threshold could
+// have moved by two days and shipped silently, suppressing a disclosure that
+// tells the model not to present a 60-day flow figure as one month's movement.
+//
+// The 45/46 pair is deliberate: the comparison is strictly `>`, so a period
+// exactly at the threshold must stay silent. Anything that widens or narrows
+// the monthly threshold fails one of these two.
+
+const LONG_GAP_TOKEN = {
+  symbol: "UNI",
+  name: "Uniswap",
+  amount: 1_000_000,
+  priceUsd: 4,
+  valueUsd: 4_000_000,
+  contractAddress: "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",
+};
+
+/**
+ * A month-over-month context whose previous snapshot sits `prevDate` back from
+ * the fixture's 2026-04-30. Quantity moves so attribution has a real driver —
+ * without that the section takes its legacy early-return branch and never
+ * reaches the gap check at all.
+ */
+function longGapContext(prevDate: string): ReportSectionContext {
+  const prevSnapshot = snapshotWith({
+    snapshotDate: prevDate,
+    totalBalanceUsd: "4000000",
+    balancesDetail: [
+      { walletAddress: "0xaaa", chain: "ethereum", tokens: [LONG_GAP_TOKEN] },
+    ],
+  });
+  return contextWith(
+    {
+      totalBalanceUsd: "6000000",
+      balancesDetail: [
+        {
+          walletAddress: "0xaaa",
+          chain: "ethereum",
+          tokens: [
+            { ...LONG_GAP_TOKEN, amount: 1_500_000, valueUsd: 6_000_000 },
+          ],
+        },
+      ],
+    },
+    prevSnapshot
+  );
+}
+
+describe("previous_month_comparison — the long-gap disclosure (monthly)", () => {
+  it("fires when the snapshots are further apart than the threshold", () => {
+    // 2026-03-15 → 2026-04-30 is 46 days.
+    const fragment = section("previous_month_comparison").userPromptFragment(
+      longGapContext("2026-03-15")
+    );
+    expect(fragment).toContain("NOTE: these snapshots are 46 days apart");
+    expect(fragment).toContain("Do NOT compare, reconcile or add the two.");
+    expect(fragment).toContain("say explicitly that it spans 46 days");
+  });
+
+  it("stays silent exactly at the threshold", () => {
+    // 2026-03-16 → 2026-04-30 is 45 days — the comparison is strictly greater.
+    const fragment = section("previous_month_comparison").userPromptFragment(
+      longGapContext("2026-03-16")
+    );
+    expect(fragment).not.toContain("days apart");
+  });
+
+  it("stays silent for a normal monthly cadence", () => {
+    // 2026-03-31 → 2026-04-30 is 30 days.
+    const fragment = section("previous_month_comparison").userPromptFragment(
+      longGapContext("2026-03-31")
+    );
+    expect(fragment).not.toContain("days apart");
+    expect(fragment).not.toContain("NOTE:");
+  });
+
+  it("names the gap in days, not the reporting period, when it fires", () => {
+    const fragment = section("previous_month_comparison").userPromptFragment(
+      longGapContext("2026-01-31")
+    );
+    // 2026-01-31 → 2026-04-30 is 89 days.
+    expect(fragment).toContain("NOTE: these snapshots are 89 days apart");
+    expect(fragment).toContain("far longer than one reporting period");
+    expect(fragment).toContain("covers that entire 89-day window");
+  });
+});
+
+// ═══ custom reporting periods ══════════════════════════════════════════════
+//
+// Everything below exercises `kind === "custom"`. None of it can regress a
+// monthly report: no existing fixture reaches these paths, and the byte-
+// identity describe at the very bottom is what guarantees the monthly branch
+// of every period-aware string is the one already in production.
+
+/** 14 Feb → 31 Jul 2026 — custom, NOT month-aligned. The grant-window shape. */
+const GRANT_PERIOD: ReportPeriod = periodFromRange("2026-02-14", "2026-07-31");
+
+/** 1 Feb → 30 Apr 2026 — custom, but month-aligned. A whole quarter. */
+const QUARTER_PERIOD: ReportPeriod = periodFromRange("2026-02-01", "2026-04-30");
+
+const MONTH_PERIOD: ReportPeriod = periodOfMonth("2026-04");
+
+describe("custom periods — manual-entry sections match every month touched", () => {
+  function partnerRow(period: string, name: string) {
+    return {
+      id: `pa-${period}`,
+      period,
+      name,
+      type: "integration",
+      url: null,
+      notes: null,
+    } as unknown as ReportSectionContext["partners"][number];
+  }
+
+  it("includes a row from a BOUNDARY month of a custom period", () => {
+    // February is the period's first month and the period starts on the 14th.
+    // The row is tagged '2026-02' and nothing finer — it is included in full.
+    const ctx = contextWith({}, null, {
+      period: GRANT_PERIOD,
+      partners: [partnerRow("2026-02", "Boundary Co")],
+    });
+    expect(section("partners_integrations").requires(ctx)).toBe(true);
+    expect(
+      section("partners_integrations").userPromptFragment(ctx)
+    ).toContain("Boundary Co");
+  });
+
+  it("includes a row from an INTERIOR month of a custom period", () => {
+    const ctx = contextWith({}, null, {
+      period: GRANT_PERIOD,
+      partners: [partnerRow("2026-05", "Interior Co")],
+    });
+    expect(
+      section("partners_integrations").userPromptFragment(ctx)
+    ).toContain("Interior Co");
+  });
+
+  it("excludes a row from a month the period does not touch", () => {
+    const ctx = contextWith({}, null, {
+      period: GRANT_PERIOD,
+      partners: [partnerRow("2026-01", "Before Co")],
+    });
+    expect(section("partners_integrations").requires(ctx)).toBe(false);
+    expect(section("partners_integrations").userPromptFragment(ctx)).toBe("");
+  });
+
+  it("still matches exactly one month for a monthly period", () => {
+    const ctx = contextWith({}, null, {
+      period: MONTH_PERIOD,
+      partners: [partnerRow("2026-04", "In"), partnerRow("2026-03", "Out")],
+    });
+    const fragment = section("partners_integrations").userPromptFragment(ctx);
+    expect(fragment).toContain("In");
+    expect(fragment).not.toContain("Out");
+  });
+
+  it("applies the same matching to grants, governance and Q&A", () => {
+    const ctx = contextWith({}, null, {
+      period: GRANT_PERIOD,
+      grants: [
+        {
+          id: "g1",
+          period: "2026-06",
+          recipient: "Grantee",
+          amountUsd: "50000",
+          status: "disbursed",
+          category: null,
+          notes: null,
+        },
+      ] as unknown as ReportSectionContext["grants"],
+      governanceProposals: [
+        {
+          id: "gp1",
+          period: "2026-07",
+          title: "VBP-9",
+          status: "passed",
+          url: null,
+          voteResult: null,
+          notes: null,
+        },
+      ] as unknown as ReportSectionContext["governanceProposals"],
+      qaHighlights: [
+        {
+          id: "q1",
+          period: "2026-02",
+          question: "Q?",
+          answer: "A.",
+          askedBy: null,
+          displayOrder: 1,
+        },
+      ] as unknown as ReportSectionContext["qaHighlights"],
+    });
+    expect(section("grants_distributed").userPromptFragment(ctx)).toContain(
+      "Grantee"
+    );
+    expect(section("governance_updates").userPromptFragment(ctx)).toContain(
+      "VBP-9"
+    );
+    expect(section("qa_highlights").userPromptFragment(ctx)).toContain("Q?");
+  });
+});
+
+describe("custom periods — the month-granularity disclosure", () => {
+  const MANUAL_SECTIONS = [
+    "grants_distributed",
+    "governance_updates",
+    "partners_integrations",
+    "qa_highlights",
+  ] as const;
+
+  const DISCLOSURE =
+    "Manually-entered items are recorded by calendar month. The first and last months of this period are included in full and may contain items dated outside it.";
+
+  function manualCtx(period: ReportPeriod): ReportSectionContext {
+    return contextWith({}, null, {
+      period,
+      grants: [
+        {
+          id: "g1",
+          period: "2026-04",
+          recipient: "R",
+          amountUsd: "1000",
+          status: "disbursed",
+          category: null,
+          notes: null,
+        },
+      ] as unknown as ReportSectionContext["grants"],
+      governanceProposals: [
+        {
+          id: "gp1",
+          period: "2026-04",
+          title: "T",
+          status: "passed",
+          url: null,
+          voteResult: null,
+          notes: null,
+        },
+      ] as unknown as ReportSectionContext["governanceProposals"],
+      partners: [
+        {
+          id: "pa1",
+          period: "2026-04",
+          name: "N",
+          type: null,
+          url: null,
+          notes: null,
+        },
+      ] as unknown as ReportSectionContext["partners"],
+      qaHighlights: [
+        {
+          id: "q1",
+          period: "2026-04",
+          question: "Q?",
+          answer: "A.",
+          askedBy: null,
+          displayOrder: 1,
+        },
+      ] as unknown as ReportSectionContext["qaHighlights"],
+    });
+  }
+
+  it("appears on every manual-entry section for a non-aligned custom period", () => {
+    const ctx = manualCtx(GRANT_PERIOD);
+    for (const id of MANUAL_SECTIONS) {
+      expect(section(id).userPromptFragment(ctx)).toContain(DISCLOSURE);
+    }
+  });
+
+  it("never appears for a monthly period", () => {
+    const ctx = manualCtx(MONTH_PERIOD);
+    for (const id of MANUAL_SECTIONS) {
+      expect(section(id).userPromptFragment(ctx)).not.toContain(
+        "recorded by calendar month"
+      );
+    }
+  });
+
+  it("never appears for a month-ALIGNED custom period", () => {
+    // A whole quarter includes each of its months in full by construction —
+    // "the rows tagged 2026-02" and "February" are the same set, so there is
+    // nothing to disclose. Gating on `kind` alone would over-disclose here.
+    expect(QUARTER_PERIOD.kind).toBe("custom");
+    expect(QUARTER_PERIOD.monthAligned).toBe(true);
+    const ctx = manualCtx(QUARTER_PERIOD);
+    for (const id of MANUAL_SECTIONS) {
+      expect(section(id).userPromptFragment(ctx)).not.toContain(
+        "recorded by calendar month"
+      );
+    }
+  });
+});
+
+describe("custom periods — actual_vs_budget refuses rather than misleads", () => {
+  const plan = [
+    budget({ kind: "expense", category: "payroll", plannedUsd: 200_000 }),
+    budget({ kind: "expense", category: "infrastructure", plannedUsd: 40_000 }),
+  ];
+
+  it("still renders for a monthly period", () => {
+    const ctx = budgetContext(plan);
+    expect(section("actual_vs_budget").requires(ctx)).toBe(true);
+    expect(section("actual_vs_budget").userPromptFragment(ctx)).toContain(
+      "## Plan vs actual (2026-04)"
+    );
+  });
+
+  it("is gated off for a custom period even when the plan rows match", () => {
+    const ctx = budgetContext(plan);
+    const custom = { ...ctx, period: GRANT_PERIOD } as ReportSectionContext;
+    // The rows DO match — the gate is the period's shape, not missing data.
+    expect(custom.budgets.length).toBeGreaterThan(0);
+    expect(section("actual_vs_budget").requires(custom)).toBe(false);
+    expect(section("actual_vs_budget").userPromptFragment(custom)).toBe("");
+  });
+
+  it("is gated off for a month-aligned custom period too", () => {
+    // A quarter is the exact case where the silent Map collapse in buildSide
+    // would produce one month's plan against three months of actuals.
+    const ctx = budgetContext(plan);
+    const quarter = { ...ctx, period: QUARTER_PERIOD } as ReportSectionContext;
+    expect(section("actual_vs_budget").requires(quarter)).toBe(false);
+  });
+
+  it("gives the period reason, not the missing-data reason, in its hint", () => {
+    const monthly = budgetContext([]);
+    const custom = { ...monthly, period: GRANT_PERIOD } as ReportSectionContext;
+    const hintOf = (ctx: ReportSectionContext) =>
+      evaluateReadiness(ctx).find((r) => r.id === "actual_vs_budget")?.reason;
+    expect(hintOf(monthly)).toContain("Edit data");
+    expect(hintOf(custom)).toContain("not yet supported");
+    expect(hintOf(custom)).not.toContain("Edit data");
+  });
+
+  it("keeps budget variances out of the decision ledger for a custom period", () => {
+    // A second, independent path from the same rows to the reader:
+    // `decisionLedger` calls `budgetComparison` directly, never through
+    // `requires`. Gating only the section would hide the table while a
+    // MATERIAL variance still reached Recommendations as a citable figure.
+    const monthly = budgetContext(plan);
+    const custom = { ...monthly, period: GRANT_PERIOD } as ReportSectionContext;
+    const budgetEntries = (ctx: ReportSectionContext) =>
+      decisionLedger(ctx).filter((e) => e.source === "budget");
+    expect(budgetEntries(monthly).length).toBeGreaterThan(0);
+    expect(budgetEntries(custom)).toHaveLength(0);
+  });
+});
+
+describe("custom periods — the long-gap threshold scales", () => {
+  it("uses 45 days for a calendar month", () => {
+    expect(longGapDaysFor(MONTH_PERIOD)).toBe(45);
+  });
+
+  it("scales with the period for a long custom window", () => {
+    // 2026-02-14 → 2026-07-31 is 168 days; 168 * 1.5 = 252.
+    expect(GRANT_PERIOD.days).toBe(168);
+    expect(longGapDaysFor(GRANT_PERIOD)).toBe(252);
+  });
+
+  it("stays silent at a gap a monthly period would have disclosed", () => {
+    // 89 days fires for a month (threshold 45) and must not for a 168-day
+    // window (threshold 252) — two balance readings 89 days apart are not a
+    // coverage problem when the period itself is twice that long.
+    const ctx = longGapContext("2026-01-31");
+    expect(
+      section("previous_month_comparison").userPromptFragment(ctx)
+    ).toContain("89 days apart");
+    const custom = { ...ctx, period: GRANT_PERIOD } as ReportSectionContext;
+    expect(
+      section("previous_month_comparison").userPromptFragment(custom)
+    ).not.toContain("days apart");
+  });
+
+  it("fires past the scaled threshold, and does not claim the gap is the longer window", () => {
+    // Same 168-day period, snapshots 2026-04-30 vs 2024-01-31 — 820 days.
+    const ctx = longGapContext("2024-01-31");
+    const custom = { ...ctx, period: GRANT_PERIOD } as ReportSectionContext;
+    const fragment =
+      section("previous_month_comparison").userPromptFragment(custom);
+    expect(fragment).toContain("820 days apart");
+    expect(fragment).toContain("while the reporting period covers 168 days");
+    expect(fragment).toContain("Do NOT compare, reconcile or add the two.");
+    // The monthly sentence's claim inverts for a long period and must be gone.
+    expect(fragment).not.toContain("far longer than one reporting period");
+  });
+});
+
+describe("custom periods — month-denominated prose stops claiming months", () => {
+  const customCtx = () =>
+    contextWith(
+      { burnRateUsd: "320000", runwayMonths: "16.3" },
+      null,
+      { period: GRANT_PERIOD }
+    );
+  const monthlyCtx = () =>
+    contextWith({ burnRateUsd: "320000", runwayMonths: "16.3" });
+
+  it("labels the outflow figure as a period total, not a monthly rate", () => {
+    const fragment = section("financial_health").userPromptFragment(customCtx());
+    expect(fragment).toContain("Operating outflows over the reporting period");
+    expect(fragment).toContain("168 days");
+    expect(fragment).not.toContain("Monthly burn rate");
+  });
+
+  it("keeps the monthly wording for a monthly period", () => {
+    const fragment = section("financial_health").userPromptFragment(monthlyCtx());
+    expect(fragment).toContain("- Monthly burn rate (this period): $320.0K");
+  });
+
+  it("renames the stored-runway denominator consistently in both branches", () => {
+    const custom = section("financial_health").userPromptFragment(customCtx());
+    expect(custom).toContain(
+      "Runway (total treasury ÷ this period's operating outflows)"
+    );
+    expect(custom).not.toContain("this month's burn");
+
+    const noBurn = section("financial_health").userPromptFragment(
+      contextWith({ burnRateUsd: "0", runwayMonths: null }, null, {
+        period: GRANT_PERIOD,
+      })
+    );
+    // The NOT MEASURABLE branch must name the same denominator as the
+    // measurable one, or a reader comparing the two lines sees two metrics.
+    expect(noBurn).toContain(
+      "Runway (total treasury ÷ this period's operating outflows): NOT MEASURABLE"
+    );
+  });
+
+  it("states the real window on the Report period line", () => {
+    const enabled = resolveSections(null);
+    const user = buildUserPrompt(customCtx(), enabled);
+    expect(user).toContain(
+      "- Report period: 14 Feb – 31 Jul 2026 (2026-02-14 to 2026-07-31, 168 days)"
+    );
+  });
+
+  it("stops calling the document a monthly report", () => {
+    const enabled = resolveSections(null);
+    const custom = buildSystemPrompt(enabled, customCtx());
+    expect(custom).toContain(
+      "Generate an investor report covering 14 Feb – 31 Jul 2026"
+    );
+    expect(custom).not.toContain("Generate a monthly investor report");
+    expect(custom).not.toContain("Compare to previous month");
+
+    const monthly = buildSystemPrompt(enabled, monthlyCtx());
+    expect(monthly).toContain(
+      "Generate a monthly investor report in Markdown format"
+    );
+    expect(monthly).toContain("Compare to previous month whenever data is available.");
+  });
+
+  it("renames the Month-over-Month rule heading, keeping the block names it gates on", () => {
+    const custom = resolveSystemRules(
+      section("previous_month_comparison"),
+      customCtx()
+    );
+    expect(custom).toContain("### Period-over-Period (CONDITIONAL)");
+    // The two headings the rule matches are emitted verbatim by
+    // userPromptFragment and must NOT have been renamed alongside it.
+    expect(custom).toContain('"## Treasury change"');
+    expect(custom).toContain('"## Previous Month Treasury"');
+  });
+});
+
+// ─── the byte-identity contract ────────────────────────────────────────────
+//
+// The single most important test in this file for Phase 1. Every period-aware
+// resolver is contractually required to return its static counterpart verbatim
+// for a calendar month — that is what keeps already-published monthly reports,
+// and the `llm_cache` key hashed from these prompts, unchanged. Asserted for
+// the WHOLE library rather than per-section, so a resolver added later without
+// a monthly branch fails here rather than in production.
+
+describe("period-aware resolvers are byte-identical to their static form for a month", () => {
+  const monthly = contextWith({});
+
+  it("systemPromptFragmentFor matches systemPromptFragment for every section", () => {
+    for (const s of SECTION_LIBRARY) {
+      expect(
+        resolveSystemRules(s, monthly),
+        `${s.id} system rules drifted from the monthly text`
+      ).toBe(s.systemPromptFragment);
+    }
+  });
+
+  it("notReadyHintFor matches notReadyHint for every section", () => {
+    for (const s of SECTION_LIBRARY) {
+      if (!s.notReadyHintFor) continue;
+      expect(
+        s.notReadyHintFor(monthly),
+        `${s.id} not-ready hint drifted from the monthly text`
+      ).toBe(s.notReadyHint);
+    }
+  });
+
+  it("covers a real set of resolvers, not an empty loop", () => {
+    expect(
+      SECTION_LIBRARY.filter((s) => s.systemPromptFragmentFor).length
+    ).toBeGreaterThanOrEqual(6);
+    expect(
+      SECTION_LIBRARY.filter((s) => s.notReadyHintFor).length
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("at least one resolver actually differs for a custom period", () => {
+    // Guards the inverse failure: resolvers that are byte-identical for a
+    // month because they ignore the period entirely would pass the two tests
+    // above while doing nothing.
+    const custom = contextWith({}, null, { period: GRANT_PERIOD });
+    const differing = SECTION_LIBRARY.filter(
+      (s) => resolveSystemRules(s, custom) !== s.systemPromptFragment
+    );
+    expect(differing.length).toBeGreaterThanOrEqual(5);
   });
 });
