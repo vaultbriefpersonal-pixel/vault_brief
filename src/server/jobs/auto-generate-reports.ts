@@ -8,6 +8,7 @@ import {
   users,
 } from "@/server/db/schema";
 import { generateAndSaveReport } from "@/server/services/report-generator";
+import { periodFromSnapshot } from "@/server/services/report-period";
 import { sendReportReadyForReviewEmail } from "@/server/services/email-sender";
 import { notify } from "@/server/services/notifications";
 import { filterEligibleProjects } from "@/server/lib/plan-limits";
@@ -83,7 +84,24 @@ export const autoGenerateReportsJob = schedules.task({
         }
 
         // Generate. Returns the saved record with id + status="draft".
-        const report = await generateAndSaveReport(project.id, snapshot.id);
+        //
+        // The period is passed EXPLICITLY, and that is the point rather than a
+        // formality: this cron is the path whose output must not change, and
+        // inheriting a default it does not name is how that breaks silently one
+        // refactor from now. `periodFromSnapshot` is the same derivation
+        // `createReportRecord` would fall back to and the same one every other
+        // consumer reads — for the monthly snapshots this job actually sees it
+        // is the calendar month ending on `snapshot_date`, byte for byte.
+        //
+        // It is NOT `periodOfMonth(<current month>)`. This job reports on the
+        // snapshot it found, so the honest window is that snapshot's own; a
+        // clock-derived month would relabel the row the day this cron ever runs
+        // against a snapshot of a different shape.
+        const report = await generateAndSaveReport(
+          project.id,
+          snapshot.id,
+          periodFromSnapshot(snapshot)
+        );
 
         // Pre-render PDF so the founder gets an instant download from the
         // email. Failure shouldn't block notification — /api/reports/[id]/pdf

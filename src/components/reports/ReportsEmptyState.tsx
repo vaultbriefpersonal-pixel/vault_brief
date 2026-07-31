@@ -3,16 +3,23 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { FileText, Sparkles, Wallet } from "lucide-react";
+import { Sparkles, Wallet } from "lucide-react";
 import { trpc } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 
+/**
+ * `latestSnapshotHasReport` used to be a third prop here, driving an "Up to
+ * date" branch. It was UNREACHABLE: this component renders only when the
+ * project has zero reports, and the prop was computed as "does any report point
+ * at the latest snapshot", which is necessarily false when there are none. It
+ * went out with the same idea in `GenerateReportButton` — with a period picker,
+ * "the latest snapshot already has a report" is not a reason to refuse anyway,
+ * because a different period is a different report.
+ */
 interface Props {
   projectId: string;
   /** Latest snapshot for the project, or null if none has been synced yet. */
   latestSnapshot: { id: string; snapshotDate: string } | null;
-  /** True when a report row already exists for the latest snapshot. */
-  latestSnapshotHasReport: boolean;
 }
 
 const cardStyle: React.CSSProperties = {
@@ -80,11 +87,7 @@ const secondaryBtn: React.CSSProperties = {
   border: "1px solid rgba(255,255,255,0.12)",
 };
 
-export function ReportsEmptyState({
-  projectId,
-  latestSnapshot,
-  latestSnapshotHasReport,
-}: Props) {
+export function ReportsEmptyState({ projectId, latestSnapshot }: Props) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 
@@ -120,24 +123,11 @@ export function ReportsEmptyState({
     );
   }
 
-  // Branch 2 — latest snapshot already has a report; nothing more to do until next month.
-  if (latestSnapshotHasReport) {
-    return (
-      <div style={cardStyle}>
-        <div style={iconWrap}>
-          <FileText size={20} color="#00e87b" />
-        </div>
-        <p style={titleStyle}>Up to date</p>
-        <p style={bodyStyle}>
-          Your latest snapshot ({formatDate(latestSnapshot.snapshotDate)}) has
-          already been turned into a report. The next one will generate on the
-          1st of next month.
-        </p>
-      </div>
-    );
-  }
-
-  // Branch 3 — fresh snapshot exists, no report yet → offer manual generate.
+  // Branch 2 — a snapshot exists and the project has no reports → offer manual
+  // generate. No period argument: the server defaults to the snapshot's own
+  // window, which is the only window this snapshot can honestly be reported
+  // over. Once a first report exists the page swaps this out for the full
+  // period picker.
   const monthLabel = formatDate(latestSnapshot.snapshotDate);
 
   return (
