@@ -59,6 +59,11 @@ import {
   composeTreasury,
   type TreasuryComposition,
 } from "./treasury-composition";
+import {
+  MAX_UNPRICED_SHARE_FOR_COMPARISON,
+  type BalanceBasis,
+  type ReconstructionMeta,
+} from "./balance-reconstruction";
 import { trailingAverageBurn, type BurnSnapshotLike } from "./burn-metrics";
 import {
   burnPeriodDays,
@@ -456,6 +461,167 @@ export function netFlowOf(ctx: ReportSectionContext): number | null {
   if (raw == null) return null;
   const value = Number(raw);
   return Number.isFinite(value) ? value : null;
+}
+
+// ─── balance provenance ────────────────────────────────────────────────────
+
+/**
+ * Where a snapshot's balances came from. THE ONLY READER of
+ * `treasury_snapshots.balance_basis` — nothing else may touch the column.
+ *
+ * NULL READS AS `observed`, and that is not a default-to-optimism: every row
+ * written before the column existed came from `fetchAllBalances`, which reads
+ * the wallets live and takes no period argument, so every one of them genuinely
+ * was observed. The column is deliberately not backfilled (see the migration
+ * header), so this branch is permanent rather than transitional — and it is
+ * expressed as "anything that is not the literal 'reconstructed'" rather than
+ * as `=== 'observed'`, because the positive test silently drops every legacy
+ * row and every row a currently-deployed sync is still writing.
+ *
+ * Never throws, tolerates an absent row, and tolerates an unknown string: an
+ * unrecognised basis is treated as reconstructed, because the safe direction
+ * for "I do not know where this number came from" in an investor report is to
+ * disclose rather than to assert.
+ */
+export function balanceBasisOf(
+  snapshot: { balanceBasis?: string | null } | null | undefined
+): BalanceBasis {
+  const raw = snapshot?.balanceBasis;
+  if (raw == null) return "observed";
+  const value = String(raw).trim().toLowerCase();
+  if (value === "" || value === "observed") return "observed";
+  return "reconstructed";
+}
+
+/** The walk-back's own account of itself, or null on an observed row. */
+export function reconstructionMetaOf(
+  snapshot: { reconstructionMeta?: unknown } | null | undefined
+): ReconstructionMeta | null {
+  const raw = snapshot?.reconstructionMeta;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  return raw as ReconstructionMeta;
+}
+
+export interface ComparisonBasis {
+  /** Basis of the snapshot being reported on. */
+  current: BalanceBasis;
+  /** Basis of the comparison baseline. Null when there is no baseline. */
+  previous: BalanceBasis | null;
+  /**
+   * True when every snapshot in the comparison — current, previous and the
+   * trailing window — was observed. The only case that reads as measured
+   * history, and the case EVERY snapshot in the database today falls into.
+   */
+  observed: boolean;
+  /**
+   * May a period-over-period claim be made at all? False only in the hard
+   * case: too much of one side has no price at its own date for the two totals
+   * to be the same quantity. See `MAX_UNPRICED_SHARE_FOR_COMPARISON`.
+   */
+  allowed: boolean;
+  /**
+   * The disclosure the model must render, or "" when `observed`.
+   *
+   * EMPTY STRING IS LOAD-BEARING. Callers append it to an existing prompt
+   * fragment, and every snapshot written before this stage resolves to
+   * `observed` — so a monthly report's prompt has to come out byte-identical.
+   * A caption that was " " or "\n" instead would change every cached
+   * `llm_cache` key in the product.
+   */
+  caption: string;
+  /** Why `allowed` is false, for a readiness chip. "" when allowed. */
+  blockedReason: string;
+}
+
+const OBSERVED_COMPARISON: ComparisonBasis = {
+  current: "observed",
+  previous: null,
+  observed: true,
+  allowed: true,
+  caption: "",
+  blockedReason: "",
+};
+
+/**
+ * THE shared predicate for "is this comparison against measured history?".
+ *
+ * One function gates AND captions `previous_month_comparison`, `anomalies` and
+ * `next_period_forecast`, for the reason `periodTooCoarseToRollForward`
+ * already documents in report-sections.ts and which has bitten this plan twice:
+ * `buildSystemPrompt` selects a section's RULES by whether its
+ * `userPromptFragment` is non-empty, NOT by `requires`. Gating one without the
+ * other ships a section's instructions with no data behind them, or data with
+ * no rules. Both call this; neither computes its own answer.
+ *
+ * WHAT IS AND IS NOT SUSPECT IN A RECONSTRUCTED ROW, because the distinction
+ * decides whether this gates or merely captions. Only the BALANCE columns are
+ * walked back. Every flow column — inflows, outflows, burn, the expense and
+ * income breakdowns, the GitHub counters — is measured over the period by
+ * `fetchAndClassify`, which really does query that window; the walk-back is
+ * built out of exactly those transfers. So "burn ran 60% above the trailing
+ * average" is a genuine finding on a reconstructed row, while "the treasury
+ * grew 8%" may be an artifact. Gating all three sections off would suppress
+ * real, measured findings to protect against a risk that lives in a different
+ * set of columns. The caption names which is which, and the hard gate fires
+ * only when the totals themselves stop being comparable quantities.
+ */
+export function comparisonBasis(ctx: ReportSectionContext): ComparisonBasis {
+  const current = balanceBasisOf(ctx.snapshot);
+  const previous = ctx.prevSnapshot ? balanceBasisOf(ctx.prevSnapshot) : null;
+  const trailingReconstructed = (ctx.trailing ?? []).some(
+    (s) => s && balanceBasisOf(s) === "reconstructed"
+  );
+
+  if (
+    current === "observed" &&
+    (previous === null || previous === "observed") &&
+    !trailingReconstructed
+  ) {
+    return { ...OBSERVED_COMPARISON, previous };
+  }
+
+  const unpricedShares = [
+    reconstructionMetaOf(ctx.snapshot)?.unpricedShareOfTotal,
+    reconstructionMetaOf(ctx.prevSnapshot)?.unpricedShareOfTotal,
+  ].filter((n): n is number => typeof n === "number" && Number.isFinite(n));
+  const worstUnpriced = unpricedShares.length > 0 ? Math.max(...unpricedShares) : 0;
+
+  const sides: string[] = [];
+  if (current === "reconstructed") sides.push("this period's");
+  if (previous === "reconstructed") sides.push("the comparison period's");
+  if (sides.length === 0 && trailingReconstructed) {
+    sides.push("the trailing baseline's");
+  }
+  const whose = sides.join(" and ");
+
+  if (worstUnpriced > MAX_UNPRICED_SHARE_FOR_COMPARISON) {
+    const pct = (worstUnpriced * 100).toFixed(0);
+    return {
+      current,
+      previous,
+      observed: false,
+      allowed: false,
+      caption: "",
+      blockedReason:
+        `${pct}% of the treasury could not be priced at its own reporting date, so the two totals are not the same quantity and cannot be compared. ` +
+        `Above ${(MAX_UNPRICED_SHARE_FOR_COMPARISON * 100).toFixed(0)}% unpriced, a caveat stops working — the figure is not a treasury total with a footnote, it is a different measurement wearing the same label.`,
+    };
+  }
+
+  return {
+    current,
+    previous,
+    observed: false,
+    allowed: true,
+    caption:
+      `\n\nBALANCE BASIS — RECONSTRUCTED. ${whose || "One side's"} balances were not observed. ` +
+      "They were reconstructed by walking today's holdings backwards through the period's transfer history, and priced at that period's own close. " +
+      "State this in the same sentence as any figure derived from them, using the word \"reconstructed\" or \"estimated\". " +
+      "Do NOT present a change in those balances as an achievement, a win, or evidence of performance — it may be an artifact of the reconstruction. " +
+      "Quantities the reconstruction could not see (rebasing, staking accruals, mints, gas) all push a reconstructed balance DOWN, so a reconstructed opening balance is a floor and an apparent increase from it may be entirely artificial. " +
+      "The period's FLOW figures — inflows, outflows, burn, the expense and income breakdowns — are measured, not reconstructed, and may be reported without this caveat.",
+    blockedReason: "",
+  };
 }
 
 // ─── income split ──────────────────────────────────────────────────────────

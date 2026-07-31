@@ -8,6 +8,10 @@ import {
   type RawTransaction,
 } from "./expense-classifier";
 import { tokenAmountToUsd } from "./price-resolver";
+import type {
+  CarriedForwardWallet,
+  ReconstructionTransfer,
+} from "./balance-reconstruction";
 import { monthsInDateRange } from "./report-period";
 import { fetchSolanaTransfers } from "./solana-sync";
 import {
@@ -141,7 +145,13 @@ interface AlchemyTransfer {
   to: string;
   value: string | null;
   asset: string | null;
-  rawContract?: { value?: string; decimal?: string };
+  /**
+   * `address` is the ERC-20 contract, and it is NULL for a native-asset leg
+   * (plain ETH, and every `internal` call). That null is not a gap to paper
+   * over: balance-reconstruction.ts keys a native position by `chain:SYMBOL`
+   * precisely because neither side of that arithmetic has a contract for it.
+   */
+  rawContract?: { value?: string; decimal?: string; address?: string | null };
   metadata?: { blockTimestamp?: string };
 }
 
@@ -166,6 +176,28 @@ export interface SyncWarning {
 
 export interface TransactionSyncResult {
   transactions: ClassifiedTransaction[];
+  /**
+   * The same legs again, in the shape the balance walk-back needs — per
+   * `(chain, tracked wallet, token identity)` rather than per hash.
+   *
+   * A SECOND ARRAY RATHER THAN THREE MORE FIELDS ON `RawTransaction`, and the
+   * reason is storage: `transactions` is sampled and persisted verbatim into
+   * `treasury_snapshots.transactions_raw`, so widening it would grow every
+   * future snapshot's JSONB with keys nothing reads back. These are built in
+   * the per-wallet loop below, where `chain` and the tracked wallet address are
+   * still in scope — `RawTransaction` never carried either, and `from`/`to`
+   * cannot substitute (a leg between two tracked wallets belongs to BOTH, once
+   * in each direction).
+   *
+   * In-memory only. Never persisted, never read outside a sync.
+   */
+  balanceLegs: ReconstructionTransfer[];
+  /**
+   * Tracked wallets whose transfer history could not be read at all, so their
+   * holdings cannot be walked back. Solana in v1 (`fetchSolanaTransfers`
+   * pagination is unverified) and any chain with no configured endpoint.
+   */
+  unreconstructableWallets: CarriedForwardWallet[];
   totalInflowsUsd: number;
   totalOutflowsUsd: number;
   netFlowUsd: number;
@@ -398,6 +430,35 @@ async function transferToRaw(
   };
 }
 
+/**
+ * One Alchemy row as a balance-walk-back leg.
+ *
+ * `wallet` is the TRACKED wallet the query was issued for, not `from`/`to`.
+ * That distinction is what makes an internal transfer between two of the
+ * project's own wallets come out right: the same on-chain movement is read
+ * twice, once as the sender's outbound leg and once as the recipient's
+ * inbound leg, and per-wallet reconstruction needs both. Keying off `from`/`to`
+ * instead would attribute each leg to one side only and leave the other
+ * wallet's balance walked back wrongly.
+ *
+ * The token symbol mirrors `transferToRaw`'s `(t.asset ?? "ETH").toUpperCase()`
+ * so the two views of the same leg cannot disagree about which asset moved.
+ */
+function alchemyLeg(
+  t: AlchemyTransfer,
+  wallet: Wallet,
+  direction: "in" | "out"
+): ReconstructionTransfer {
+  return {
+    chain: wallet.chain,
+    wallet: wallet.address,
+    symbol: (t.asset ?? "ETH").toUpperCase(),
+    contractAddress: t.rawContract?.address ?? null,
+    amount: t.value ?? 0,
+    direction,
+  };
+}
+
 export async function fetchAndClassify(
   wallets: Wallet[],
   period: { start: Date; end: Date },
@@ -406,6 +467,8 @@ export async function fetchAndClassify(
   const allOutgoing: RawTransaction[] = [];
   const allIncoming: RawTransaction[] = [];
   const warnings: SyncWarning[] = [];
+  const balanceLegs: ReconstructionTransfer[] = [];
+  const unreconstructableWallets: CarriedForwardWallet[] = [];
 
   // Scaled off the treasury rather than a flat ceiling — see maxReasonableTxUsd.
   const maxTxUsd = maxReasonableTxUsd(totalBalanceUsd);
@@ -421,6 +484,7 @@ export async function fetchAndClassify(
           outgoing: [] as RawTransaction[],
           incoming: [] as RawTransaction[],
           solana: transfers,
+          legs: [] as ReconstructionTransfer[],
           fetchWarnings: [] as SyncWarning[],
         };
       }
@@ -437,6 +501,17 @@ export async function fetchAndClassify(
         outgoing: outgoingRaw,
         incoming: incomingRaw,
         solana: null as RawTransaction[] | null,
+        // Built from the Alchemy rows rather than from `RawTransaction`,
+        // because only here are `chain`, the tracked wallet and the raw
+        // contract address all in scope at once. Quantity comes from `value`
+        // — the decimal-adjusted token amount, the same unit
+        // `balances_detail.amount` carries — and NOT from `valueUsd`, which
+        // `transferToRaw` deliberately zeroes above the sanity cap. Walking a
+        // balance back with a zeroed leg would silently drop a real transfer.
+        legs: [
+          ...outgoing.transfers.map((t) => alchemyLeg(t, wallet, "out")),
+          ...incoming.transfers.map((t) => alchemyLeg(t, wallet, "in")),
+        ],
         // Incomplete history is not a failed wallet — we have data, just not
         // all of it. Carried out separately from the allSettled rejection path
         // so a partial read is disclosed rather than passing as complete.
@@ -452,6 +527,14 @@ export async function fetchAndClassify(
         chain: wallet.chain,
         error: res.reason instanceof Error ? res.reason.message : String(res.reason),
       });
+      // A wallet whose fetch threw has no legs at all, so nothing about it can
+      // be walked back. Disclosed rather than treated as "no transfers", which
+      // would silently assert its holdings did not move.
+      unreconstructableWallets.push({
+        chain: wallet.chain,
+        address: wallet.address,
+        reason: "Transfer history could not be read for this wallet.",
+      });
       console.warn(`[sync] wallet ${wallet.address} (${wallet.chain}) failed:`, res.reason);
       return;
     }
@@ -464,9 +547,23 @@ export async function fetchAndClassify(
         if (t.direction === "out") allOutgoing.push(t);
         else allIncoming.push(t);
       }
+      // Solana is excluded from reconstruction in v1: `fetchSolanaTransfers`
+      // pagination is unverified, so an incomplete leg list would walk the
+      // balance back to a confidently wrong number. Disclose instead.
+      unreconstructableWallets.push({
+        chain: wallet.chain,
+        address: wallet.address,
+        reason:
+          "Solana transfer history is not used for balance reconstruction in this version — pagination is unverified, so an incomplete list would produce a confidently wrong past balance.",
+      });
     } else {
       allOutgoing.push(...res.value.outgoing);
       allIncoming.push(...res.value.incoming);
+      balanceLegs.push(...res.value.legs);
+      // Partial history is a partial walk-back. A wallet whose pages were cut
+      // short still gets reconstructed from what was read — dropping it would
+      // be worse — but the incompleteness already travels in `syncWarnings`,
+      // and the clamp counter is what surfaces it in the balances.
     }
   });
 
@@ -575,6 +672,8 @@ export async function fetchAndClassify(
 
   return {
     transactions: allClassified,
+    balanceLegs,
+    unreconstructableWallets,
     totalInflowsUsd,
     totalOutflowsUsd,
     netFlowUsd,

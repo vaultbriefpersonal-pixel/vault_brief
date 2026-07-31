@@ -44,6 +44,7 @@ import {
   budgetComparison,
   burnBasis,
   burnBasisLabel,
+  comparisonBasis,
   compositionOf,
   liquidityOf,
   netFlowOf,
@@ -182,6 +183,12 @@ function milestoneLabel(m: Milestone): string {
  */
 function treasuryGrowth(ctx: ReportSectionContext): EvidenceItem | null {
   if (!ctx.prevSnapshot) return null;
+  // A fourth condition, added in P3.1 and the strictest of the four: at least
+  // one side of this comparison must not be a reconstruction. See
+  // `suppressedByBasis` below for why this is checked here as well as in
+  // `buildEvidenceLedger` — belt and braces on the item the whole module was
+  // written to gate.
+  if (!comparisonBasis(ctx).observed) return null;
 
   const attribution = attributionOf(ctx);
   if (attribution.tokens.length === 0) return null;
@@ -666,13 +673,47 @@ export function buildEvidenceLedger(ctx: ReportSectionContext): EvidenceLedger {
   const burn = burnDirection(ctx);
   const income = recurringIncomeDirection(ctx);
 
+  // ── the reconstruction gate ──────────────────────────────────────────────
+  //
+  // A reconstructed baseline must never produce a WIN. Every quantity the
+  // walk-back cannot see — rebasing, staking accrual, mints, gas — pushes the
+  // reconstructed opening balance DOWN, so an apparent increase from it is
+  // exactly what a systematically understated starting point produces. An
+  // investor reading that as an achievement has been misled by arithmetic, and
+  // no caveat placed nearby undoes a bullet that begins "the treasury grew".
+  //
+  // WHICH POSITIVES, AND WHY NOT ALL OF THEM. Only the BALANCE columns are
+  // reconstructed. `treasuryGrowth` is derived from balances on both sides and
+  // is the item this gate exists for. `holderGrowth` reads
+  // `token_holders_count`, which comes from the current-value-only
+  // `fetchTokenMetrics` and is written NULL on a reconstructed row — so it
+  // self-gates already, and this makes that structural rather than incidental.
+  //
+  // The rest are NOT suppressed, and that is a deliberate reading of "every
+  // achievement-claiming positive" rather than a shortcut. Completed
+  // milestones and new partners are founder-entered facts that owe nothing to
+  // the reconstruction. Burn deceleration, recurring income and GitHub
+  // activity are measured over the period by the sync itself — the walk-back
+  // is built out of exactly those transfers, so they are as observed on a
+  // reconstructed row as on any other. Suppressing them would delete true,
+  // checkable statements from a backfilled report to guard against a risk that
+  // lives in a different set of columns, and would leave a report whose Wins
+  // section is empty for reasons the reader cannot see.
+  //
+  // Negatives are deliberately left alone. The asymmetry is the point: a
+  // reconstruction that invents a concern errs toward caution, one that
+  // invents a win errs toward the reader's loss.
+  const basisObserved = comparisonBasis(ctx).observed;
+  const suppressedByBasis = <T>(item: T | null): T | null =>
+    basisObserved ? item : null;
+
   const positives: EvidenceItem[] = [
-    treasuryGrowth(ctx),
+    suppressedByBasis(treasuryGrowth(ctx)),
     ...completedMilestones(ctx),
     income.positive,
     burn.positive,
     ...newPartners(ctx),
-    holderGrowth(ctx),
+    suppressedByBasis(holderGrowth(ctx)),
     ...githubActivity(ctx),
   ].filter((i): i is EvidenceItem => i !== null);
 
@@ -779,6 +820,17 @@ export function decisionLedger(
     });
   }
 
+  // Balance-derived entries below carry the provenance of the balances they
+  // came from. This is the SECOND path to the reader — `decisionLedger` feeds
+  // Recommendations, which is instructed to quote a ledger figure verbatim —
+  // so a reconstructed reserve figure arriving here unlabelled would be quoted
+  // as a measurement in the one section the model is allowed to editorialise
+  // in. Empty for an observed comparison, which is every row in the database
+  // today, so no existing report's prompt changes.
+  const reconstructedTag = comparisonBasis(ctx).observed
+    ? ""
+    : " [RECONSTRUCTED BALANCES — estimated, not observed; say so if you cite this]";
+
   // 2. Current liquid runway — the raw current-state figure evidenceOf lacks.
   const liq = liquidityOf(ctx);
   const basis = burnBasis(ctx);
@@ -792,7 +844,7 @@ export function decisionLedger(
           reserves
         )} ÷ ${burnBasisLabel(basis, ctx.period)} of ${formatUsd(
           basis.avgUsd
-        )})`,
+        )})${reconstructedTag}`,
         source: "liquidity",
       });
     }
@@ -839,7 +891,7 @@ export function decisionLedger(
       finding: `${row.symbol} holding`,
       figure: `${formatUsd(row.valueUsd)} (${row.sharePct.toFixed(
         1
-      )}% of treasury)`,
+      )}% of treasury)${reconstructedTag}`,
       source: "composition",
     });
   }

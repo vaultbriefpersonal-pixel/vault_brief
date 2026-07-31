@@ -9,48 +9,51 @@ interface Props {
   projectId: string;
 }
 
+/**
+ * WHAT BACKFILL DOES, now that it does something.
+ *
+ * These options were hard-disabled until 2026-07 because `createMonthlySnapshot`
+ * read balances live and took no period argument, so a 12-month "backfill"
+ * wrote twelve rows all carrying TODAY's balances and today's token price.
+ * Month-over-month, anomalies and the forecast read those rows as observed
+ * history and narrated a treasury that had been perfectly flat for a year, with
+ * nothing in the output to say the numbers were copies.
+ *
+ * `projects.sync` now runs two passes. It takes ONE live balance read, for the
+ * most recent period, and walks each older period's balances backwards through
+ * that period's own transfer history —
+ * `qty(t−1) = qty(t) − inbound(t) + outbound(t)` — pricing them at that
+ * period's close rather than at today's price. Only the newest snapshot is
+ * `observed`; every older one is written with `balance_basis:
+ * 'reconstructed'`, and the report says so wherever a figure derived from
+ * those balances appears.
+ *
+ * A reconstruction is an estimate and is labelled as one. Quantities it cannot
+ * see — rebasing, staking accruals, mints, gas — all push a reconstructed
+ * balance down, so an older snapshot's balances are a floor. The flow figures
+ * on those rows (inflows, outflows, burn, expense and income breakdowns,
+ * GitHub activity) are measured over the period exactly as they are for a
+ * live sync; only the balances are walked back.
+ *
+ * Backfill costs one Alchemy transfer sweep per period per wallet plus a
+ * historical price lookup per token per period, which is why it carries its own
+ * 2/day limiter on top of the 3/hr sync limiter.
+ */
 interface SyncOption {
   label: string;
   months: number;
-  /**
-   * Set on every `months > 1` option until real historical reconstruction
-   * lands. `createMonthlySnapshot` calls
-   * `fetchAllBalances(walletList, project.tokenSymbol)` with NO period
-   * argument (data-sync.ts:32), so a 12-month "backfill" writes twelve rows
-   * that all carry TODAY's balances and today's token price. That is strictly
-   * worse than having one snapshot: month-over-month, anomalies and the
-   * forecast all read those rows as observed history and narrate a treasury
-   * that was perfectly flat for a year, and nothing in the output discloses
-   * that the numbers are copies.
-   *
-   * Real backfill — walking balances back through transfer history and pricing
-   * them at each period's close, disclosed as reconstructed rather than
-   * observed — is task P3.1. Re-enable these there, not before.
-   */
-  disabledReason?: string;
 }
-
-const BACKFILL_DISABLED_REASON =
-  "Backfill is temporarily unavailable — it would record today's balances under past dates. Coming with historical reconstruction.";
 
 const OPTIONS: SyncOption[] = [
   { label: "Last month", months: 1 },
-  {
-    label: "Last 3 months (backfill)",
-    months: 3,
-    disabledReason: BACKFILL_DISABLED_REASON,
-  },
-  {
-    label: "Last 6 months (backfill)",
-    months: 6,
-    disabledReason: BACKFILL_DISABLED_REASON,
-  },
-  {
-    label: "Last 12 months (backfill)",
-    months: 12,
-    disabledReason: BACKFILL_DISABLED_REASON,
-  },
+  { label: "Last 3 months (backfill)", months: 3 },
+  { label: "Last 6 months (backfill)", months: 6 },
+  { label: "Last 12 months (backfill)", months: 12 },
 ];
+
+/** Shown under the dropdown so the estimate is disclosed before it is created, not only after. */
+const BACKFILL_NOTE =
+  "Backfill reconstructs past balances from transfer history and labels them as estimates.";
 
 /**
  * Manual sync trigger. Default click = last month (3/hr per project).
@@ -186,8 +189,6 @@ export function SyncNowButton({ projectId }: Props) {
             <button
               key={opt.months}
               type="button"
-              disabled={Boolean(opt.disabledReason)}
-              title={opt.disabledReason}
               onClick={() => trigger(opt.months)}
               style={{
                 display: "block",
@@ -198,12 +199,11 @@ export function SyncNowButton({ projectId }: Props) {
                 borderRadius: 6,
                 padding: "8px 12px",
                 fontSize: 13,
-                color: opt.disabledReason ? "var(--vb-dim)" : "var(--vb-text)",
+                color: "var(--vb-text)",
                 fontFamily: "var(--font-inter), Inter, sans-serif",
-                cursor: opt.disabledReason ? "not-allowed" : "pointer",
+                cursor: "pointer",
               }}
               onMouseEnter={(e) => {
-                if (opt.disabledReason) return;
                 e.currentTarget.style.background = "var(--vb-card-hover)";
               }}
               onMouseLeave={(e) => {
@@ -211,9 +211,21 @@ export function SyncNowButton({ projectId }: Props) {
               }}
             >
               {opt.label}
-              {opt.disabledReason ? " — coming soon" : ""}
             </button>
           ))}
+          <p
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 11,
+              lineHeight: 1.4,
+              color: "var(--vb-muted)",
+              margin: 0,
+              padding: "6px 12px 4px",
+              borderTop: "1px solid var(--vb-border)",
+            }}
+          >
+            {BACKFILL_NOTE}
+          </p>
         </div>
       )}
 

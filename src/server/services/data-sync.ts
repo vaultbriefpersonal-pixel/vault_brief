@@ -6,11 +6,21 @@ import {
   snapshotPeriodConflicts,
   snapshotPeriodStart,
 } from "./report-period";
-import { fetchAllBalances, fetchTokenMetrics } from "./wallet-sync";
+import {
+  fetchAllBalances,
+  fetchTokenMetrics,
+  type ProjectBalanceSummary,
+} from "./wallet-sync";
 import { fetchAndClassify } from "./transaction-sync";
 import { buildTransactionSample } from "./transaction-sample";
 import { fetchGitHubActivity } from "./github-sync";
 import { notify } from "./notifications";
+import type {
+  BalanceBasis,
+  CarriedForwardWallet,
+  ReconstructionMeta,
+  ReconstructionTransfer,
+} from "./balance-reconstruction";
 
 export function getLastMonthPeriod(): { start: Date; end: Date } {
   const now = new Date();
@@ -19,10 +29,82 @@ export function getLastMonthPeriod(): { start: Date; end: Date } {
   return { start, end };
 }
 
+/**
+ * Balances the caller already has, instead of a live read.
+ *
+ * Absent — the default, and what every existing caller does — means "read the
+ * wallets live and record the result as observed". That is correct for a
+ * snapshot dated today and wrong for any other date, which is the whole reason
+ * this option exists: `projects.sync` walks periods backwards, reconstructs
+ * each older period's balances from the next-newer ones, and hands them in
+ * here already computed. See balance-reconstruction.ts.
+ *
+ * `basis` and `meta` travel WITH the balances rather than as separate
+ * arguments so a caller cannot supply reconstructed figures and forget to say
+ * so — the pairing is the disclosure.
+ */
+export interface PrecomputedBalances {
+  balances: ProjectBalanceSummary;
+  basis: BalanceBasis;
+  /** Null for `observed`; the walk-back's own account of itself otherwise. */
+  meta: ReconstructionMeta | null;
+}
+
+export interface CreateSnapshotOptions {
+  precomputedBalances?: PrecomputedBalances | null;
+}
+
+/**
+ * Everything a snapshot row needs, plus the two by-products the caller needs to
+ * walk the PREVIOUS period back: this period's transfer legs, and the wallets
+ * for which there are none.
+ *
+ * The prepare/write split exists so `projects.sync` can run its two passes in
+ * opposite directions — fetch newest→oldest (each period's legs walk the next
+ * older period's balances back) but write oldest→newest. One combined function
+ * can only do both in the same order.
+ */
+export interface PreparedSnapshot {
+  values: typeof treasurySnapshots.$inferInsert;
+  balanceLegs: ReconstructionTransfer[];
+  unreconstructableWallets: CarriedForwardWallet[];
+}
+
 export async function createMonthlySnapshot(
   projectId: string,
-  period: { start: Date; end: Date }
+  period: { start: Date; end: Date },
+  options: CreateSnapshotOptions = {}
 ) {
+  const prepared = await prepareMonthlySnapshot(projectId, period, options);
+  return writeSnapshot(prepared);
+}
+
+/**
+ * Persists a prepared snapshot. Split out of `createMonthlySnapshot` so a
+ * caller can buffer several and write them in an order of its choosing; on its
+ * own it does no fetching and no validation, because both already happened in
+ * `prepareMonthlySnapshot`.
+ */
+export async function writeSnapshot(prepared: PreparedSnapshot) {
+  const [snapshot] = await db
+    .insert(treasurySnapshots)
+    .values(prepared.values)
+    .onConflictDoUpdate({
+      target: [treasurySnapshots.projectId, treasurySnapshots.snapshotDate],
+      // Re-syncs for the same (project, date) must overwrite all derived
+      // fields, not just totalBalanceUsd — otherwise expense breakdowns and
+      // GitHub metrics get stuck on the first sync of the day.
+      set: prepared.values,
+    })
+    .returning();
+  return snapshot;
+}
+
+export async function prepareMonthlySnapshot(
+  projectId: string,
+  period: { start: Date; end: Date },
+  options: CreateSnapshotOptions = {}
+): Promise<PreparedSnapshot> {
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, projectId),
   });
@@ -72,9 +154,17 @@ export async function createMonthlySnapshot(
     where: eq(wallets.projectId, projectId),
   });
 
+  // Precomputed balances short-circuit the live read entirely. `Promise.all`
+  // still wraps it so the GitHub fetch keeps running in parallel with whatever
+  // the first slot turns out to be.
+  const precomputed = options.precomputedBalances ?? null;
+  const balanceBasis: BalanceBasis = precomputed?.basis ?? "observed";
+
   // Fetch balances and transactions in parallel
   const [balances, github] = await Promise.all([
-    fetchAllBalances(walletList, project.tokenSymbol),
+    precomputed
+      ? Promise.resolve(precomputed.balances)
+      : fetchAllBalances(walletList, project.tokenSymbol),
     project.githubOrg
       ? fetchGitHubActivity(
           project.githubOrg,
@@ -91,9 +181,19 @@ export async function createMonthlySnapshot(
     balances.totalBalanceUsd
   ).catch(() => null);
 
-  // Fetch token metrics (optional)
+  // Fetch token metrics (optional).
+  //
+  // SKIPPED ENTIRELY FOR A RECONSTRUCTED ROW, and the four columns below are
+  // written NULL. `fetchTokenMetrics` reads Dune's token-info endpoint, which
+  // is current-value only and has no historical mode — there is no such thing
+  // as "the market cap as of last March" available here. Writing today's price,
+  // market cap, supply or holder count under a past date is exactly the class
+  // of lie this whole stage exists to remove, and it would be the most
+  // convincing one on the page, because those four figures look like
+  // measurements no matter what date sits above them. Skipping the call also
+  // saves a round trip per backfilled period.
   const tokenMetrics =
-    project.tokenContract && project.tokenChain
+    balanceBasis === "observed" && project.tokenContract && project.tokenChain
       ? await fetchTokenMetrics(project.tokenContract, project.tokenChain).catch(
           () => null
         )
@@ -170,21 +270,21 @@ export async function createMonthlySnapshot(
       const all = [...balances.warnings, ...(txResult?.warnings ?? [])];
       return all.length > 0 ? (all as unknown as Record<string, unknown>[]) : null;
     })(),
+
+    // Provenance of every balance figure above. Written on every row from now
+    // on, including the observed ones — the NULL fallback in `balanceBasisOf`
+    // stays because rows already in the database have none, not because new
+    // rows are allowed to omit it.
+    balanceBasis,
+    reconstructionMeta:
+      (precomputed?.meta ?? null) as unknown as Record<string, unknown> | null,
   };
 
-  const [snapshot] = await db
-    .insert(treasurySnapshots)
-    .values(snapshotValues)
-    .onConflictDoUpdate({
-      target: [treasurySnapshots.projectId, treasurySnapshots.snapshotDate],
-      // Re-syncs for the same (project, date) must overwrite all derived
-      // fields, not just totalBalanceUsd — otherwise expense breakdowns and
-      // GitHub metrics get stuck on the first sync of the day.
-      set: snapshotValues,
-    })
-    .returning();
-
-  return snapshot;
+  return {
+    values: snapshotValues,
+    balanceLegs: txResult?.balanceLegs ?? [],
+    unreconstructableWallets: txResult?.unreconstructableWallets ?? [],
+  };
 }
 
 export async function syncAllProjects() {
