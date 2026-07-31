@@ -410,7 +410,10 @@ function runwayShrinking(ctx: ReportSectionContext): EvidenceItem | null {
       liquidReservesUsd(prevLiq)
     )} → ${formatUsd(
       liquidReservesUsd(liq)
-    )}, both divided by the same ${burnBasisLabel(basis)} of ${formatUsd(
+    )}, both divided by the same ${burnBasisLabel(
+      basis,
+      ctx.period
+    )} of ${formatUsd(
       basis.avgUsd
     )} — so this is reserves falling, not spending rising.`
   );
@@ -449,7 +452,8 @@ function stablecoinCover(ctx: ReportSectionContext): EvidenceItem | null {
     `${formatUsd(
       liq.liquidStableUsd
     )} of stablecoins is ${cover.toFixed(1)} months at the ${burnBasisLabel(
-      basis
+      basis,
+      ctx.period
     )} of ${formatUsd(
       basis.avgUsd
     )}, below the ${STABLE_COVER_FLOOR_MONTHS}-month floor`
@@ -472,7 +476,8 @@ function burnDirection(ctx: ReportSectionContext): {
   if (trend !== "accelerating" && trend !== "decelerating") return none;
 
   const figure = `${formatUsd(current)} this period vs a ${burnBasisLabel(
-    basis
+    basis,
+    ctx.period
   )} of ${formatUsd(basis.avgUsd)} (${basis.monthsUsed} period${
     basis.monthsUsed === 1 ? "" : "s"
   } in the average)`;
@@ -785,7 +790,9 @@ export function decisionLedger(
         finding: "Liquid runway",
         figure: `${months.toFixed(1)} months (liquid reserves ${formatUsd(
           reserves
-        )} ÷ ${burnBasisLabel(basis)} of ${formatUsd(basis.avgUsd)})`,
+        )} ÷ ${burnBasisLabel(basis, ctx.period)} of ${formatUsd(
+          basis.avgUsd
+        )})`,
         source: "liquidity",
       });
     }

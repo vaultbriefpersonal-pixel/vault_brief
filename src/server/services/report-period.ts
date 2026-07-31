@@ -82,8 +82,16 @@ export interface SnapshotPeriodLike {
   periodStart?: string | Date | null;
 }
 
-/** Average days in a Gregorian month: 365.25 / 12. */
-const DAYS_PER_MONTH = 30.4375;
+/**
+ * Average days in a Gregorian month: 365.25 / 12.
+ *
+ * Exported so `burn-metrics.ts` can normalise a stored period length against
+ * the SAME constant this module divides by. Two copies of 30.4375 in two files
+ * is one edit away from two different definitions of "a month", and the two
+ * would disagree silently — the trailing average and the current period's
+ * runway would be denominated differently in the same report.
+ */
+export const DAYS_PER_MONTH = 30.4375;
 
 const MS_PER_DAY = 86_400_000;
 
@@ -378,6 +386,91 @@ export function dateInPeriod(
 export function monthsInPeriod(period: ReportPeriod): number {
   if (period.kind === "month") return 1;
   return period.days / DAYS_PER_MONTH;
+}
+
+/**
+ * `monthsInPeriod` for the sync path, which never sees a `ReportPeriod`.
+ *
+ * `fetchAndClassify` (transaction-sync.ts) is handed `{ start: Date; end: Date }`
+ * and has to divide this period's outflow total by its length in months before
+ * it can store a figure called `runway_months`. It lives here, beside
+ * `monthsInPeriod`, so the two normalisation paths share the constant and the
+ * calendar-month exemption instead of drifting; a copy in transaction-sync.ts
+ * would be the second definition of "a month" in the codebase and nothing
+ * would fail when they disagreed.
+ *
+ * THE ONLY FUNCTION IN THIS MODULE THAT READS LOCAL DATE FIELDS, and
+ * deliberately so — everything else here is UTC because it parses 'YYYY-MM-DD'
+ * `date` columns. These Dates are not that. Both construction sites build them
+ * with LOCAL constructors:
+ *
+ *     new Date(now.getFullYear(), now.getMonth() - 1, 1)            // data-sync.ts:13
+ *     new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59)    // data-sync.ts:14
+ *
+ * so for a generator at UTC+2, `start` is local midnight on the 1st, which is
+ * 21:00 UTC on the LAST DAY OF THE PREVIOUS MONTH. Read through `getUTC*` — or
+ * round-tripped through `.toISOString().split("T")[0]` and handed to
+ * `periodFromRange` — a genuine calendar month would come back as a
+ * non-aligned custom range, switching normalisation on for every monthly sync
+ * in that timezone. Reading the same fields the values were constructed from
+ * is the only way to recover the month the caller meant.
+ *
+ * Returns EXACTLY 1 for a calendar month, for the reason `monthsInPeriod`
+ * spells out at length: every snapshot this product has written is a calendar
+ * month, and normalisation must be the identity for all of them.
+ *
+ * Returns 1 rather than throwing on unusable input. This runs inside a sync
+ * that is about to persist `runway_months`, and the two alternatives are both
+ * worse: throwing loses the whole snapshot over a divisor, and propagating NaN
+ * writes NaN into a numeric column the dashboard renders. 1 degrades to the
+ * arithmetic this line used before normalisation existed, which is a known
+ * quantity.
+ */
+export function monthsInDateRange(range: {
+  start: Date;
+  end: Date;
+}): number {
+  const start = range?.start;
+  const end = range?.end;
+  if (!(start instanceof Date) || !(end instanceof Date)) return 1;
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+    return 1;
+  }
+
+  const sameMonth =
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth();
+  // Day 0 of the following month is the last day of this one — no days-in-month
+  // table, and February and leap years fall out for free.
+  const lastDayOfEndMonth = new Date(
+    end.getFullYear(),
+    end.getMonth() + 1,
+    0
+  ).getDate();
+  if (
+    sameMonth &&
+    start.getDate() === 1 &&
+    end.getDate() === lastDayOfEndMonth
+  ) {
+    return 1;
+  }
+
+  // Whole calendar days, inclusive of both ends. The local Y/M/D components are
+  // re-anchored as UTC midnights before subtracting, rather than subtracting
+  // the raw timestamps, because `end` carries a TIME (23:59:59 at both
+  // construction sites): `Math.round((end - start) / MS_PER_DAY) + 1` on the
+  // raw values counts 30-day June as 31 days. Re-anchoring also makes a DST
+  // transition inside the range irrelevant, since neither endpoint keeps an
+  // offset.
+  const startDay = Date.UTC(
+    start.getFullYear(),
+    start.getMonth(),
+    start.getDate()
+  );
+  const endDay = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+  const days = (endDay - startDay) / MS_PER_DAY + 1;
+  if (!(days >= 1)) return 1;
+  return days / DAYS_PER_MONTH;
 }
 
 /**

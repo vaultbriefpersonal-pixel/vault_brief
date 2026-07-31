@@ -58,7 +58,11 @@ import {
   type TreasuryComposition,
 } from "./treasury-composition";
 import { trailingAverageBurn } from "./burn-metrics";
-import { matchesPeriod, type ReportPeriod } from "./report-period";
+import {
+  matchesPeriod,
+  monthsInPeriod,
+  type ReportPeriod,
+} from "./report-period";
 import type { Anomaly } from "./anomalies";
 
 // ─── the context ───────────────────────────────────────────────────────────
@@ -272,7 +276,14 @@ export function liquidityOf(ctx: ReportSectionContext): TreasuryLiquidity {
 }
 
 export interface BurnBasis {
-  /** The denominator to divide reserves by. 0 when there is no usable burn. */
+  /**
+   * The denominator to divide reserves by. 0 when there is no usable burn.
+   *
+   * ALWAYS A MONTHLY FIGURE, whichever `source` it came from. That is what
+   * makes `liquidRunwayMonths(reserves, avgUsd)` return months rather than
+   * "periods" — the trailing branch is normalised inside `trailingAverageBurn`
+   * and the current branch is normalised here, against `ctx.period`.
+   */
   avgUsd: number;
   /** Prior months that contributed. 0 unless `source` is "trailing". */
   monthsUsed: number;
@@ -291,6 +302,16 @@ export interface BurnBasis {
  * otherwise get no liquid runway figure at all — which is the very number this
  * work exists to surface. The `source` field is what keeps the fallback
  * honest: it is disclosed in the fragment, never silently substituted.
+ *
+ * BOTH BRANCHES RETURN A MONTHLY FIGURE. The trailing branch inherits its
+ * normalisation from `trailingAverageBurn`; the current branch has to do its
+ * own, because `snapshot.burnRateUsd` is this period's raw outflow TOTAL and
+ * nothing else in the pipeline divides it. Skipping that here would make
+ * liquid runway and stablecoin cover — both of which print "months" — read as
+ * whole-period units for a young project on a grant window, which is precisely
+ * the class of plausible-looking wrong number this normalisation exists to
+ * remove. `monthsInPeriod` is exactly 1 for a calendar month, so the monthly
+ * path is untouched.
  */
 export function burnBasis(ctx: ReportSectionContext): BurnBasis {
   const trailing = trailingAverageBurn(ctx.trailing, TRAILING_BURN_MONTHS);
@@ -303,15 +324,35 @@ export function burnBasis(ctx: ReportSectionContext): BurnBasis {
   }
   const current = Number(ctx.snapshot.burnRateUsd ?? 0);
   if (Number.isFinite(current) && current > 0) {
-    return { avgUsd: current, monthsUsed: 0, source: "current" };
+    return {
+      avgUsd: current / monthsInPeriod(ctx.period),
+      monthsUsed: 0,
+      source: "current",
+    };
   }
   return { avgUsd: 0, monthsUsed: 0, source: "none" };
 }
 
-/** Human label for the denominator, used inside the runway bullet itself. */
-export function burnBasisLabel(basis: BurnBasis): string {
+/**
+ * Human label for the denominator, used inside the runway bullet itself.
+ *
+ * `period` is optional so the signature stays additive, and OMITTING IT YIELDS
+ * THE PRE-EXISTING STRING — the monthly text, byte for byte. It exists because
+ * once `burnBasis` normalises the "current" branch, "this month's burn" names
+ * a denominator the number no longer has on a custom period: the figure is
+ * this period's outflows reduced to a calendar month, and a label asserting
+ * otherwise is the same false statement Phase 1 removed everywhere else.
+ * Callers with a context should pass `ctx.period`.
+ */
+export function burnBasisLabel(
+  basis: BurnBasis,
+  period?: ReportPeriod
+): string {
   if (basis.source === "trailing") {
     return `trailing ${basis.monthsUsed}-mo avg burn`;
+  }
+  if (period && period.kind !== "month") {
+    return "this period's operating outflows normalised to a calendar month (no trailing history yet)";
   }
   return "this month's burn (no trailing history yet)";
 }

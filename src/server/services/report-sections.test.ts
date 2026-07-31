@@ -2625,9 +2625,14 @@ describe("custom periods — month-denominated prose stops claiming months", () 
     contextWith({ burnRateUsd: "320000", runwayMonths: "16.3" });
 
   it("labels the outflow figure as a period total, not a monthly rate", () => {
+    // Phase 1 emitted the period total alone with a "not a monthly rate"
+    // warning, because no normalised figure existed to offer instead. Phase 3
+    // computes one, so the line is now a PAIR — the warning is still here, and
+    // the reader is no longer left without the number the warning implies.
     const fragment = section("financial_health").userPromptFragment(customCtx());
-    expect(fragment).toContain("Operating outflows over the reporting period");
+    expect(fragment).toContain("Total operating outflows over the period");
     expect(fragment).toContain("168 days");
+    expect(fragment).toContain("this is a PERIOD TOTAL, not a monthly rate");
     expect(fragment).not.toContain("Monthly burn rate");
   });
 
@@ -2639,7 +2644,7 @@ describe("custom periods — month-denominated prose stops claiming months", () 
   it("renames the stored-runway denominator consistently in both branches", () => {
     const custom = section("financial_health").userPromptFragment(customCtx());
     expect(custom).toContain(
-      "Runway (total treasury ÷ this period's operating outflows)"
+      "Runway (total treasury ÷ this period's operating outflows, normalised to a calendar month)"
     );
     expect(custom).not.toContain("this month's burn");
 
@@ -2651,7 +2656,7 @@ describe("custom periods — month-denominated prose stops claiming months", () 
     // The NOT MEASURABLE branch must name the same denominator as the
     // measurable one, or a reader comparing the two lines sees two metrics.
     expect(noBurn).toContain(
-      "Runway (total treasury ÷ this period's operating outflows): NOT MEASURABLE"
+      "Runway (total treasury ÷ this period's operating outflows, normalised to a calendar month): NOT MEASURABLE"
     );
   });
 
@@ -2689,6 +2694,210 @@ describe("custom periods — month-denominated prose stops claiming months", () 
     // userPromptFragment and must NOT have been renamed alongside it.
     expect(custom).toContain('"## Treasury change"');
     expect(custom).toContain('"## Previous Month Treasury"');
+  });
+});
+
+// ─── Phase 3: the numbers, not just the labels ─────────────────────────────
+//
+// Phase 1 made the prose honest and deliberately left the arithmetic alone —
+// a period total labelled as a period total, with no monthly figure to offer
+// beside it. These tests are about the figure now existing, the monthly path
+// still producing the identical number, and the one section that must go
+// silent rather than be reworded.
+
+describe("burn normalisation for custom periods", () => {
+  /** A 90-day window: long enough to normalise, long enough to gate. */
+  const NINETY = periodFromRange("2026-05-03", "2026-07-31");
+  /** 62 days exactly — the last length the forecast is still allowed at. */
+  const AT_LIMIT = periodFromRange("2026-05-31", "2026-07-31");
+
+  const burnCtx = (period: ReportPeriod) =>
+    contextWith({ burnRateUsd: "1920000", runwayMonths: "26.2" }, null, {
+      period,
+    });
+
+  it("prints BOTH the period total and the monthly-normalised figure", () => {
+    const fragment = section("financial_health").userPromptFragment(
+      burnCtx(periodFromRange("2026-02-01", "2026-07-30")) // 180 days
+    );
+    expect(fragment).toContain(
+      "- Total operating outflows over the period (180 days, 2026-02-01 to 2026-07-30): $1.9M"
+    );
+    // 1_920_000 / (180 / 30.4375) = 324_666.67 → $324.7K at the report's rounding.
+    expect(fragment).toContain(
+      "- Burn rate normalised to a calendar month: $324.7K"
+    );
+    expect(fragment).toContain("5.91 calendar months this period covers");
+  });
+
+  it("emits neither extra line for a calendar month", () => {
+    // The dual figure is a custom-period affordance. A month has one
+    // denominator and printing two would invite the model to contrast them.
+    const monthly = section("financial_health").userPromptFragment(
+      contextWith({ burnRateUsd: "320000", runwayMonths: "16.3" })
+    );
+    expect(monthly).toContain("- Monthly burn rate (this period): $320.0K");
+    expect(monthly).not.toContain("normalised to a calendar month");
+    expect(monthly).not.toContain("Total operating outflows over the period");
+  });
+
+  it("divides liquid runway by a monthly figure, so it really is months", () => {
+    // burnBasis falls back to this period's total when there is no trailing
+    // history — the branch that had to be normalised by hand, since nothing
+    // else in the pipeline touches snapshot.burnRateUsd.
+    const detail = [
+      {
+        walletAddress: "0xaaa",
+        chain: "ethereum",
+        tokens: [
+          { symbol: "USDC", amount: 3_000_000, priceUsd: 1, valueUsd: 3_000_000 },
+        ],
+      },
+    ];
+    const custom = section("financial_health").userPromptFragment(
+      contextWith({ burnRateUsd: "1920000", balancesDetail: detail }, null, {
+        period: periodFromRange("2026-02-01", "2026-07-30"),
+      })
+    );
+    // $3.0M ÷ $324,666.67/mo = 9.2 months. The naive division by the period
+    // total would have said 1.6 — and called it months.
+    expect(custom).toContain("): 9.2 months");
+    expect(custom).not.toContain("): 1.6 months");
+    // And the denominator names itself honestly, rather than "this month's burn".
+    expect(custom).toContain(
+      "this period's operating outflows normalised to a calendar month (no trailing history yet)"
+    );
+  });
+
+  it("keeps the liquid runway denominator label untouched for a month", () => {
+    const detail = [
+      {
+        walletAddress: "0xaaa",
+        chain: "ethereum",
+        tokens: [
+          { symbol: "USDC", amount: 3_000_000, priceUsd: 1, valueUsd: 3_000_000 },
+        ],
+      },
+    ];
+    const monthly = section("financial_health").userPromptFragment(
+      contextWith({ burnRateUsd: "320000", balancesDetail: detail })
+    );
+    expect(monthly).toContain(
+      "- Runway (liquid reserves ÷ this month's burn (no trailing history yet)): 9.4 months"
+    );
+  });
+
+  it("says the trailing average is per-month even when the period is not", () => {
+    const trailing = [
+      { burnRateUsd: "300000" },
+      { burnRateUsd: "300000" },
+    ] as unknown as TreasurySnapshot[];
+    const custom = section("financial_health").userPromptFragment(
+      contextWith({ burnRateUsd: "1920000" }, null, { period: NINETY, trailing })
+    );
+    expect(custom).toContain(
+      "Each prior period is reduced to a calendar month before averaging"
+    );
+    const monthly = section("financial_health").userPromptFragment(
+      contextWith({ burnRateUsd: "320000" }, null, { trailing })
+    );
+    expect(monthly).not.toContain("reduced to a calendar month");
+  });
+
+  it("no longer claims the stored runway figure is not in months", () => {
+    // Phase 1 said "the figure is NOT in months at all" because it wasn't.
+    // Phase 3 made it months, so that sentence would now be the false one.
+    const fragment = section("financial_health").userPromptFragment(
+      burnCtx(NINETY)
+    );
+    expect(fragment).not.toContain("NOT in months at all");
+    expect(fragment).toContain("so it is genuinely in months");
+  });
+
+  it("gates the forecast off for a long custom period and keeps it for a month", () => {
+    const trailing = [{}, {}] as unknown as TreasurySnapshot[];
+    const forecast = section("next_period_forecast");
+    expect(forecast.requires(contextWith({}, null, { trailing }))).toBe(true);
+    expect(
+      forecast.requires(contextWith({}, null, { trailing, period: NINETY }))
+    ).toBe(false);
+  });
+
+  it("gates on 62 days exactly, and never on a calendar month's length", () => {
+    const trailing = [{}, {}] as unknown as TreasurySnapshot[];
+    const forecast = section("next_period_forecast");
+    expect(AT_LIMIT.days).toBe(62);
+    expect(
+      forecast.requires(contextWith({}, null, { trailing, period: AT_LIMIT }))
+    ).toBe(true);
+    // 63 days is one day over.
+    const over = periodFromRange("2026-05-30", "2026-07-31");
+    expect(over.days).toBe(63);
+    expect(
+      forecast.requires(contextWith({}, null, { trailing, period: over }))
+    ).toBe(false);
+    // A 31-day January is a month, never gated — the branch keys on `kind`.
+    expect(
+      forecast.requires(
+        contextWith({}, null, { trailing, period: periodOfMonth("2026-01") })
+      )
+    ).toBe(true);
+  });
+
+  it("withholds the forecast's RULES too, not just its figures", () => {
+    // buildSystemPrompt selects rules by whether userPromptFragment is
+    // non-empty, NOT by requires — so gating only `requires` would ship the
+    // model instructions for a section it had no data for. Same split-path
+    // failure the decisionLedger gate closed in Phase 1.
+    const trailing = [
+      { burnRateUsd: "300000", netFlowUsd: "-100000" },
+      { burnRateUsd: "300000", netFlowUsd: "-100000" },
+    ] as unknown as TreasurySnapshot[];
+    const detail = [
+      {
+        walletAddress: "0xaaa",
+        chain: "ethereum",
+        tokens: [
+          { symbol: "USDC", amount: 3_000_000, priceUsd: 1, valueUsd: 3_000_000 },
+        ],
+      },
+    ];
+    const enabled = resolveSections(null);
+    const monthly = contextWith({ balancesDetail: detail }, null, { trailing });
+    expect(buildSystemPrompt(enabled, monthly)).toContain(
+      "### Next Period Projection (CONDITIONAL)"
+    );
+    const custom = contextWith({ balancesDetail: detail }, null, {
+      trailing,
+      period: NINETY,
+    });
+    expect(buildSystemPrompt(enabled, custom)).not.toContain(
+      "### Next Period Projection (CONDITIONAL)"
+    );
+    expect(buildUserPrompt(custom, enabled)).not.toContain(
+      "## Mechanical projection for the next period"
+    );
+  });
+
+  it("gives the real reason on the readiness chip", () => {
+    const trailing = [{}, {}] as unknown as TreasurySnapshot[];
+    const reason = evaluateReadiness(
+      contextWith({}, null, { trailing, period: NINETY })
+    ).find((r) => r.id === "next_period_forecast")?.reason;
+    expect(reason).toContain("90 days");
+    expect(reason).toContain("Periods over 62 days are excluded");
+    // "Add more snapshots" would send the founder to fix something that is
+    // not broken — they have two.
+    expect(reason).not.toContain("Needs at least two prior snapshots");
+  });
+
+  it("still blames the snapshot count when that is what is missing", () => {
+    const reason = evaluateReadiness(
+      contextWith({}, null, { trailing: [], period: NINETY })
+    ).find((r) => r.id === "next_period_forecast")?.reason;
+    // Both causes hold; the period one is the one the founder cannot fix by
+    // syncing, so it is the one worth stating.
+    expect(reason).toContain("Periods over 62 days are excluded");
   });
 });
 

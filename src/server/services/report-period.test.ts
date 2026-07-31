@@ -6,6 +6,8 @@ import {
   matchesPeriod,
   dateInPeriod,
   monthsInPeriod,
+  monthsInDateRange,
+  DAYS_PER_MONTH,
   longGapDaysFor,
   comparablePeriods,
   assertPeriodSupported,
@@ -383,6 +385,183 @@ describe("monthsInPeriod", () => {
 
   it("makes a year twelve months", () => {
     expect(monthsInPeriod(periodFromRange("2026-01-01", "2026-12-31"))).toBeCloseTo(12, 1);
+  });
+});
+
+describe("monthsInDateRange", () => {
+  /**
+   * Exactly how `getLastMonthPeriod` (data-sync.ts:11-16) and the backfill
+   * loop (trpc/routers/projects.ts:590-595) build a period: LOCAL-time
+   * constructors, and an `end` carrying 23:59:59 rather than midnight. Every
+   * assertion below runs against that real shape, because the two ways this
+   * helper could be wrong — reading UTC fields, and subtracting raw
+   * timestamps — are both invisible against tidy midnight-to-midnight inputs.
+   */
+  function syncPeriod(
+    year: number,
+    monthIndex: number
+  ): { start: Date; end: Date } {
+    return {
+      start: new Date(year, monthIndex, 1),
+      end: new Date(year, monthIndex + 1, 0, 23, 59, 59),
+    };
+  }
+
+  it("returns EXACTLY 1 for every calendar month the sync path produces", () => {
+    // The whole point. Every snapshot this product has ever written came from
+    // one of these, so anything but exactly 1 restates published reports.
+    for (let m = 0; m < 12; m++) {
+      expect(monthsInDateRange(syncPeriod(2026, m))).toBe(1);
+    }
+    expect(monthsInDateRange(syncPeriod(2028, 1))).toBe(1); // leap February
+  });
+
+  it("does not depend on the local timezone offset of the running process", () => {
+    // The trap this helper exists for: `start` is local midnight on the 1st,
+    // which east of Greenwich is the PREVIOUS month in UTC. Reading UTC fields
+    // here — directly, or by round-tripping through toISOString() into
+    // periodFromRange — would classify a genuine calendar month as a custom
+    // range and switch normalisation on for every monthly sync in that zone.
+    const p = syncPeriod(2026, 3); // April 2026
+    expect(p.start.getDate()).toBe(1);
+    expect(monthsInDateRange(p)).toBe(1);
+    // Documented rather than asserted as a claim about the runner: whatever
+    // the offset, the local reading is the one that recovers the caller's month.
+    expect(p.start.getMonth()).toBe(3);
+    expect(p.end.getMonth()).toBe(3);
+  });
+
+  it("counts inclusive calendar days, not raw elapsed time", () => {
+    // 23:59:59 on the last day is 29.99999 days after midnight on the 1st of a
+    // 30-day month. `Math.round(elapsed / 86_400_000) + 1` reads that as 31.
+    // Anchoring both endpoints to their calendar day first is what avoids it.
+    const q = { start: new Date(2026, 1, 1), end: new Date(2026, 3, 30, 23, 59, 59) };
+    expect(monthsInDateRange(q)).toBeCloseTo(89 / DAYS_PER_MONTH, 12);
+    expect(monthsInDateRange(q)).not.toBeCloseTo(90 / DAYS_PER_MONTH, 12);
+  });
+
+  it("scales a six-month grant window to about six months", () => {
+    const w = {
+      start: new Date(2026, 1, 14),
+      end: new Date(2026, 7, 13, 23, 59, 59),
+    };
+    expect(monthsInDateRange(w)).toBeCloseTo(181 / DAYS_PER_MONTH, 12);
+    expect(monthsInDateRange(w)).toBeCloseTo(5.947, 3);
+  });
+
+  it("agrees with monthsInPeriod on the same window, month or custom", () => {
+    // The two normalisation paths must not drift: one feeds the stored
+    // runway_months column, the other every per-month figure in the report.
+    expect(monthsInDateRange(syncPeriod(2026, 0))).toBe(
+      monthsInPeriod(periodOfMonth("2026-01"))
+    );
+    expect(
+      monthsInDateRange({
+        start: new Date(2026, 1, 14),
+        end: new Date(2026, 6, 31, 23, 59, 59),
+      })
+    ).toBeCloseTo(monthsInPeriod(periodFromRange("2026-02-14", "2026-07-31")), 12);
+  });
+
+  it("treats a partial month as the days it covers, not as a month", () => {
+    // Starts on the 1st but stops early — month-shaped at one end only.
+    const half = { start: new Date(2026, 3, 1), end: new Date(2026, 3, 15, 23, 59, 59) };
+    expect(monthsInDateRange(half)).toBeCloseTo(15 / DAYS_PER_MONTH, 12);
+  });
+
+  it("is 1 for a single day, so a one-day window cannot explode the runway", () => {
+    const day = { start: new Date(2026, 3, 10), end: new Date(2026, 3, 10, 23, 59, 59) };
+    expect(monthsInDateRange(day)).toBeCloseTo(1 / DAYS_PER_MONTH, 12);
+  });
+
+  it("falls back to 1 — never NaN, never a throw — on unusable input", () => {
+    // This runs inside a sync about to persist runway_months. NaN would reach
+    // a numeric column the dashboard charts; a throw would cost the snapshot.
+    // 1 degrades to the arithmetic the line used before normalisation existed.
+    expect(monthsInDateRange({ start: new Date("nope"), end: new Date(2026, 3, 30) })).toBe(1);
+    expect(monthsInDateRange({ start: new Date(2026, 3, 1), end: new Date("nope") })).toBe(1);
+    expect(
+      monthsInDateRange({ start: new Date(2026, 3, 30), end: new Date(2026, 3, 1) })
+    ).toBe(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(monthsInDateRange({ start: "2026-04-01", end: "2026-04-30" } as any)).toBe(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(monthsInDateRange(undefined as any)).toBe(1);
+  });
+});
+
+describe("the stored runway derivation (transaction-sync.ts fetchAndClassify)", () => {
+  /**
+   * A local restatement of the one line this helper exists to serve:
+   *
+   *     const periodMonths = monthsInDateRange(period);
+   *     const burnPerMonthUsd = burnRateUsd / periodMonths;
+   *     runwayMonths = burnRateUsd > 0 ? totalBalanceUsd / burnPerMonthUsd : null;
+   *
+   * transaction-sync.ts reaches Alchemy, the classifier and price-resolver at
+   * module scope and is not unit-testable in this suite (no existing test
+   * imports it). Pinning the arithmetic here is what stops the unit of
+   * `runway_months` from silently changing again — the column is charted on
+   * the dashboard tile and read as months by anomalies.ts.
+   */
+  function storedRunway(
+    totalBalanceUsd: number,
+    burnRateUsd: number,
+    period: { start: Date; end: Date }
+  ): number | null {
+    const burnPerMonthUsd = burnRateUsd / monthsInDateRange(period);
+    return burnRateUsd > 0 ? totalBalanceUsd / burnPerMonthUsd : null;
+  }
+
+  const APRIL_SYNC = {
+    start: new Date(2026, 3, 1),
+    end: new Date(2026, 3, 30, 23, 59, 59),
+  };
+  const JANUARY_SYNC = {
+    start: new Date(2026, 0, 1),
+    end: new Date(2026, 0, 31, 23, 59, 59),
+  };
+  /** 2026-02-01 → 2026-07-30 inclusive: 180 days. */
+  const SIX_MONTH_SYNC = {
+    start: new Date(2026, 1, 1),
+    end: new Date(2026, 6, 30, 23, 59, 59),
+  };
+
+  it("leaves a calendar month's runway exactly where it was", () => {
+    // The naive figure and the normalised one must be the SAME NUMBER, not
+    // close: this is what every snapshot in the database was written with.
+    expect(storedRunway(8_500_000, 320_000, APRIL_SYNC)).toBe(
+      8_500_000 / 320_000
+    );
+    expect(storedRunway(8_500_000, 320_000, JANUARY_SYNC)).toBe(
+      8_500_000 / 320_000
+    );
+  });
+
+  it("makes a 180-day period's runway ~6x the naive figure, because it is", () => {
+    // The bug: $1.92M spent over 180 days against an $8.5M treasury is 2.7
+    // "periods" of runway — which the column would have called 2.7 MONTHS.
+    // It is really about 16 months.
+    const naive = 8_500_000 / 1_920_000;
+    const normalised = storedRunway(8_500_000, 1_920_000, SIX_MONTH_SYNC);
+    expect(naive).toBeCloseTo(4.43, 2);
+    expect(normalised).toBeCloseTo(26.18, 2);
+    expect(normalised! / naive).toBeCloseTo(180 / DAYS_PER_MONTH, 6);
+  });
+
+  it("still returns null rather than 0 or Infinity when nothing was spent", () => {
+    expect(storedRunway(8_500_000, 0, SIX_MONTH_SYNC)).toBeNull();
+    expect(storedRunway(8_500_000, 0, APRIL_SYNC)).toBeNull();
+  });
+});
+
+describe("DAYS_PER_MONTH", () => {
+  it("is 365.25/12 and is the only definition of a month length", () => {
+    // Exported so burn-metrics.ts can normalise against the same value. Two
+    // copies would let the trailing average and the current period's runway be
+    // denominated differently inside one report, with nothing failing.
+    expect(DAYS_PER_MONTH).toBe(30.4375);
+    expect(DAYS_PER_MONTH).toBe(365.25 / 12);
   });
 });
 

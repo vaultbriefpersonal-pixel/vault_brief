@@ -45,6 +45,7 @@ import type { TreasuryComposition } from "./treasury-composition";
 import {
   longGapDaysFor,
   matchesPeriod,
+  monthsInPeriod,
   type ReportPeriod,
 } from "./report-period";
 import { decisionLedger, evidenceOf, formatEvidenceItems } from "./report-evidence";
@@ -211,7 +212,7 @@ function previousPeriodPhrase(period: ReportPeriod): string {
 function storedRunwayLabel(period: ReportPeriod): string {
   return isMonthly(period)
     ? "Runway (total treasury ÷ this month's burn)"
-    : "Runway (total treasury ÷ this period's operating outflows)";
+    : "Runway (total treasury ÷ this period's operating outflows, normalised to a calendar month)";
 }
 
 /**
@@ -417,7 +418,7 @@ function headlineLines(ctx: ReportSectionContext): string[] {
       lines.push(
         `- Runway (liquid reserves ${formatUsd(
           liquidReservesUsd(liq)
-        )} ÷ ${burnBasisLabel(basis)} ${formatUsd(
+        )} ÷ ${burnBasisLabel(basis, ctx.period)} ${formatUsd(
           basis.avgUsd
         )}): ${months.toFixed(1)} months`
       );
@@ -808,7 +809,10 @@ const treasuryConcentration: ReportSection = {
       lines.push(
         `- Stablecoin cover: ${cover.toFixed(
           1
-        )} months of spending at the ${burnBasisLabel(basis)} of ${formatUsd(
+        )} months of spending at the ${burnBasisLabel(
+          basis,
+          ctx.period
+        )} of ${formatUsd(
           basis.avgUsd
         )}`
       );
@@ -1044,16 +1048,27 @@ const financialHealth: ReportSection = {
     if (snapshot.burnRateUsd) {
       // The stored column is this period's operating outflows. Calling it a
       // MONTHLY burn rate is true by construction while every period is a
-      // calendar month, and false the moment one is not — normalising the
-      // figure itself is a later phase, so this branch only stops the label
-      // from asserting a denominator the number does not have.
-      lines.push(
-        isMonthly(ctx.period)
-          ? `- Monthly burn rate (this period): ${formatUsd(currentBurn)}`
-          : `- Operating outflows over the reporting period (${ctx.period.days} days, ${ctx.period.start} to ${ctx.period.end}): ${formatUsd(
-              currentBurn
-            )} — this is a PERIOD TOTAL, not a monthly rate. Do not describe it as monthly burn.`
-      );
+      // calendar month, and false the moment one is not — so a custom period
+      // gets BOTH figures, each naming its own denominator out loud. One
+      // figure alone forces the model to choose, and either choice is wrong
+      // for half the sentences it has to write: the period total is what
+      // "spent over the period" means, the normalised figure is what "per
+      // month" means, and neither substitutes for the other.
+      if (isMonthly(ctx.period)) {
+        lines.push(`- Monthly burn rate (this period): ${formatUsd(currentBurn)}`);
+      } else {
+        const periodMonths = monthsInPeriod(ctx.period);
+        lines.push(
+          `- Total operating outflows over the period (${ctx.period.days} days, ${ctx.period.start} to ${ctx.period.end}): ${formatUsd(
+            currentBurn
+          )} — this is a PERIOD TOTAL, not a monthly rate. Do not describe it as monthly burn.`,
+          `- Burn rate normalised to a calendar month: ${formatUsd(
+            currentBurn / periodMonths
+          )} — the same outflows divided by the ${periodMonths.toFixed(
+            2
+          )} calendar months this period covers. Use THIS figure for anything stated per month, and the period total above for anything stated over the period. Never present the two as separate findings; they are one number under two denominators.`
+        );
+      }
     }
 
     if (basis.source === "trailing") {
@@ -1066,6 +1081,10 @@ const financialHealth: ReportSection = {
           basis.monthsUsed < TRAILING_BURN_MONTHS
             ? ". THIN SAMPLE — say how many periods it covers whenever you quote a figure derived from it"
             : ""
+        }${
+          isMonthly(ctx.period)
+            ? ""
+            : ". Each prior period is reduced to a calendar month before averaging, so this IS a per-month figure even though the current reporting period is not one month long"
         }`
       );
       const trend = burnTrend(currentBurn, basis.avgUsd);
@@ -1088,7 +1107,7 @@ const financialHealth: ReportSection = {
         )} months — an UPPER BOUND only: it counts the project's own token and every unrecognised asset as spendable, and divides by ${
           isMonthly(ctx.period)
             ? "a single month"
-            : `a single ${ctx.period.days}-day period rather than by a month, so the figure is NOT in months at all`
+            : `this ${ctx.period.days}-day period's operating outflows normalised to a calendar month, so it is genuinely in months but rests on a single period's spending`
         }`
       );
     } else if (currentBurn <= 0) {
@@ -1115,7 +1134,8 @@ const financialHealth: ReportSection = {
       if (months != null) {
         lines.push(
           `- Runway (liquid reserves ÷ ${burnBasisLabel(
-            basis
+            basis,
+            ctx.period
           )}): ${months.toFixed(
             1
           )} months — the conservative figure, and the one to lead with`
@@ -1832,6 +1852,45 @@ function trailingNetFlow(ctx: ReportSectionContext): {
   };
 }
 
+/**
+ * The longest custom period that may still be rolled forward: two months.
+ *
+ * A 90-day period is already too coarse — projecting it forward projects the
+ * next 90 days, and no averaging over prior periods of that length exists to
+ * damp it. 62 days is two 31-day months, the point at which "one period" stops
+ * being the unit the trailing average was built from.
+ */
+const FORECAST_MAX_CUSTOM_DAYS = 62;
+
+/**
+ * Is this period too long to extend forward honestly?
+ *
+ * The section's own comment forbids "dressing a single month up as a trend",
+ * and requires two prior periods to guard against it. That guard counts
+ * periods and says nothing about their length — so a project with two prior
+ * six-month windows clears it and the block would project a six-month average
+ * six months forward, which is the very same error at six times the scale and
+ * over a horizon where the ASSUMPTIONS block ("prices stay exactly where they
+ * were", "no new hires, no annual invoices") is not merely optimistic but
+ * certain to be false.
+ *
+ * Keyed on `kind === "custom"` and not on length alone, matching the discipline
+ * every other period branch here follows: a calendar month is never gated, at
+ * any of its lengths.
+ *
+ * Shared by `requires` and `userPromptFragment` — the same idiom as
+ * `concentrationOrThinCoverTriggered` above, and for a sharper reason here.
+ * `buildSystemPrompt` selects a section's RULES by whether its
+ * `userPromptFragment` is non-empty, NOT by `requires`, so gating only
+ * `requires` would drop the projection's figures while its instructions
+ * ("Open by naming what this is: a mechanical projection…") still reached the
+ * model, telling it to render a section it had no data for. That is the same
+ * split-path failure the `decisionLedger` gate was added to close.
+ */
+function periodTooCoarseToRollForward(period: ReportPeriod): boolean {
+  return period.kind === "custom" && period.days > FORECAST_MAX_CUSTOM_DAYS;
+}
+
 const nextPeriodForecast: ReportSection = {
   id: "next_period_forecast",
   title: "Next Period Projection",
@@ -1840,9 +1899,15 @@ const nextPeriodForecast: ReportSection = {
   defaultEnabled: true,
   // Two prior periods is the floor at which "trailing average" means anything
   // at all. One period is not an average, and projecting it forward would
-  // dress a single month up as a trend.
-  requires: (ctx) => ctx.trailing.length >= 2,
+  // dress a single month up as a trend. The second clause is the same
+  // objection in the other dimension — see `periodTooCoarseToRollForward`.
+  requires: (ctx) =>
+    ctx.trailing.length >= 2 && !periodTooCoarseToRollForward(ctx.period),
   userPromptFragment: (ctx) => {
+    // Repeated from `requires` on purpose — buildSystemPrompt reads this
+    // function, not the gate, when deciding whether to ship the section's
+    // rules. See `periodTooCoarseToRollForward`.
+    if (periodTooCoarseToRollForward(ctx.period)) return "";
     const liq = liquidityOf(ctx);
     const basis = burnBasis(ctx);
     const flow = trailingNetFlow(ctx);
@@ -1872,7 +1937,9 @@ const nextPeriodForecast: ReportSection = {
       )} per period, averaged over the ${flow.monthsUsed} prior period${
         flow.monthsUsed === 1 ? "" : "s"
       } that recorded a net flow figure`,
-      `- Burn basis — ${burnBasisLabel(basis)}: ${formatUsd(basis.avgUsd)}`,
+      `- Burn basis — ${burnBasisLabel(basis, ctx.period)}: ${formatUsd(
+        basis.avgUsd
+      )}`,
       `- Spendable liquid reserves today (${ctx.snapshot.snapshotDate}): ${formatUsd(
         reserves
       )}`,
@@ -1919,6 +1986,14 @@ const nextPeriodForecast: ReportSection = {
 - If the input says the projection breaks down or the projected figure is negative, say that the trailing average cannot be extended this far — never report a negative balance, a runway of zero, or a date the project runs out of money.
 - State the extended figures only. Operational commentary — whether to raise, cut, extend, or diversify anything — belongs in the Recommendations section, not here.`,
   notReadyHint: "Needs at least two prior snapshots to average.",
+  // A section can be unavailable here for two unrelated reasons, and the chip
+  // has to give the right one: "add more snapshots" is actionable, and telling
+  // a grant reporter that when the real cause is the length of their window
+  // sends them to fix something that is not broken.
+  notReadyHintFor: (ctx) =>
+    periodTooCoarseToRollForward(ctx.period)
+      ? `Not projected for a reporting period this long. This one covers ${ctx.period.days} days, and rolling its average forward would project the next ${ctx.period.days} days from a single window — presenting one long period as an established trend, which is the error the two-snapshot minimum exists to prevent. Periods over ${FORECAST_MAX_CUSTOM_DAYS} days are excluded; calendar months never are.`
+      : "Needs at least two prior snapshots to average.",
 };
 
 const recommendations: ReportSection = {
