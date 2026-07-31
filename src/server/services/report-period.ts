@@ -312,6 +312,149 @@ export function periodFromSnapshot(snapshot: SnapshotPeriodLike): ReportPeriod {
   return periodFromRange(isoDay(startMs), isoDay(endMs));
 }
 
+/**
+ * The value to store in `treasury_snapshots.period_start` for a sync, derived
+ * so the stored pair `(period_start, snapshot_date)` reads back as the window
+ * that was actually measured.
+ *
+ * THIS IS NOT `range.start.toISOString().split("T")[0]`, and the difference is
+ * the whole reason this function exists rather than being one inline
+ * expression at the call site.
+ *
+ * `snapshot_date` is `range.end.toISOString().split("T")[0]` — a LOCAL Date
+ * (see `monthsInDateRange`) projected onto a UTC day. Applying the same
+ * projection to `range.start` is "the same conversion", but it does not give
+ * the same window: at UTC+2, June's local period converts to
+ * `2026-05-31 … 2026-06-30`, which is 31 days and `kind: "custom"`. Storing
+ * that would switch per-month normalisation ON for an ordinary monthly sync in
+ * every timezone east of Greenwich and restate its burn by 1.8% — the exact
+ * regression the calendar-month exemption exists to prevent.
+ *
+ * So: when the range IS a calendar month (decided on the local components it
+ * was built from, by `monthsInDateRange`), the start is derived FROM
+ * `snapshot_date` itself — the first day of its month. That is the strongest
+ * form of "consistent with `snapshotDate`" available: the stored pair is then
+ * bit-for-bit the pair `periodFromSnapshot` already reconstructs from a NULL
+ * column, in every timezone. Writing the column can therefore never change
+ * what an existing monthly report says.
+ *
+ * The pre-existing local-vs-UTC skew in `snapshot_date` is deliberately NOT
+ * fixed here — at UTC-5 a June period still stores `snapshot_date` of July 1st,
+ * and this function faithfully reproduces the same period the NULL fallback
+ * already yields for it. Correcting that would change `snapshot_date` for
+ * existing users and belongs to its own task.
+ *
+ * For a range that is not a calendar month, there is no month to defer to and
+ * the UTC projection of `range.start` is the best available answer.
+ *
+ * Throws only if `snapshotDate` is unparseable, which is unreachable from the
+ * sync path: the caller derives it from `range.end.toISOString()`, and that
+ * throws first on an invalid Date.
+ */
+export function snapshotPeriodStart(
+  range: { start: Date; end: Date },
+  snapshotDate: string | Date
+): string {
+  const endMs = utcDayMs(snapshotDate);
+  if (endMs === null) {
+    throw new Error(
+      `report-period: unparseable snapshotDate ${JSON.stringify(
+        snapshotDate
+      )} — cannot derive period_start`
+    );
+  }
+  const end = new Date(endMs);
+  const firstOfEndMonth = isoDay(
+    Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1)
+  );
+  if (monthsInDateRange(range) === 1) return firstOfEndMonth;
+
+  const startMs = utcDayMs(range?.start);
+  // A start that will not parse, or that lands after the end, would build an
+  // impossible period. Degrading to the calendar month reproduces the NULL
+  // fallback, which is the meaning every row in the table already carries.
+  if (startMs === null || startMs > endMs) return firstOfEndMonth;
+  return isoDay(startMs);
+}
+
+export type SnapshotPeriodCheck =
+  | { ok: true }
+  | {
+      ok: false;
+      snapshotDate: string;
+      existingStart: string;
+      incomingStart: string;
+      reason: string;
+    };
+
+/**
+ * Would writing `incoming` over `existing` silently change the window an
+ * already-stored snapshot describes?
+ *
+ * `treasury_snapshots` is unique on `(project_id, snapshot_date)` and
+ * data-sync.ts upserts against that index. Two reporting periods that END on
+ * the same day — a monthly snapshot and a grant window both dated today —
+ * therefore collide, and the second overwrites the first. That is not a lost
+ * row: any report whose `snapshot_id` points at it now references flows for a
+ * DIFFERENT window, which the report page widgets, the PDF charts and the
+ * email KPI block all read and none of them can detect.
+ *
+ * The database cannot catch this yet: widening the unique key would invalidate
+ * the deployed `ON CONFLICT` target the instant the DDL landed, so it is a
+ * separate three-step migration. Until then this predicate is the guard, and
+ * it lives here — pure, import-free, unit-tested — because data-sync.ts
+ * imports `db` and nothing in it can be tested at all. Same reasoning that put
+ * the sampling rule in transaction-sample.ts.
+ *
+ * A NULL stored `period_start` DOES NOT WAIVE THE CHECK. It is resolved
+ * through `periodFromSnapshot` to the calendar month ending on its
+ * `snapshot_date` — which is what that NULL means, not a hole in the data —
+ * and compared on that. Waiving it instead would let the single most likely
+ * instance of the bug straight through: today every row in the table is
+ * pre-backfill, so a grant window landing on a pre-existing monthly snapshot's
+ * date is exactly the collision the guard was written for.
+ *
+ * Re-syncing the SAME period is not a conflict and must keep upserting — that
+ * is the existing, desirable behaviour (see data-sync.ts's note that re-syncs
+ * have to overwrite derived fields, or expense breakdowns get stuck on the
+ * first sync of the day).
+ *
+ * NEVER THROWS, and fails OPEN on anything unparseable: this gates a write
+ * that is otherwise fine, and refusing a whole sync over a value that failed a
+ * regex is the worse error. Both inputs come from `date` columns in practice.
+ * A missing `existing` (no row at that date yet) is likewise `ok`.
+ */
+export function snapshotPeriodConflicts(
+  existing: SnapshotPeriodLike | null | undefined,
+  incoming: SnapshotPeriodLike
+): SnapshotPeriodCheck {
+  if (!existing || !incoming) return { ok: true };
+  let existingPeriod: ReportPeriod;
+  let incomingPeriod: ReportPeriod;
+  try {
+    existingPeriod = periodFromSnapshot(existing);
+    incomingPeriod = periodFromSnapshot(incoming);
+  } catch {
+    return { ok: true };
+  }
+  // Different end dates are different rows — the upsert will not collide, so
+  // there is nothing here to overwrite.
+  if (existingPeriod.end !== incomingPeriod.end) return { ok: true };
+  if (existingPeriod.start === incomingPeriod.start) return { ok: true };
+  return {
+    ok: false,
+    snapshotDate: existingPeriod.end,
+    existingStart: existingPeriod.start,
+    incomingStart: incomingPeriod.start,
+    reason:
+      `A snapshot dated ${existingPeriod.end} already exists for a different ` +
+      `reporting period (${existingPeriod.label}, starting ${existingPeriod.start}). ` +
+      `This sync covers ${incomingPeriod.label}, starting ${incomingPeriod.start}. ` +
+      "Overwriting it would silently change the data under an existing report, " +
+      "which would keep pointing at this snapshot while describing a different window.",
+  };
+}
+
 // ─── membership ────────────────────────────────────────────────────────────
 
 /**
@@ -518,6 +661,83 @@ export function longGapDaysFor(period: ReportPeriod): number {
  */
 export function comparablePeriods(a: ReportPeriod, b: ReportPeriod): boolean {
   return Math.abs(a.days - b.days) <= Math.max(7, 0.25 * a.days);
+}
+
+/**
+ * The prior snapshots that may legitimately be averaged with, and compared
+ * against, the current period — most-recent-first, capped at `limit`.
+ *
+ * The generator used to take `ORDER BY snapshot_date DESC LIMIT 3` and hand
+ * the result straight to `trailingAverageBurn`, month-over-month and anomaly
+ * detection. That is correct exactly as long as every snapshot is a month. Put
+ * one 181-day grant window in the same table and the query happily returns it
+ * as the "previous month", producing a burn trend, a delta and an anomaly
+ * baseline built from windows six times apart — the same class of error
+ * burn-metrics.ts exists to prevent, arriving through a different door.
+ *
+ * The caller therefore OVER-FETCHES (a wide `LIMIT`, ordered by date) and
+ * filters here, rather than filtering in SQL: comparability is a property of
+ * the period, and the period of a pre-migration row is not in the row at all —
+ * it is reconstructed by `periodFromSnapshot`. Doing it in JS is what makes
+ * this behave identically before and after the backfill.
+ *
+ * FOR MONTHLY SNAPSHOTS THIS IS THE IDENTITY. Any two calendar months are
+ * comparable (28 vs 31 days is 3, against a floor of 7), so the first three
+ * candidates survive and today's behaviour is unchanged. For a project's first
+ * grant-window report the result is empty, which cleanly gates off
+ * month-over-month, the forecast and anomalies — correct, not a loss.
+ *
+ * Candidates whose date will not parse are skipped rather than thrown on: this
+ * runs inside report generation, where one malformed row must not cost the
+ * whole report.
+ */
+export function comparableTrailing<T extends SnapshotPeriodLike>(
+  current: ReportPeriod,
+  candidates: readonly T[] | null | undefined,
+  limit = 3
+): T[] {
+  if (!Array.isArray(candidates) || limit <= 0) return [];
+  const out: T[] = [];
+  for (const candidate of candidates) {
+    if (out.length >= limit) break;
+    let period: ReportPeriod;
+    try {
+      period = periodFromSnapshot(candidate);
+    } catch {
+      continue;
+    }
+    if (comparablePeriods(current, period)) out.push(candidate);
+  }
+  return out;
+}
+
+/**
+ * `BurnSnapshotLike.periodDays` for a stored snapshot — or `undefined`, which
+ * that field defines as "exactly one month".
+ *
+ * UNDEFINED FOR A CALENDAR MONTH, and that is the entire point of routing
+ * through here instead of computing `snapshot_date − period_start` at the call
+ * site. A raw day count cannot express the calendar-month exemption: 31 is
+ * both a January and an arbitrary 31-day window, and burn-metrics.ts cannot
+ * tell them apart. Passing `periodDays: 31` for a January would divide its
+ * burn by 1.0185 and restate every already-published 31-day report by 1.8%.
+ * This is `monthsInPeriod`'s short-circuit expressed in the units that field
+ * takes.
+ *
+ * Undefined too for anything unparseable — a row with no usable date falls
+ * back to the pre-existing arithmetic rather than poisoning an average.
+ */
+export function burnPeriodDays(
+  snapshot: SnapshotPeriodLike | null | undefined
+): number | undefined {
+  if (!snapshot) return undefined;
+  let period: ReportPeriod;
+  try {
+    period = periodFromSnapshot(snapshot);
+  } catch {
+    return undefined;
+  }
+  return period.kind === "month" ? undefined : period.days;
 }
 
 // ─── support gate ──────────────────────────────────────────────────────────

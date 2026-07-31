@@ -1,7 +1,11 @@
 import * as Sentry from "@sentry/nextjs";
 import { db } from "@/server/db";
 import { projects, wallets, treasurySnapshots } from "@/server/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import {
+  snapshotPeriodConflicts,
+  snapshotPeriodStart,
+} from "./report-period";
 import { fetchAllBalances, fetchTokenMetrics } from "./wallet-sync";
 import { fetchAndClassify } from "./transaction-sync";
 import { buildTransactionSample } from "./transaction-sample";
@@ -23,6 +27,46 @@ export async function createMonthlySnapshot(
     where: eq(projects.id, projectId),
   });
   if (!project) throw new Error(`Project ${projectId} not found`);
+
+  const snapshotDate = period.end.toISOString().split("T")[0];
+  // The other end of the same window. Derived through `snapshotPeriodStart`
+  // rather than as `period.start.toISOString().split("T")[0]`, because the
+  // naive projection turns an ordinary monthly sync into a 31-day CUSTOM
+  // period in any timezone east of Greenwich and restates its burn by 1.8% —
+  // read that function's header, it owns the reasoning. For a calendar month
+  // it returns exactly what `periodFromSnapshot` already reconstructs from a
+  // NULL column, so writing this cannot change any existing report.
+  const periodStart = snapshotPeriodStart(period, snapshotDate);
+
+  // Collision guard, checked BEFORE the fetches below rather than beside the
+  // upsert, so a refusal costs one indexed lookup instead of a full round of
+  // Alchemy, GitHub and price-feed calls.
+  //
+  // The unique index is on (project_id, snapshot_date) alone, so two reporting
+  // periods that END on the same day — a monthly snapshot and a grant window
+  // both dated today — map to the same row and the second silently overwrites
+  // the first. Any report already pointing at that snapshot then describes a
+  // different window, and nothing downstream can tell. Widening the index is a
+  // separate migration (it would break this very `ON CONFLICT` target the
+  // instant it landed), so the refusal lives here.
+  //
+  // The decision itself is `snapshotPeriodConflicts` in report-period.ts —
+  // pure and unit-tested, because this file imports `db` and cannot be tested
+  // at all. A NULL stored `period_start` is resolved to the calendar month it
+  // means, not waived; re-syncing the SAME period is not a conflict and still
+  // upserts, which the `set:` on the upsert depends on.
+  const existingSnapshot = await db.query.treasurySnapshots.findFirst({
+    where: and(
+      eq(treasurySnapshots.projectId, projectId),
+      eq(treasurySnapshots.snapshotDate, snapshotDate)
+    ),
+    columns: { snapshotDate: true, periodStart: true },
+  });
+  const periodCheck = snapshotPeriodConflicts(existingSnapshot, {
+    snapshotDate,
+    periodStart,
+  });
+  if (!periodCheck.ok) throw new Error(periodCheck.reason);
 
   const walletList = await db.query.wallets.findMany({
     where: eq(wallets.projectId, projectId),
@@ -54,8 +98,6 @@ export async function createMonthlySnapshot(
           () => null
         )
       : null;
-
-  const snapshotDate = period.end.toISOString().split("T")[0];
 
   // Which transfer legs get persisted, and whether anything was left out, is
   // decided by transaction-sample.ts — pure and unit-tested, because this
@@ -92,6 +134,7 @@ export async function createMonthlySnapshot(
   const snapshotValues = {
     projectId,
     snapshotDate,
+    periodStart,
     totalBalanceUsd: balances.totalBalanceUsd.toFixed(2),
     stablecoinsUsd: balances.stablecoinsUsd.toFixed(2),
     ethUsd: balances.ethUsd.toFixed(2),
