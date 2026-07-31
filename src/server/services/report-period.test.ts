@@ -653,24 +653,43 @@ describe("assertPeriodSupported", () => {
     expect(assertPeriodSupported(p, "2026-08-02").ok).toBe(true);
   });
 
-  it("refuses the day tolerance runs out", () => {
-    expect(assertPeriodSupported(periodOfMonth("2026-07"), "2026-08-03").ok).toBe(false);
+  // P3.1 changed the rule this gate expresses. A past period is no longer
+  // refused for being past — `projects.sync` reconstructs its balances and
+  // discloses them — so the only remaining refusal is a period ending beyond
+  // what any sync in this product can walk back to.
+  it("accepts a period that ended weeks ago, now that it can be reconstructed", () => {
+    expect(assertPeriodSupported(periodOfMonth("2026-07"), "2026-08-03").ok).toBe(true);
+    expect(assertPeriodSupported(periodOfMonth("2026-04"), "2026-07-31").ok).toBe(true);
   });
 
-  it("refuses a past period with the real cause, not a generic error", () => {
-    // Balances are read live (fetchAllBalances takes no period argument), so a
-    // report for Q3 2025 would print today's balances under a 2025 date with
-    // nothing in the output saying so.
+  it("accepts a period at the edge of the reconstruction horizon", () => {
+    // 12 months * 30.4375 = 365.25 days of tolerance from the period's end.
+    expect(
+      assertPeriodSupported(periodFromRange("2025-08-01", "2025-08-31"), "2026-07-31").ok
+    ).toBe(true);
+  });
+
+  it("refuses a period beyond the reconstruction horizon, with the real cause", () => {
     const result = assertPeriodSupported(
-      periodFromRange("2025-07-01", "2025-09-30"),
+      periodFromRange("2024-07-01", "2024-09-30"),
       "2026-07-31"
     );
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");
-    expect(result.code).toBe("PAST_PERIOD_UNSUPPORTED");
-    expect(result.reason).toContain("2025-09-30");
-    expect(result.reason).toContain("read live from chain");
-    expect(result.reason).toContain("Historical reconstruction is planned");
+    expect(result.code).toBe("PERIOD_BEYOND_RECONSTRUCTION");
+    expect(result.reason).toContain("2024-09-30");
+    expect(result.reason).toContain("12 months");
+    expect(result.reason).toContain("walked backwards");
+  });
+
+  it("no longer names historical reconstruction as the blocker — it exists now", () => {
+    const result = assertPeriodSupported(
+      periodFromRange("2020-01-01", "2020-01-31"),
+      "2026-07-31"
+    );
+    if (result.ok) throw new Error("unreachable");
+    expect(result.reason).not.toContain("Historical reconstruction is planned");
+    expect(result.reason).not.toContain("read live from chain");
   });
 
   it("allows a period ending in the future — a different problem, not this gate's", () => {

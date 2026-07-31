@@ -263,6 +263,170 @@ describe("treasury growth as a positive — the gate", () => {
   });
 });
 
+// ─── the reconstruction gate (P3.1) ────────────────────────────────────────
+//
+// A reconstructed baseline must never produce a win. Everything the walk-back
+// cannot see pushes the reconstructed opening balance DOWN, so an apparent
+// increase from it is exactly what a systematically understated starting point
+// produces.
+
+describe("balance basis — a reconstructed snapshot cannot produce a win", () => {
+  /** The same flow-driven growth the first suite asserts DOES emit a positive. */
+  function growthPair(over: Partial<TreasurySnapshot> = {}) {
+    const prev = snapshot({
+      id: "s0",
+      snapshotDate: "2026-03-31",
+      totalBalanceUsd: "1000000",
+      balancesDetail: detail([{ symbol: "USDC", amount: 1_000_000, priceUsd: 1 }]),
+      ...over,
+    } as Partial<TreasurySnapshot>);
+    const curr = snapshot({
+      totalBalanceUsd: "1200000",
+      netFlowUsd: "200000",
+      tokenHoldersCount: 5000,
+      balancesDetail: detail([{ symbol: "USDC", amount: 1_200_000, priceUsd: 1 }]),
+    } as Partial<TreasurySnapshot>);
+    return { prev, curr };
+  }
+
+  it("still emits the win when both sides are observed — the baseline case", () => {
+    const { prev, curr } = growthPair();
+    const { positives } = buildEvidenceLedger(
+      ctxOf({ snapshot: curr, prevSnapshot: prev })
+    );
+    expect(ids(positives)).toContain("treasury-growth-flow");
+  });
+
+  it("treats a NULL balance_basis as observed — every existing row", () => {
+    const { prev, curr } = growthPair();
+    expect(prev.balanceBasis).toBeUndefined();
+    const { positives } = buildEvidenceLedger(
+      ctxOf({ snapshot: curr, prevSnapshot: prev })
+    );
+    expect(ids(positives)).toContain("treasury-growth-flow");
+  });
+
+  it("suppresses the win when the BASELINE was reconstructed", () => {
+    const { prev, curr } = growthPair({
+      balanceBasis: "reconstructed",
+    } as Partial<TreasurySnapshot>);
+    const { positives } = buildEvidenceLedger(
+      ctxOf({ snapshot: curr, prevSnapshot: prev })
+    );
+    expect(ids(positives)).not.toContain("treasury-growth-flow");
+  });
+
+  it("suppresses the win when the CURRENT snapshot was reconstructed", () => {
+    const { prev, curr } = growthPair();
+    const reconstructedCurr = snapshot({
+      ...curr,
+      balanceBasis: "reconstructed",
+    } as Partial<TreasurySnapshot>);
+    const { positives } = buildEvidenceLedger(
+      ctxOf({ snapshot: reconstructedCurr, prevSnapshot: prev })
+    );
+    expect(ids(positives)).not.toContain("treasury-growth-flow");
+  });
+
+  it("suppresses the win when only a TRAILING snapshot was reconstructed", () => {
+    const { prev, curr } = growthPair();
+    const older = snapshot({
+      id: "s-1",
+      snapshotDate: "2026-02-28",
+      balanceBasis: "reconstructed",
+    } as Partial<TreasurySnapshot>);
+    const { positives } = buildEvidenceLedger(
+      ctxOf({ snapshot: curr, prevSnapshot: prev, trailing: [prev, older] })
+    );
+    expect(ids(positives)).not.toContain("treasury-growth-flow");
+  });
+
+  it("suppresses holder growth too — it comes from a current-value-only feed", () => {
+    const { prev, curr } = growthPair({
+      tokenHoldersCount: 4000,
+      balanceBasis: "reconstructed",
+    } as Partial<TreasurySnapshot>);
+    const { positives } = buildEvidenceLedger(
+      ctxOf({ snapshot: curr, prevSnapshot: prev })
+    );
+    expect(ids(positives)).not.toContain("token-holders-up");
+  });
+
+  it("does NOT suppress a completed milestone — it owes nothing to the walk-back", () => {
+    const { prev, curr } = growthPair({
+      balanceBasis: "reconstructed",
+    } as Partial<TreasurySnapshot>);
+    const { positives } = buildEvidenceLedger(
+      ctxOf({
+        snapshot: curr,
+        prevSnapshot: prev,
+        milestones: [
+          {
+            id: "m1",
+            title: "Audit closed",
+            status: "completed",
+            completedDate: "2026-04-12",
+          },
+        ] as ReportSectionContext["milestones"],
+      })
+    );
+    expect(ids(positives)).toContain("milestone-completed-0");
+  });
+
+  it("does NOT suppress negatives — a false concern errs toward caution", () => {
+    const prev = snapshot({
+      id: "s0",
+      snapshotDate: "2026-03-31",
+      balanceBasis: "reconstructed",
+      balancesDetail: detail([{ symbol: "USDC", amount: 1_000_000, priceUsd: 1 }]),
+    } as Partial<TreasurySnapshot>);
+    const curr = snapshot({
+      totalBalanceUsd: "1000000",
+      burnRateUsd: "500000",
+      balancesDetail: detail([
+        { symbol: "OWN", amount: 1_000_000, priceUsd: 1, contractAddress: null },
+      ]),
+    } as Partial<TreasurySnapshot>);
+    const { negatives } = buildEvidenceLedger(
+      ctxOf({
+        snapshot: curr,
+        prevSnapshot: prev,
+        project: project({ tokenSymbol: "OWN" }),
+      })
+    );
+    expect(ids(negatives)).toContain("concentration-high");
+  });
+
+  it("tags the decision-ledger's balance-derived entries so Recommendations cannot quote them bare", () => {
+    // decisionLedger is a SECOND path to the reader — it bypasses `requires`
+    // entirely — so the disclosure has to be applied here as well.
+    const curr = snapshot({
+      balanceBasis: "reconstructed",
+      burnRateUsd: "100000",
+      balancesDetail: detail([{ symbol: "USDC", amount: 1_000_000, priceUsd: 1 }]),
+    } as Partial<TreasurySnapshot>);
+    const entries = decisionLedger(ctxOf({ snapshot: curr }));
+    const balanceDerived = entries.filter(
+      (e) => e.source === "liquidity" || e.source === "composition"
+    );
+    expect(balanceDerived.length).toBeGreaterThan(0);
+    for (const e of balanceDerived) {
+      expect(e.figure).toContain("RECONSTRUCTED BALANCES");
+    }
+  });
+
+  it("leaves the decision ledger untagged for an observed snapshot", () => {
+    const curr = snapshot({
+      burnRateUsd: "100000",
+      balancesDetail: detail([{ symbol: "USDC", amount: 1_000_000, priceUsd: 1 }]),
+    } as Partial<TreasurySnapshot>);
+    const entries = decisionLedger(ctxOf({ snapshot: curr }));
+    for (const e of entries) {
+      expect(e.figure).not.toContain("RECONSTRUCTED");
+    }
+  });
+});
+
 // ─── GitHub nullability ────────────────────────────────────────────────────
 
 describe("GitHub activity — null is absent, not zero", () => {

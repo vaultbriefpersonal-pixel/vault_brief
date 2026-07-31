@@ -70,8 +70,18 @@ DATABASE_URL='<prod>'      node scripts/migrations/add-snapshot-space.mjs  # pro
 
 Existing scripts: `add-snapshot-space.mjs`, `add-report-sections.mjs`,
 `add-manual-section-tables.mjs`, `add-chat-notify-channels.mjs`,
-`add-project-members.mjs`, `add-project-budgets.mjs`. These are one-shots
-kept as a record; each is safe to re-run (all use `IF NOT EXISTS`).
+`add-project-members.mjs`, `add-project-budgets.mjs`,
+`add-snapshot-period.mjs`, `add-grant-awards.mjs`,
+`add-snapshot-balance-basis.mjs`. These are one-shots kept as a record;
+each is safe to re-run (all use `IF NOT EXISTS`).
+
+`add-snapshot-balance-basis.mjs` **must be applied before the code that
+depends on it deploys**, and this is the direction that matters: it adds
+`treasury_snapshots.balance_basis` and `.reconstruction_meta`, which
+`schema.ts` now names — so every drizzle-generated snapshot query on the
+new code fails with `column "balance_basis" does not exist` until it has
+run. The reverse order is harmless: two additive nullable columns change
+no read the currently-deployed code performs.
 
 `scripts/setup-db.mjs` bootstraps a fresh database.
 

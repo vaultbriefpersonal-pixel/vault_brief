@@ -30,7 +30,19 @@ import {
 } from "@/server/lib/ratelimit";
 import { fetchTokenMetadata } from "@/server/services/project-autofill";
 import { assertTrialActive } from "@/server/lib/plan-limits";
-import { createMonthlySnapshot } from "@/server/services/data-sync";
+import {
+  prepareMonthlySnapshot,
+  writeSnapshot,
+  type PrecomputedBalances,
+  type PreparedSnapshot,
+} from "@/server/services/data-sync";
+import {
+  priceReconstruction,
+  reconstructBalances,
+  reconstructionSymbols,
+  type CarriedForwardWallet,
+} from "@/server/services/balance-reconstruction";
+import { getHistoricalPrice } from "@/server/services/price-resolver";
 import { generateAndSaveReport } from "@/server/services/report-generator";
 import { evaluateReadiness } from "@/server/services/report-sections";
 import { changeSignificanceFloor } from "@/server/services/report-derived";
@@ -576,12 +588,37 @@ export const projectsRouter = router({
 
   /**
    * Manual sync trigger — runs the same path as the monthly cron, but on-demand.
-   * Default: last completed month. With months > 1, walks N most recent months
-   * (oldest first so prev-month comparisons resolve correctly). Only the most
-   * recent period triggers a report — backfill snapshots are data-only,
-   * keeping LLM spend bounded.
+   * Default: last completed month. With months > 1, backfills the N most recent
+   * months. Only the most recent period triggers a report — backfill snapshots
+   * are data-only, keeping LLM spend bounded.
    *
-   * Rate limits:
+   * ─── TWO PASSES, IN OPPOSITE DIRECTIONS ───────────────────────────────────
+   *
+   * This used to be one loop, oldest → newest, calling `createMonthlySnapshot`
+   * for each period. Every call did its own live balance read, so a 12-month
+   * backfill wrote twelve rows carrying ONE set of balances — today's — under
+   * twelve different dates, with nothing in the output to say so. That is why
+   * every `months > 1` option was disabled in the UI.
+   *
+   * Now:
+   *   Pass 1, NEWEST → OLDEST. One live balance read, for the newest period
+   *   only; it is the sole `observed` row. Preparing a period also yields that
+   *   period's transfer legs, and those legs walk the NEXT OLDER period's
+   *   balances back through `qty(t−1) = qty(t) − inbound(t) + outbound(t)`.
+   *   The chain therefore runs backwards by construction: period k's balances
+   *   cannot be known until period k+1 has been fetched.
+   *
+   *   Pass 2, OLDEST → NEWEST. Write the buffered rows. Order matters on
+   *   failure, not on success: a run that dies partway through leaves a
+   *   contiguous run of older snapshots with the newest missing, which reads as
+   *   "the backfill did not finish". Writing newest-first would leave holes in
+   *   the middle of the history instead, and a hole is what
+   *   `comparableTrailing` silently steps over.
+   *
+   * Only the newest period is `observed`; everything older is `reconstructed`
+   * and says so in `balance_basis`.
+   *
+   * Rate limits are unchanged:
    *   - 1-month sync: 3/hr per project (syncLimiter)
    *   - backfill (>1 month): additionally 2/day per project (backfillLimiter)
    */
@@ -594,7 +631,10 @@ export const projectsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await assertTrialActive(ctx.session.user.id!);
-      await requireProject(ctx, input.projectId);
+      // Needed beyond the access check: `priceReconstruction` classifies the
+      // walked-back holdings through the SAME own-token predicate every other
+      // surface uses, and that predicate reads the project's token identity.
+      const project = await requireProject(ctx, input.projectId);
       await checkLimit(syncLimiter, input.projectId);
       if (input.months > 1) {
         await checkLimit(backfillLimiter, input.projectId);
@@ -611,15 +651,120 @@ export const projectsRouter = router({
         periods.push({ start, end });
       }
 
-      const snapshotIds: string[] = [];
       const errors: Array<{ period: string; error: string }> = [];
-      for (const period of periods) {
+      const periodLabel = (p: { start: Date; end: Date }) =>
+        p.end.toISOString().slice(0, 10);
+
+      // ── Pass 1: newest → oldest, chaining from one live balance read ──────
+      //
+      // `prepared[i]` lines up with `periods[i]`; holes stay undefined so a
+      // failed period does not shift the ones around it.
+      const prepared: Array<PreparedSnapshot | undefined> = new Array(
+        periods.length
+      );
+      // The balances for the period about to be prepared. Null means "read them
+      // live", which is true exactly once — for the newest period.
+      let carried: PrecomputedBalances | null = null;
+      const observedAsOf = periodLabel(periods[periods.length - 1]);
+
+      for (let i = periods.length - 1; i >= 0; i--) {
+        const period = periods[i];
         try {
-          const snap = await createMonthlySnapshot(input.projectId, period);
+          const result = await prepareMonthlySnapshot(
+            input.projectId,
+            period,
+            { precomputedBalances: carried }
+          );
+          prepared[i] = result;
+
+          if (i === 0) break; // nothing older to walk back to
+
+          // Walk this period's balances back to its own start, which is the
+          // next older period's end. `values.balancesDetail` is used rather
+          // than the incoming `carried` because it is the SAME payload the row
+          // will store, so the arithmetic and the record can never disagree.
+          const source = result.values.balancesDetail;
+          const carriedForward: CarriedForwardWallet[] = [
+            ...result.unreconstructableWallets,
+          ];
+          // No legs at all means the transfer fetch failed outright — the
+          // walk-back would then be the identity function, i.e. today's
+          // balances under a past date, wearing a `reconstructed` label. That
+          // is the original bug with a disclosure bolted on. Say what happened
+          // instead.
+          if (result.balanceLegs.length === 0 && carriedForward.length === 0) {
+            carriedForward.push({
+              chain: "*",
+              address: "*",
+              reason:
+                "No transfer legs were returned for this period, so nothing could be walked back — these holdings are the later period's, carried forward unchanged.",
+            });
+          }
+
+          const walked = reconstructBalances({
+            balances: source,
+            transfers: result.balanceLegs,
+            asOf: periodLabel(periods[i - 1]),
+            observedAsOf,
+            stepsFromObserved: periods.length - i,
+            carriedForwardWallets: carriedForward,
+          });
+
+          // Historical pricing, one lookup per distinct symbol per period.
+          // `getHistoricalPrice` is memoised in-process and persists to
+          // `token_prices`, so a 12-month backfill of a 10-token treasury is
+          // ~120 lookups of which most are cache hits. A symbol with no price
+          // at that date resolves to null and the position is carried at zero
+          // USD and counted — never at today's price.
+          const priceAt = new Date(`${walked.meta.asOf}T00:00:00.000Z`);
+          const prices = new Map<string, number | null>();
+          for (const symbol of reconstructionSymbols(walked)) {
+            prices.set(
+              symbol,
+              await getHistoricalPrice(symbol, priceAt).catch(() => null)
+            );
+          }
+          const priced = priceReconstruction(walked, prices, project);
+
+          carried = {
+            basis: "reconstructed",
+            meta: priced.meta,
+            balances: {
+              totalBalanceUsd: priced.totalBalanceUsd,
+              stablecoinsUsd: priced.stablecoinsUsd,
+              ethUsd: priced.ethUsd,
+              nativeTokenUsd: priced.nativeTokenUsd,
+              otherAssetsUsd: priced.otherAssetsUsd,
+              balancesDetail: priced.balancesDetail,
+              // Balance-fetch warnings belong to a live read. This period had
+              // none; what went wrong with the reconstruction lives in
+              // `reconstruction_meta`, which is where a reader looks for it.
+              warnings: [],
+            },
+          };
+        } catch (err) {
+          errors.push({
+            period: periodLabel(period),
+            error: err instanceof Error ? err.message : String(err),
+          });
+          // The chain is broken: without this period's legs there is no honest
+          // way to reach the older ones. Stop rather than reconstructing the
+          // remainder from balances that skipped a period.
+          break;
+        }
+      }
+
+      // ── Pass 2: oldest → newest, write the buffered rows ──────────────────
+      const snapshotIds: string[] = [];
+      for (let i = 0; i < periods.length; i++) {
+        const row = prepared[i];
+        if (!row) continue;
+        try {
+          const snap = await writeSnapshot(row);
           snapshotIds.push(snap.id);
         } catch (err) {
           errors.push({
-            period: period.end.toISOString().slice(0, 10),
+            period: periodLabel(periods[i]),
             error: err instanceof Error ? err.message : String(err),
           });
         }

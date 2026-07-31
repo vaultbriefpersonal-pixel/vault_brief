@@ -28,6 +28,7 @@ import {
   budgetsForPeriod,
   burnBasis,
   burnBasisLabel,
+  comparisonBasis,
   compositionOf,
   grantDeliverables,
   grantFundUsage,
@@ -891,9 +892,15 @@ const previousMonthComparison: ReportSection = {
   description:
     "Treasury delta vs. last snapshot, split into what actually moved in or out versus what was just re-priced by the market.",
   defaultEnabled: true,
-  requires: (ctx) => Boolean(ctx.prevSnapshot),
+  // The basis gate is repeated in `userPromptFragment` on purpose —
+  // `buildSystemPrompt` reads that function, not this one, when deciding
+  // whether to ship the section's rules. Same shared-predicate discipline as
+  // `periodTooCoarseToRollForward`; see `comparisonBasis` in report-derived.ts.
+  requires: (ctx) => Boolean(ctx.prevSnapshot) && comparisonBasis(ctx).allowed,
   userPromptFragment: (ctx) => {
     if (!ctx.prevSnapshot) return "";
+    const basis = comparisonBasis(ctx);
+    if (!basis.allowed) return "";
     const cur = Number(ctx.snapshot.totalBalanceUsd ?? 0);
     const prev = Number(ctx.prevSnapshot.totalBalanceUsd ?? 0);
     const delta = cur - prev;
@@ -909,7 +916,7 @@ const previousMonthComparison: ReportSection = {
     // attribution existed. A header promising a breakdown with no breakdown
     // under it invites the model to fill the gap itself.
     if (attribution.tokens.length === 0 || driver.driver === "none") {
-      return `\n## Previous Month Treasury\n- Total balance: ${formatUsd(prev)}\n- Change: ${formatUsd(delta)} (${pct}%)`;
+      return `\n## Previous Month Treasury\n- Total balance: ${formatUsd(prev)}\n- Change: ${formatUsd(delta)} (${pct}%)${basis.caption}`;
     }
 
     const gapDays = gapInDays(
@@ -1003,7 +1010,7 @@ const previousMonthComparison: ReportSection = {
       lines.push("", longGapNote(gapDays, ctx.period));
     }
 
-    return `\n## Treasury change (${ctx.snapshot.snapshotDate} vs ${ctx.prevSnapshot.snapshotDate}${gapLabel})\n${lines.join("\n")}`;
+    return `\n## Treasury change (${ctx.snapshot.snapshotDate} vs ${ctx.prevSnapshot.snapshotDate}${gapLabel})\n${lines.join("\n")}${basis.caption}`;
   },
   systemPromptFragment: monthOverMonthRules("Month-over-Month"),
   systemPromptFragmentFor: (ctx) =>
@@ -1011,10 +1018,13 @@ const previousMonthComparison: ReportSection = {
       isMonthly(ctx.period) ? "Month-over-Month" : "Period-over-Period"
     ),
   notReadyHint: "Needs at least one prior monthly snapshot.",
-  notReadyHintFor: (ctx) =>
-    isMonthly(ctx.period)
+  notReadyHintFor: (ctx) => {
+    const basis = comparisonBasis(ctx);
+    if (!basis.allowed) return basis.blockedReason;
+    return isMonthly(ctx.period)
       ? "Needs at least one prior monthly snapshot."
-      : "Needs at least one prior snapshot to compare against.",
+      : "Needs at least one prior snapshot to compare against.";
+  },
 };
 
 /** See `executiveSummaryRules` for why this is a builder. */
@@ -2119,8 +2129,21 @@ const anomalies: ReportSection = {
   description:
     "Statistical anomalies vs. trailing average — sudden cost spikes, dev-activity drops, etc.",
   defaultEnabled: true,
-  requires: (ctx) => ctx.anomalies.length > 0,
-  userPromptFragment: (ctx) => formatAnomaliesForPrompt(ctx.anomalies),
+  // Gated and captioned by the same predicate as Month-over-Month and the
+  // projection. The detector's balance-derived metrics ("Total balance",
+  // "Stablecoins") rest on the baseline snapshots' balances; its
+  // transaction-derived ones ("Burn rate", "Total inflows", every
+  // "Expense: ..." line) are genuinely measured over each period even when the
+  // balances were walked back. The caption tells the model which is which
+  // rather than suppressing both.
+  requires: (ctx) => ctx.anomalies.length > 0 && comparisonBasis(ctx).allowed,
+  userPromptFragment: (ctx) => {
+    const basis = comparisonBasis(ctx);
+    if (!basis.allowed) return "";
+    const block = formatAnomaliesForPrompt(ctx.anomalies);
+    if (!block.trim()) return block;
+    return `${block}${basis.caption}`;
+  },
   systemPromptFragment: `### Anomalies (CONDITIONAL)
 - If the input contains an "Anomalies" section listing metric deltas vs trailing average, mention each one in the Executive Summary with one short sentence per anomaly.
 - Don't fabricate causes — if no contextual reason is available, write "warrants investigation" or "see breakdown below". Never invent reasons.
@@ -2128,6 +2151,11 @@ const anomalies: ReportSection = {
 - If no Anomalies section is provided in input, do NOT add this commentary.`,
   notReadyHint:
     "Runs at report time against the trailing snapshots — not computed for this preview.",
+  notReadyHintFor: (ctx) => {
+    const basis = comparisonBasis(ctx);
+    if (!basis.allowed) return basis.blockedReason;
+    return "Runs at report time against the trailing snapshots — not computed for this preview.";
+  },
 };
 
 /**
@@ -2207,12 +2235,16 @@ const nextPeriodForecast: ReportSection = {
   // dress a single month up as a trend. The second clause is the same
   // objection in the other dimension — see `periodTooCoarseToRollForward`.
   requires: (ctx) =>
-    ctx.trailing.length >= 2 && !periodTooCoarseToRollForward(ctx.period),
+    ctx.trailing.length >= 2 &&
+    !periodTooCoarseToRollForward(ctx.period) &&
+    comparisonBasis(ctx).allowed,
   userPromptFragment: (ctx) => {
     // Repeated from `requires` on purpose — buildSystemPrompt reads this
     // function, not the gate, when deciding whether to ship the section's
-    // rules. See `periodTooCoarseToRollForward`.
+    // rules. See `periodTooCoarseToRollForward` and `comparisonBasis`.
     if (periodTooCoarseToRollForward(ctx.period)) return "";
+    const balanceBasis = comparisonBasis(ctx);
+    if (!balanceBasis.allowed) return "";
     const liq = liquidityOf(ctx);
     const basis = burnBasis(ctx);
     const flow = trailingNetFlow(ctx);
@@ -2280,7 +2312,7 @@ const nextPeriodForecast: ReportSection = {
 
     return `\n## Mechanical projection for the next period (arithmetic, NOT a forecast)\n${lines.join(
       "\n"
-    )}`;
+    )}${balanceBasis.caption}`;
   },
   systemPromptFragment: `### Next Period Projection (CONDITIONAL)
 - Only render when the input contains a "## Mechanical projection for the next period" block. Three sentences, maximum, plus at most two figures.
@@ -2295,10 +2327,14 @@ const nextPeriodForecast: ReportSection = {
   // has to give the right one: "add more snapshots" is actionable, and telling
   // a grant reporter that when the real cause is the length of their window
   // sends them to fix something that is not broken.
-  notReadyHintFor: (ctx) =>
-    periodTooCoarseToRollForward(ctx.period)
-      ? `Not projected for a reporting period this long. This one covers ${ctx.period.days} days, and rolling its average forward would project the next ${ctx.period.days} days from a single window — presenting one long period as an established trend, which is the error the two-snapshot minimum exists to prevent. Periods over ${FORECAST_MAX_CUSTOM_DAYS} days are excluded; calendar months never are.`
-      : "Needs at least two prior snapshots to average.",
+  notReadyHintFor: (ctx) => {
+    if (periodTooCoarseToRollForward(ctx.period)) {
+      return `Not projected for a reporting period this long. This one covers ${ctx.period.days} days, and rolling its average forward would project the next ${ctx.period.days} days from a single window — presenting one long period as an established trend, which is the error the two-snapshot minimum exists to prevent. Periods over ${FORECAST_MAX_CUSTOM_DAYS} days are excluded; calendar months never are.`;
+    }
+    const basis = comparisonBasis(ctx);
+    if (!basis.allowed) return basis.blockedReason;
+    return "Needs at least two prior snapshots to average.";
+  },
 };
 
 const recommendations: ReportSection = {

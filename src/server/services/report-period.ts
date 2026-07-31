@@ -744,32 +744,73 @@ export function burnPeriodDays(
 
 export type PeriodSupport =
   | { ok: true }
-  | { ok: false; code: "PAST_PERIOD_UNSUPPORTED"; reason: string };
+  | { ok: false; code: "PERIOD_BEYOND_RECONSTRUCTION"; reason: string };
 
 /**
- * Can this product honestly measure the given period?
+ * How far back a past period may end and still be reconstructable.
  *
- * The refusal exists because `fetchAllBalances` (data-sync.ts:33) takes no
- * period argument — wallet balances are read live from chain, as of now, and
- * there is no code path that reconstructs them for a past date. A report for a
- * period ending nine months ago would therefore carry TODAY's balances printed
- * under that date, and nothing in the output would disclose it. That is the
- * same failure mode that keeps the backfill options disabled in
- * SyncNowButton.tsx:12-53 — read that comment block, it is the canonical
- * statement of this problem and this function is the server-side half of it.
+ * Twelve months, and it is not an arbitrary round number: it is the ceiling
+ * `projects.sync` already enforces (`months: z.number().max(12)`) and the
+ * longest option `SyncNowButton` offers. A period ending outside that window
+ * cannot have a reconstructed snapshot behind it, because nothing in the
+ * product can produce one.
+ */
+export const MAX_RECONSTRUCTION_MONTHS = 12;
+
+/**
+ * WHICH OF THE TWO QUESTIONS THIS ANSWERS.
  *
- * RETURNS A RESULT, NEVER THROWS. The caller decides what a refusal is: a
- * tRPC mutation turns it into a TRPCError, a UI turns it into a disabled
- * option with a visible reason. Baking a throw in here would force the second
- * caller to catch an exception to render a tooltip.
+ * "Can the product measure a period ending on that date, in principle?" —
+ * NOT "do we have the data for it?". Those are different questions and this
+ * function is pure: it takes a period and a clock, has no database, and could
+ * not answer the second one if it wanted to.
  *
- * Only PAST ends beyond tolerance are refused. A period ending in the future
- * is allowed through: it is a different problem (a window that has not
- * finished yet), nothing in the product can currently produce one, and
- * refusing it here would mean this function silently owns a rule it was not
- * written to express. `today` itself must be parseable — unlike the row-level
- * predicates, this is an authorisation gate, and failing open on a garbage
- * clock is not an option.
+ * ── the first question (this function) ──
+ *
+ * Before P3.1 the answer for any past period was flatly no. `fetchAllBalances`
+ * takes no period argument — wallet balances are read live, as of now — so a
+ * report for a period ending nine months ago carried TODAY's balances printed
+ * under that date with nothing in the output to disclose it. That refusal is
+ * gone, because the capability it was waiting for now exists: `projects.sync`
+ * takes one live balance read and walks older periods back through their own
+ * transfer history (`qty(t−1) = qty(t) − inbound(t) + outbound(t)`), pricing
+ * each at its own close, and writes `balance_basis: 'reconstructed'` on every
+ * row it did not observe. See balance-reconstruction.ts.
+ *
+ * What remains is a real boundary rather than a placeholder: a period ending
+ * more than `MAX_RECONSTRUCTION_MONTHS` ago is outside what any sync in this
+ * product can walk back to, so no honest snapshot for it can exist. That is
+ * the refusal this function now carries, and it is a statement about the
+ * product's reach, not about one project's data.
+ *
+ * ── the second question (answered elsewhere, deliberately) ──
+ *
+ * "Is there actually a snapshot covering this period, and was it reconstructed
+ * or observed?" is answered where the rows are:
+ *
+ *   • at write time by `projects.sync`, which is the only thing that can
+ *     create a past snapshot and which stamps every row it does not observe;
+ *   • at read time by `balanceBasisOf` and `comparisonBasis`
+ *     (report-derived.ts), which resolve a stored row's provenance and both
+ *     gate and caption every section that leans on it;
+ *   • at generation time by the absence of a snapshot at all — there is
+ *     nothing to point a report at, which is a NOT_FOUND, not a support
+ *     question.
+ *
+ * Collapsing the two into one function would mean either giving this module a
+ * database (it has zero imports by design, and reaches the browser bundle) or
+ * having a caller answer "supported" with a query result — at which point the
+ * UI and the server would each own half a rule.
+ *
+ * RETURNS A RESULT, NEVER THROWS on the period. The caller decides what a
+ * refusal is: a tRPC mutation turns it into a TRPCError, a UI into a disabled
+ * option with a visible reason. `today` itself must be parseable — unlike the
+ * row-level predicates, this is an authorisation gate, and failing open on a
+ * garbage clock is not an option.
+ *
+ * A period ending in the FUTURE is still allowed through: it is a different
+ * problem (a window that has not finished yet), and refusing it here would
+ * mean this function silently owns a rule it was not written to express.
  */
 export function assertPeriodSupported(
   period: ReportPeriod,
@@ -788,16 +829,22 @@ export function assertPeriodSupported(
     );
   }
   const daysStale = (todayMs - endMs) / MS_PER_DAY;
+  // The tolerance still matters at the near end: it absorbs timezone slop on a
+  // period that ends "today" read from a UTC+13 clock. Everything between that
+  // and the reconstruction horizon is now supported.
   if (daysStale <= END_TOLERANCE_DAYS) return { ok: true };
+  if (daysStale <= MAX_RECONSTRUCTION_MONTHS * DAYS_PER_MONTH) return { ok: true };
+
+  const monthsStale = daysStale / DAYS_PER_MONTH;
   return {
     ok: false,
-    code: "PAST_PERIOD_UNSUPPORTED",
+    code: "PERIOD_BEYOND_RECONSTRUCTION",
     reason:
-      "VaultBrief can only measure a reporting period that ends today. " +
-      "Wallet balances are read live from chain and cannot be reconstructed " +
-      `for a past date — a report for a period ending ${period.end} would ` +
-      "carry today's balances under that date, and nothing in the output " +
-      "would say so. Historical reconstruction is planned.",
+      `A reporting period ending ${period.end} closed about ${monthsStale.toFixed(
+        0
+      )} months ago, beyond the ${MAX_RECONSTRUCTION_MONTHS} months VaultBrief can reconstruct. ` +
+      "Past balances are not read from chain — they are walked backwards from today's holdings through each period's transfer history — and no sync in this product reaches further back than that, " +
+      "so there is no honest way to state what this treasury held on that date.",
   };
 }
 

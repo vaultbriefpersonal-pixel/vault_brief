@@ -3502,3 +3502,209 @@ describe("grant_milestone_progress", () => {
     expect(section("grant_milestone_progress").requires(ctx)).toBe(true);
   });
 });
+
+// ─── balance basis: gate AND caption from one predicate (P3.1) ─────────────
+//
+// The Part I invariant this suite exists to lock: `buildSystemPrompt` selects a
+// section's RULES by whether its `userPromptFragment` is non-empty, NOT by
+// `requires`. Gating one without the other ships instructions with no data
+// behind them. Three sections read `comparisonBasis`; all three are asserted on
+// both halves.
+
+describe("comparisonBasis — provenance of the balances being compared", () => {
+  const BASIS_SECTIONS = [
+    "previous_month_comparison",
+    "anomalies",
+    "next_period_forecast",
+  ] as const;
+
+  const anomaly = {
+    metric: "Burn rate",
+    current: 320000,
+    baseline: 200000,
+    changePct: 60,
+    severity: "minor" as const,
+    newCategory: false,
+  };
+
+  function balances(amount: number) {
+    return [
+      {
+        walletAddress: "0xaaa",
+        chain: "ethereum",
+        tokens: [
+          {
+            symbol: "USDC",
+            amount,
+            priceUsd: 1,
+            valueUsd: amount,
+            contractAddress: null,
+          },
+        ],
+      },
+    ];
+  }
+
+  function basisCtx(
+    currentFields: Record<string, unknown> = {},
+    prevFields: Record<string, unknown> = {}
+  ): ReportSectionContext {
+    const prev = snapshotWith({
+      id: "s0",
+      snapshotDate: "2026-03-31",
+      totalBalanceUsd: "1000000",
+      netFlowUsd: "-50000",
+      burnRateUsd: "200000",
+      balancesDetail: balances(1_000_000),
+      ...prevFields,
+    });
+    const older = snapshotWith({
+      id: "s-1",
+      snapshotDate: "2026-02-28",
+      netFlowUsd: "-40000",
+      burnRateUsd: "180000",
+      balancesDetail: balances(950_000),
+    });
+    return contextWith(
+      {
+        totalBalanceUsd: "1200000",
+        netFlowUsd: "200000",
+        burnRateUsd: "320000",
+        balancesDetail: balances(1_200_000),
+        ...currentFields,
+      },
+      prev,
+      { trailing: [prev, older], anomalies: [anomaly] }
+    );
+  }
+
+  it("adds nothing at all when both sides are observed — byte-identity", () => {
+    const ctx = basisCtx();
+    for (const id of BASIS_SECTIONS) {
+      const fragment = section(id).userPromptFragment(ctx);
+      expect(fragment).not.toContain("BALANCE BASIS");
+      expect(section(id).requires(ctx)).toBe(true);
+    }
+  });
+
+  it("treats a NULL balance_basis as observed — every row in the database today", () => {
+    const ctx = basisCtx();
+    expect(ctx.snapshot.balanceBasis).toBeUndefined();
+    expect(
+      section("previous_month_comparison").userPromptFragment(ctx)
+    ).not.toContain("BALANCE BASIS");
+  });
+
+  it("captions all three sections when a side was reconstructed", () => {
+    const ctx = basisCtx({}, { balanceBasis: "reconstructed" });
+    for (const id of BASIS_SECTIONS) {
+      const fragment = section(id).userPromptFragment(ctx);
+      expect(fragment).toContain("BALANCE BASIS — RECONSTRUCTED");
+      // And the rules still travel, because the fragment is non-empty.
+      expect(fragment.trim().length).toBeGreaterThan(0);
+      expect(section(id).requires(ctx)).toBe(true);
+    }
+  });
+
+  it("names the reconstruction as a reason not to call a change an achievement", () => {
+    const ctx = basisCtx({}, { balanceBasis: "reconstructed" });
+    const fragment = section("previous_month_comparison").userPromptFragment(ctx);
+    expect(fragment).toMatch(/do NOT present a change .* as an achievement/i);
+    expect(fragment).toContain("floor");
+  });
+
+  it("says the period's FLOW figures are still measured, not reconstructed", () => {
+    // Otherwise the caption suppresses real findings: burn, inflows and the
+    // category breakdowns are computed over the period by the sync itself.
+    const ctx = basisCtx({ balanceBasis: "reconstructed" });
+    expect(section("anomalies").userPromptFragment(ctx)).toContain(
+      "are measured, not reconstructed"
+    );
+  });
+
+  it("fires on a reconstructed TRAILING snapshot even when both compared rows are observed", () => {
+    const prev = snapshotWith({
+      id: "s0",
+      snapshotDate: "2026-03-31",
+      totalBalanceUsd: "1000000",
+      burnRateUsd: "200000",
+      netFlowUsd: "-50000",
+      balancesDetail: balances(1_000_000),
+    });
+    const older = snapshotWith({
+      id: "s-1",
+      snapshotDate: "2026-02-28",
+      balanceBasis: "reconstructed",
+      burnRateUsd: "180000",
+      netFlowUsd: "-40000",
+      balancesDetail: balances(950_000),
+    });
+    const ctx = contextWith(
+      {
+        totalBalanceUsd: "1200000",
+        netFlowUsd: "200000",
+        burnRateUsd: "320000",
+        balancesDetail: balances(1_200_000),
+      },
+      prev,
+      { trailing: [prev, older], anomalies: [anomaly] }
+    );
+    expect(
+      section("previous_month_comparison").userPromptFragment(ctx)
+    ).toContain("BALANCE BASIS");
+  });
+
+  it("GATES all three off when too much of the treasury has no price at its own date", () => {
+    const ctx = basisCtx(
+      {},
+      {
+        balanceBasis: "reconstructed",
+        reconstructionMeta: { unpricedShareOfTotal: 0.45 },
+      }
+    );
+    for (const id of BASIS_SECTIONS) {
+      expect(section(id).requires(ctx)).toBe(false);
+      // Both halves, from one predicate — the invariant this suite locks.
+      expect(section(id).userPromptFragment(ctx)).toBe("");
+      const hint = section(id).notReadyHintFor?.(ctx) ?? "";
+      expect(hint).toContain("could not be priced");
+    }
+  });
+
+  it("still allows the comparison just under the ceiling", () => {
+    const ctx = basisCtx(
+      {},
+      {
+        balanceBasis: "reconstructed",
+        reconstructionMeta: { unpricedShareOfTotal: 0.05 },
+      }
+    );
+    for (const id of BASIS_SECTIONS) {
+      expect(section(id).requires(ctx)).toBe(true);
+    }
+  });
+
+  it("ships no rules for a gated section — the whole point of gating both", () => {
+    const ctx = basisCtx(
+      {},
+      {
+        balanceBasis: "reconstructed",
+        reconstructionMeta: { unpricedShareOfTotal: 0.45 },
+      }
+    );
+    const system = buildSystemPrompt(
+      BASIS_SECTIONS.map((id) => section(id)),
+      ctx
+    );
+    expect(system).not.toContain("### Month-over-Month");
+    expect(system).not.toContain("### Anomalies");
+    expect(system).not.toContain("### Next Period Projection");
+  });
+
+  it("treats an unrecognised basis string as reconstructed, not as observed", () => {
+    const ctx = basisCtx({}, { balanceBasis: "who knows" });
+    expect(
+      section("previous_month_comparison").userPromptFragment(ctx)
+    ).toContain("BALANCE BASIS");
+  });
+});

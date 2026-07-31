@@ -294,6 +294,54 @@ export const treasurySnapshots = pgTable(
     // know the snapshot is partial.
     syncWarnings: jsonb("sync_warnings"),
 
+    /**
+     * Where the BALANCE figures on this row came from: `'observed'` (read live
+     * from chain at sync time) or `'reconstructed'` (walked back through
+     * transfer history from a later observed reading). Only the balances —
+     * every FLOW column on this row (inflows, outflows, burn, the category
+     * breakdowns, the GitHub counters) is measured over the period either way,
+     * because `fetchAndClassify` really does query that window.
+     *
+     * NULLABLE ON PURPOSE, and NULL is not "unknown": it reads as
+     * `'observed'`. Every row written before this column existed came from
+     * `fetchAllBalances`, which reads the wallets live and takes no period
+     * argument — so every one of them genuinely was observed. Deliberately NOT
+     * backfilled to the literal: the fallback has to handle NULL permanently
+     * (the currently-deployed sync keeps writing NULL until the P3.1 code
+     * ships), and a fully-populated column would hide a reader that tests
+     * `=== 'observed'` positively and silently drops every legacy row. Read it
+     * through `balanceBasisOf` (report-derived.ts), never off the column.
+     *
+     * When this is `'reconstructed'`, `token_price_usd`,
+     * `token_market_cap_usd`, `token_circulating_supply` and
+     * `token_holders_count` are written NULL: they come from
+     * `fetchTokenMetrics`, which is current-value only and has no historical
+     * mode, and a past snapshot carrying today's market cap is precisely the
+     * lie this column exists to prevent.
+     *
+     * Mirrors `scripts/migrations/add-snapshot-balance-basis.mjs` exactly
+     * (`ADD COLUMN IF NOT EXISTS balance_basis TEXT`, no NOT NULL, no default,
+     * no CHECK) — a drift here is what makes a later `drizzle-kit push`
+     * propose a diff instead of a no-op. See docs/MIGRATIONS.md.
+     */
+    balanceBasis: text("balance_basis"),
+    /**
+     * What the walk-back could and could not do, for a `'reconstructed'` row.
+     * NULL on every observed row — there is nothing to disclose about a live
+     * reading. Shape: `ReconstructionMeta` in
+     * services/balance-reconstruction.ts, which owns the field docs.
+     *
+     * The load-bearing entries are the honest ones: how many token positions
+     * went negative and had to be clamped to zero (each is an unobserved
+     * credit — rebasing, staking accrual, a mint, a transfer type Alchemy does
+     * not serve), and how much of the treasury could not be priced at the
+     * period's own date. Both reach the reader; neither is a debug field.
+     *
+     * Mirrors the migration's `ADD COLUMN IF NOT EXISTS reconstruction_meta
+     * JSONB`.
+     */
+    reconstructionMeta: jsonb("reconstruction_meta"),
+
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
