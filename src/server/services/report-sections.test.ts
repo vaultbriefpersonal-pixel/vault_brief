@@ -19,6 +19,7 @@ import {
   EXPENSE_CATEGORY_NAMES,
   INCOME_CATEGORY_NAMES,
   RECURRING_INCOME_FLOOR_USD,
+  splitIncome,
 } from "./report-derived";
 import {
   longGapDaysFor,
@@ -473,6 +474,21 @@ describe("protocol_revenue — requires", () => {
         )
       ).toBe(false);
     }
+  });
+
+  it("does NOT trigger on a grant tranche alone — an award is not revenue", () => {
+    // Same category error as the funding round above, one reader worse: the
+    // grantor receives a "Protocol Revenue" heading describing their own award.
+    // The gate reads recurring income only, so no size of grant opens it.
+    expect(
+      revenue.requires(
+        contextWith({
+          incomeByCategory: {
+            grant_received: RECURRING_INCOME_FLOOR_USD * 1_000,
+          },
+        })
+      )
+    ).toBe(false);
   });
 
   it("does NOT trigger on recurring income below the revenue floor", () => {
@@ -1805,6 +1821,43 @@ describe("client-safe category mirrors", () => {
     expect([...INCOME_CATEGORY_NAMES].sort()).toEqual(
       [...INCOME_CATEGORIES].sort()
     );
+  });
+
+  it("carries grant_received on both sides", () => {
+    // The mirror test above only proves the two lists agree — they would agree
+    // just as happily with the category deleted from both. A grant report that
+    // cannot name the money it is reporting on is the failure this pins.
+    expect(INCOME_CATEGORIES).toContain("grant_received");
+    expect(INCOME_CATEGORY_NAMES).toContain("grant_received");
+  });
+});
+
+describe("splitIncome — grant_received", () => {
+  it("counts a grant tranche as non-recurring, never as recurring", () => {
+    // The load-bearing decision of the category. An award is paid against a
+    // fixed schedule and stops when the schedule does, so it is not income the
+    // protocol can expect again — and the reader of the sentence "recurring
+    // operating income" in a grant report is the grantor who wrote the cheque.
+    const split = splitIncome({ grant_received: 250_000 });
+    expect(split.nonRecurring.entries.map((e) => e.category)).toContain(
+      "grant_received"
+    );
+    expect(split.nonRecurring.totalUsd).toBe(250_000);
+    expect(split.recurring.entries).toEqual([]);
+    expect(split.recurring.totalUsd).toBe(0);
+  });
+
+  it("does not blend a grant into a period's real revenue", () => {
+    const split = splitIncome({ revenue: 40_000, grant_received: 250_000 });
+    expect(split.recurring.totalUsd).toBe(40_000);
+    expect(split.nonRecurring.totalUsd).toBe(250_000);
+  });
+
+  it("renders a reader-facing label, not the raw category key", () => {
+    const [entry] = splitIncome({ grant_received: 250_000 }).nonRecurring
+      .entries;
+    expect(entry.label).not.toBe("grant_received");
+    expect(entry.label).toContain("Grant");
   });
 });
 

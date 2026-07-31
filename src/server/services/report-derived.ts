@@ -372,7 +372,8 @@ export function netFlowOf(ctx: ReportSectionContext): number | null {
 // `IncomeCategory` in expense-classifier.ts, partitioned by the only question
 // an investor actually asks of an income figure: will it be there again next
 // period? Revenue and staking rewards recur. A funding round, a token sale, an
-// airdrop do not — they are balance-sheet events wearing an inflow's clothes.
+// airdrop, a grant tranche do not — they are balance-sheet events wearing an
+// inflow's clothes.
 //
 // The category names are duplicated here rather than imported for the reason
 // counterparty-labels.ts exists: expense-classifier.ts opens with `import
@@ -390,6 +391,12 @@ export const NON_RECURRING_INCOME_CATEGORIES = [
   "funding_round",
   "token_sale_inflow",
   "airdrop",
+  // A grant tranche is an award against a fixed schedule, not something the
+  // protocol earns — it will not be there again next period once the schedule
+  // runs out. Putting it on the recurring side would let `protocol_revenue`
+  // report a one-off award as operating revenue, and the reader most likely to
+  // see that sentence is the grantor who paid it.
+  "grant_received",
   "other_income",
 ] as const;
 
@@ -412,6 +419,7 @@ const INCOME_LABELS: Record<string, string> = {
   funding_round: "Funding round (capital raised from investors)",
   token_sale_inflow: "Token sale proceeds (project tokens sold for stables)",
   airdrop: "Airdrops received",
+  grant_received: "Grant funding received (award from a grant program)",
   other_income: "Other inflows (unclassified)",
 };
 

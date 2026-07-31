@@ -237,7 +237,10 @@ export const treasurySnapshots = pgTable(
 
     // Expense categories
     expensesByCategory: jsonb("expenses_by_category"),
-    // Income categories (revenue, funding_round, token_sale_inflow, staking_reward, airdrop, other_income)
+    // Income categories — `IncomeCategory` in expense-classifier.ts is the
+    // source of truth (revenue, funding_round, token_sale_inflow,
+    // staking_reward, airdrop, grant_received, other_income). Nothing asserts
+    // this comment stays in step, unlike the two runtime mirrors it describes.
     incomeByCategory: jsonb("income_by_category"),
 
     // Derived metrics
