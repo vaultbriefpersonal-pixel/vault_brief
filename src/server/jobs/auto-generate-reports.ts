@@ -11,7 +11,10 @@ import { generateAndSaveReport } from "@/server/services/report-generator";
 import { periodFromSnapshot } from "@/server/services/report-period";
 import { sendReportReadyForReviewEmail } from "@/server/services/email-sender";
 import { notify } from "@/server/services/notifications";
-import { filterEligibleProjects } from "@/server/lib/plan-limits";
+import {
+  filterEligibleProjects,
+  reportAllowance,
+} from "@/server/lib/plan-limits";
 import { renderAndStorePDF } from "@/server/services/pdf-storage";
 
 /**
@@ -44,6 +47,10 @@ export const autoGenerateReportsJob = schedules.task({
     let generated = 0;
     let skippedNoSnapshot = 0;
     let skippedAlreadyHasReport = 0;
+    // Counted separately from the other skips, and reported: this one is a
+    // BUSINESS outcome, not a data one. A rising number here is free projects
+    // hitting the cap, which is the signal that the cap is working.
+    let skippedOverReportLimit = 0;
     let failed = 0;
 
     for (const project of activeProjects) {
@@ -80,6 +87,25 @@ export const autoGenerateReportsJob = schedules.task({
         });
         if (existingReport) {
           skippedAlreadyHasReport++;
+          continue;
+        }
+
+        // THE FREE-PLAN REPORT CAP APPLIES TO THE CRON TOO.
+        //
+        // Without this the cap means nothing: a free project that has spent its
+        // one report is handed a fresh one automatically every month, which is
+        // the whole limit undone on a timer — and undone invisibly, since no
+        // human action is involved and `reports.canGenerate` goes on telling the
+        // UI the project is out of reports.
+        //
+        // Skipped, never thrown: the snapshot exists and is fine, this project
+        // simply does not get an automatic report. `filterEligibleProjects`
+        // above no longer filters anything (it returns every owned project since
+        // the public-goods pivot), so this is the only thing standing between a
+        // free project and unlimited automatic reports.
+        const allowance = await reportAllowance(project.userId, project.id);
+        if (!allowance.allowed) {
+          skippedOverReportLimit++;
           continue;
         }
 
@@ -167,6 +193,7 @@ export const autoGenerateReportsJob = schedules.task({
       generated,
       skippedNoSnapshot,
       skippedAlreadyHasReport,
+      skippedOverReportLimit,
       failed,
     };
     console.log("auto-generate-reports complete:", summary);

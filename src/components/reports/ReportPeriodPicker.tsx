@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Lock, Sparkles } from "lucide-react";
+import { AlertTriangle, Lock, RefreshCw, Sparkles } from "lucide-react";
 import { trpc } from "@/lib/api";
 import {
   buildPeriodOptions,
@@ -19,18 +19,31 @@ import { periodFromRange } from "@/server/services/report-period";
  * WHAT THE FOUNDER IS ACTUALLY CHOOSING. Not a label — a snapshot. A report's
  * balances are as of its snapshot's end and its flows are measured over its
  * snapshot's window, so picking a period is picking the snapshot that covers
- * exactly that window. Options with no such snapshot are shown DISABLED with
- * the reason in plain sight, never snapped to a nearby snapshot and never
- * generated anyway; `buildPeriodOptions` owns that decision and explains it at
- * length. The server enforces the same rule independently — `reports.generate`
- * refuses a period that is not its snapshot's own — so this component is the
- * explanation, not the gate.
+ * exactly that window. Options with no such snapshot are never snapped to a
+ * nearby snapshot and never generated anyway; `buildPeriodOptions` owns that
+ * decision and explains it at length. The server enforces the same rule
+ * independently — `reports.generate` refuses a period that is not its
+ * snapshot's own — so this component is the explanation, not the gate.
+ *
+ * ── THREE STATES, NOT TWO ──
+ *
+ * An option with no snapshot is not automatically dead. `buildPeriodOptions`
+ * now returns a `createAction` for every window a sync could still produce, so:
+ *
+ *   • snapshotId set          → Generate.
+ *   • createAction set        → selectable, and the primary button becomes
+ *                               "Sync this period", which creates the snapshot.
+ *   • neither                 → genuinely unavailable, dimmed, reason visible.
+ *
+ * THE RULE FOR WHICH IS WHICH IS NOT DUPLICATED HERE. It lives in
+ * `resolvePeriodOption` → `assertCustomSyncWindow`, the same predicate
+ * `projects.sync` validates against, so this component can never offer a sync
+ * the mutation would refuse.
  *
  * The disabled-with-reason treatment follows `SyncNowButton`'s idiom (dim
  * label, `not-allowed`, reason on the control) with the reason ALSO rendered as
  * visible text: a tooltip is not a disclosure a founder can be assumed to have
- * read, and here the reason is usually an instruction ("run Sync now ▾ → Last 3
- * months").
+ * read, and here the reason is usually an instruction.
  *
  * Balance provenance gets a full banner rather than a footnote, and it renders
  * BEFORE the generate button rather than in the finished report. A
@@ -100,6 +113,7 @@ export function ReportPeriodPicker({
         reconstruction: null,
         disabledReason:
           err instanceof Error ? err.message : "That is not a valid date range.",
+        createAction: null,
       };
     }
     return {
@@ -131,27 +145,70 @@ export function ReportPeriodPicker({
     onError: (err) => setError(err.message || "Failed to generate report"),
   });
 
-  const paywalled = canGenerate.data ? !canGenerate.data.allowed : false;
-  const blocked =
-    paywalled ||
-    !selected ||
-    selected.disabledReason !== null ||
-    !selected.snapshotId ||
-    !selected.period ||
-    generate.isPending;
+  const sync = trpc.projects.sync.useMutation({
+    onSuccess: (res) => {
+      // `errors` carries the per-period refusals, and the one that matters here
+      // is `snapshotPeriodConflicts`: a snapshot already exists at this window's
+      // end date describing a DIFFERENT period, and overwriting it would
+      // silently change the data under an existing report. The message explains
+      // exactly that, so it is shown VERBATIM rather than counted — "1 period
+      // failed" would be indistinguishable from a network problem.
+      const first = res.errors?.[0];
+      if (first) {
+        setError(first.error);
+        return;
+      }
+      router.refresh();
+      // `projects.sync` generates the report for the newest period it wrote (or
+      // returns the one that already covers it). Landing on that report is both
+      // what the founder wanted and what stops them generating a duplicate for
+      // the same window from this same picker a second later.
+      if (res.reportId) {
+        router.push(`/projects/${projectId}/reports/${res.reportId}`);
+      }
+    },
+    onError: (err) => setError(err.message || "Failed to sync this period"),
+  });
 
-  function onGenerate() {
-    if (!selected?.snapshotId || !selected.period) return;
+  const paywalled = canGenerate.data ? !canGenerate.data.allowed : false;
+  const busy = generate.isPending || sync.isPending;
+  // What the primary button does for the current selection. A period with no
+  // snapshot but a `createAction` is one sync away from being reportable, so
+  // the button offers that sync instead of being dead.
+  const mode: "generate" | "create" | "blocked" = !selected
+    ? "blocked"
+    : selected.snapshotId && selected.period && selected.disabledReason === null
+      ? "generate"
+      : selected.createAction
+        ? "create"
+        : "blocked";
+  const blocked = mode === "blocked" || busy || (mode === "generate" && paywalled);
+
+  function onPrimary() {
+    if (!selected || busy) return;
     setError(null);
-    generate.mutate({
-      projectId,
-      snapshotId: selected.snapshotId,
-      // Sent explicitly rather than left to the server's default, so the
-      // period the founder saw in this UI is the period the server checks
-      // against the snapshot. A silent disagreement becomes a refusal instead
-      // of a mislabelled report.
-      period: { start: selected.period.start, end: selected.period.end },
-    });
+    if (mode === "generate") {
+      if (!selected.snapshotId || !selected.period) return;
+      generate.mutate({
+        projectId,
+        snapshotId: selected.snapshotId,
+        // Sent explicitly rather than left to the server's default, so the
+        // period the founder saw in this UI is the period the server checks
+        // against the snapshot. A silent disagreement becomes a refusal instead
+        // of a mislabelled report.
+        period: { start: selected.period.start, end: selected.period.end },
+      });
+      return;
+    }
+    const action = selected.createAction;
+    if (mode !== "create" || !action) return;
+    // `months` and `period` are mutually exclusive on the mutation, which is
+    // why `PeriodCreateAction` is a union rather than two optional fields.
+    sync.mutate(
+      action.kind === "months"
+        ? { projectId, months: action.months }
+        : { projectId, period: { start: action.start, end: action.end } }
+    );
   }
 
   return (
@@ -182,7 +239,11 @@ export function ReportPeriodPicker({
         className="flex max-w-[560px] flex-col gap-1"
       >
         {options.map((opt) => {
-          const disabled = opt.disabledReason !== null;
+          // Selectable ≠ generatable. An option with a `createAction` has no
+          // snapshot yet, but selecting it is how the founder reaches the sync
+          // that makes one — so only a window nothing can produce is dead.
+          const creatable = opt.createAction !== null;
+          const dead = opt.disabledReason !== null && !creatable;
           const active = opt.id === selectedId;
           return (
             <button
@@ -190,7 +251,7 @@ export function ReportPeriodPicker({
               type="button"
               role="radio"
               aria-checked={active}
-              disabled={disabled}
+              disabled={dead}
               title={opt.disabledReason ?? undefined}
               onClick={() => {
                 setPickedId(opt.id);
@@ -202,13 +263,13 @@ export function ReportPeriodPicker({
                   ? "var(--vb-border-hover)"
                   : "var(--vb-border)",
                 background: active ? "var(--accent-dim)" : "var(--vb-alt)",
-                color: disabled ? "var(--vb-dim)" : "var(--vb-text)",
-                cursor: disabled ? "not-allowed" : "pointer",
+                color: dead ? "var(--vb-dim)" : "var(--vb-text)",
+                cursor: dead ? "not-allowed" : "pointer",
               }}
             >
               <span className="block">
                 {opt.label}
-                {disabled ? " — unavailable" : ""}
+                {dead ? " — unavailable" : creatable ? " — not synced yet" : ""}
               </span>
               {(opt.disabledReason ?? opt.hint) && (
                 <span className="mt-0.5 block text-[11px] leading-relaxed text-[var(--vb-dim)]">
@@ -280,27 +341,44 @@ export function ReportPeriodPicker({
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={onGenerate}
+          onClick={onPrimary}
           disabled={blocked}
           title={
-            selected?.disabledReason ??
-            (paywalled ? (canGenerate.data?.reason ?? undefined) : undefined)
+            mode === "create"
+              ? "Creates the snapshot for this window, then generates its report."
+              : (selected?.disabledReason ??
+                (paywalled ? (canGenerate.data?.reason ?? undefined) : undefined))
           }
           className="inline-flex items-center gap-2 rounded-lg border-none px-[18px] py-[11px] font-[var(--font-inter),Inter,sans-serif] text-[14px] font-semibold"
           style={{
             background: blocked ? "rgba(255,255,255,0.06)" : "var(--accent)",
             color: blocked ? "var(--vb-dim)" : "var(--accent-text)",
             cursor: blocked ? "not-allowed" : "pointer",
-            opacity: generate.isPending ? 0.7 : 1,
+            opacity: busy ? 0.7 : 1,
           }}
         >
-          <Sparkles size={14} />
-          {generate.isPending
-            ? "Generating report..."
-            : selected?.period
-              ? `Generate report for ${selected.period.label}`
-              : "Generate report"}
+          {mode === "create" ? <RefreshCw size={14} /> : <Sparkles size={14} />}
+          {sync.isPending
+            ? "Syncing this period..."
+            : generate.isPending
+              ? "Generating report..."
+              : mode === "create"
+                ? `Sync ${selected?.period?.label ?? "this period"}`
+                : selected?.period
+                  ? `Generate report for ${selected.period.label}`
+                  : "Generate report"}
         </button>
+        {/* What the sync will actually do, before it is paid for. A custom
+            window is one live treasury read plus a transfer sweep over the
+            whole window, and `projects.sync` generates the report for the
+            period it writes — so this button is not just "fetch data". */}
+        {mode === "create" && !busy && (
+          <span className="max-w-[420px] font-[var(--font-inter),Inter,sans-serif] text-[11px] leading-relaxed text-[var(--vb-dim)]">
+            {selected?.createAction?.kind === "period"
+              ? "Reads the treasury now, measures this window's transfers, and generates the report."
+              : "Backfills the missing months, reconstructing older balances from transfer history, and generates the report for the newest one."}
+          </span>
+        )}
         {error && (
           <span className="font-[var(--font-inter),Inter,sans-serif] text-[12px] text-[var(--vb-danger)]">
             {error}

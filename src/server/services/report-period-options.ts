@@ -18,29 +18,44 @@
 //
 // ── WHAT HAPPENS WHEN NOTHING COVERS THE WINDOW ──
 //
-// The option is OFFERED AND DISABLED, carrying the reason. Never silently
-// snapped to a nearby snapshot, never generated anyway.
+// The option is OFFERED, carrying either the sync that would create it
+// (`createAction`) or the reason nothing can. Never silently snapped to a
+// nearby snapshot, never generated anyway.
 //
-// This is the "restrict the picker to periods that have snapshots" branch, and
-// it is chosen over "offer a sync for that period" because of a hard fact about
-// the product as it stands: `projects.sync` builds its periods as
+// This used to be flatly "no sync can produce that window", and that was true:
+// `projects.sync` built its periods as whole calendar months walked back from
+// the last completed one, so every snapshot the product could create was a
+// month. It now also accepts ONE EXPLICIT WINDOW, so there are three answers
+// rather than two:
 //
-//     start = new Date(y, m - 1 - i, 1)
-//     end   = new Date(y, m - i, 0, 23:59:59)
+//   • a month-shaped window → `{ kind: "months", months: N }`, the backfill
+//     depth that would create it, exactly as before;
+//   • any window ending at/near today → `{ kind: "period", start, end }`, a
+//     single custom sync;
+//   • a window ending further in the past → still nothing, and the reason says
+//     so. Balances are read LIVE, and a lone custom window has no newer period
+//     to walk back from, so syncing it would stamp today's holdings with a past
+//     date and label them `observed`. `assertCustomSyncWindow` owns that rule,
+//     in report-period.ts, so this module and `projects.sync` cannot disagree
+//     about which windows are creatable.
 //
-// i.e. WHOLE CALENDAR MONTHS, walking back from the last completed month. Every
-// snapshot this product can create is a calendar month. So "offer a sync for
-// that period" is only truthful for month-shaped windows — and for those, this
-// module says exactly which backfill depth would create the missing row, which
-// is the actionable half of that option without the half that would be a lie.
-// For a window that is not a calendar month the honest answer today is that
-// the product cannot measure it, and the reason says so in those words rather
-// than offering a button that cannot work.
+// ── WHERE A PRESET'S WINDOW ENDS ──
 //
-// The arbitrary-period machinery downstream (`createReportRecord`'s period
-// argument, `reports.generate`'s input, `assertPeriodSupported`) is fully wired
-// regardless. The day a sync writes a non-month snapshot, these options resolve
-// against it with no change here.
+// Two candidate ends, tried in order: the newest snapshot's end, then today.
+//
+// The first is free — if a snapshot already covers exactly that window the
+// option resolves with no sync at all, which is what keeps yesterday's grant
+// snapshot reachable tomorrow. The second is the only end a NEW custom sync can
+// honestly produce, and it is what the label actually claims: on the 31st,
+// "Last 90 days" is the 90 days ending on the 31st, not the 90 ending at the
+// last monthly sync.
+//
+// The earlier rule was "always the newest snapshot, never today", on the ground
+// that a window running to today was unmeasurable in principle. That ground is
+// gone: a custom sync reads the treasury now and measures the window's
+// transfers, so a window ending today is precisely the measurable one. Ending
+// at a stale snapshot instead would have made every non-month preset
+// permanently uncreatable — which is what greyed out "Since grant award".
 //
 // ── DEPENDENCIES ──
 //
@@ -54,6 +69,7 @@
 
 import {
   MAX_RECONSTRUCTION_MONTHS,
+  assertCustomSyncWindow,
   assertPeriodSupported,
   periodFromRange,
   periodFromSnapshot,
@@ -104,6 +120,18 @@ export interface PeriodGrantAward {
   reportingStartDate?: string | null;
 }
 
+/**
+ * The `projects.sync` call that would create the snapshot this option needs.
+ *
+ * Two shapes because the mutation takes two: `months` walks whole calendar
+ * months back from the last completed one, chaining reconstructed balances;
+ * `period` is one explicit window read live. They are mutually exclusive there
+ * and so are these.
+ */
+export type PeriodCreateAction =
+  | { kind: "months"; months: number }
+  | { kind: "period"; start: string; end: string };
+
 export interface PeriodOption {
   /** Stable across renders; `custom` is the free-form entry. */
   id: string;
@@ -116,8 +144,22 @@ export interface PeriodOption {
   snapshotId: string | null;
   basis: PeriodBalanceBasis | null;
   reconstruction: ReconstructionNote | null;
-  /** Non-null ⇒ the option is not selectable, and this is the visible reason. */
+  /**
+   * Non-null ⇒ a report cannot be generated for this option yet, and this is
+   * the visible reason.
+   *
+   * NOT the same as "not selectable". An option can carry a reason AND a
+   * `createAction` — that is the ordinary "no snapshot yet, here is the sync
+   * that makes one" case, and the founder has to be able to select it to reach
+   * that button. Only `disabledReason !== null && createAction === null` is
+   * dead.
+   */
   disabledReason: string | null;
+  /**
+   * The sync that would make this option generatable, or null when nothing
+   * would. Always null when `snapshotId` is set — there is nothing to create.
+   */
+  createAction: PeriodCreateAction | null;
 }
 
 export interface PeriodOptionsInput {
@@ -208,7 +250,12 @@ export function resolvePeriodOption(
   today: string | Date
 ): Pick<
   PeriodOption,
-  "period" | "snapshotId" | "basis" | "reconstruction" | "disabledReason"
+  | "period"
+  | "snapshotId"
+  | "basis"
+  | "reconstruction"
+  | "disabledReason"
+  | "createAction"
 > {
   const support = assertPeriodSupported(period, today);
   if (!support.ok) {
@@ -218,6 +265,7 @@ export function resolvePeriodOption(
       basis: null,
       reconstruction: null,
       disabledReason: support.reason,
+      createAction: null,
     };
   }
 
@@ -229,25 +277,57 @@ export function resolvePeriodOption(
       basis: snapshot.basis,
       reconstruction: snapshot.reconstruction,
       disabledReason: null,
+      createAction: null,
     };
   }
 
+  const missing = `No snapshot covers ${period.label} (${period.start} to ${period.end}) yet.`;
+
+  // A month-shaped window is best created by the months backfill: it chains
+  // through each month's own transfer history and is idempotent against the
+  // monthly cadence, where a custom window of the same shape would collide with
+  // that month's snapshot on `(project_id, snapshot_date)`. So this branch runs
+  // FIRST even when a custom sync would also be legal.
   const depth = backfillMonthsToCover(period, today);
-  const backfillHint =
-    depth === null
-      ? "VaultBrief only snapshots whole calendar months today, so no sync can produce this window. " +
-        "A report's period is its snapshot's period, and there is no honest way to relabel a month as something else."
-      : `Run Sync now ▾ → “Last ${depth === 1 ? "month" : `${depth} months`}” to create it` +
+  if (depth !== null) {
+    return {
+      period,
+      snapshotId: null,
+      basis: null,
+      reconstruction: null,
+      disabledReason:
+        `${missing} Sync “Last ${depth === 1 ? "month" : `${depth} months`}” to create it` +
         (depth > 1
-          ? ", which reconstructs the balances from transfer history and labels them as estimates."
-          : ".");
+          ? ", which reconstructs the older balances from transfer history and labels them as estimates."
+          : "."),
+      createAction: { kind: "months", months: depth },
+    };
+  }
+
+  // Otherwise: can ONE custom window produce it? The rule is
+  // `assertCustomSyncWindow`'s, shared with `projects.sync`, so the picker can
+  // never offer a sync the mutation would refuse.
+  const custom = assertCustomSyncWindow(period, today);
+  if (custom.ok) {
+    return {
+      period,
+      snapshotId: null,
+      basis: null,
+      reconstruction: null,
+      disabledReason:
+        `${missing} Sync this period to create one — VaultBrief reads the treasury now and ` +
+        "measures this window's transfers, so the balances are observed rather than estimated.",
+      createAction: { kind: "period", start: period.start, end: period.end },
+    };
+  }
 
   return {
     period,
     snapshotId: null,
     basis: null,
     reconstruction: null,
-    disabledReason: `No snapshot covers ${period.label} (${period.start} to ${period.end}). ${backfillHint}`,
+    disabledReason: `${missing} ${custom.reason}`,
+    createAction: null,
   };
 }
 
@@ -311,19 +391,73 @@ function unresolvable(
     basis: null,
     reconstruction: null,
     disabledReason,
+    createAction: null,
   };
+}
+
+/** 'YYYY-MM-DD' for the clock, whichever form it arrived in. */
+function todayIso(today: string | Date): string | null {
+  if (today instanceof Date) {
+    return Number.isFinite(today.getTime()) ? isoDay(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
+    ) : null;
+  }
+  const ms = typeof today === "string" ? dayMs(today) : null;
+  return ms === null ? null : isoDay(ms);
+}
+
+/**
+ * A preset that runs "from `start`, through the end of the data".
+ *
+ * TRIES EACH CANDIDATE END IN ORDER and returns the first one a snapshot
+ * already covers exactly; failing that, the LAST candidate that produced a
+ * valid window. Callers pass `[newestSnapshotEnd, today]`, so the meaning is:
+ * prefer a window that is already measured, and otherwise name the one a sync
+ * can still create — which is always the one ending today, because balances are
+ * read live (`assertCustomSyncWindow`).
+ *
+ * `startFor` takes the end because a trailing window's start depends on it: the
+ * "last 90 days" ending at the newest snapshot and the "last 90 days" ending
+ * today are different windows, not the same window with a different end.
+ */
+function openEnded(
+  id: string,
+  label: string,
+  startFor: (end: string) => string | null,
+  ends: readonly (string | null)[],
+  snapshots: readonly PeriodSnapshotChoice[],
+  today: string | Date,
+  noWindowReason: string
+): PeriodOption {
+  let fallback: PeriodOption | null = null;
+  const seen = new Set<string>();
+  for (const end of ends) {
+    if (!end || seen.has(end)) continue;
+    seen.add(end);
+    const start = startFor(end);
+    if (!start) continue;
+    const period = safeRange(start, end);
+    if (!period) continue;
+    const resolved = resolvePeriodOption(period, snapshots, today);
+    const option: PeriodOption = {
+      id,
+      label,
+      hint: `From ${period.start} to ${period.end}`,
+      ...resolved,
+    };
+    if (resolved.snapshotId) return option;
+    fallback = option;
+  }
+  return fallback ?? unresolvable(id, label, "", noWindowReason);
 }
 
 /**
  * The picker's options, in the order they should be shown.
  *
- * EVERY PRESET IS ANCHORED TO THE NEWEST SNAPSHOT'S END, NOT TO `today`, and
- * that is a correctness choice rather than a convenience. A window running to
- * today has no data for its final days — the treasury has not been read since
- * the last sync — so "the last 90 days" ending today would be a window the
- * product could not measure even in principle, and would additionally
- * guarantee that no snapshot ever matches it. Ending at the newest snapshot is
- * the furthest the data actually reaches.
+ * EVERY OPEN-ENDED PRESET IS OFFERED AT THE NEWEST SNAPSHOT'S END FIRST AND AT
+ * `today` SECOND — see this file's header for why both, and `openEnded` for the
+ * mechanics. "Latest synced period" is the exception and is always the
+ * snapshot's own window: it is a lookup, not a request.
  *
  * `custom` is emitted last with a null period; the UI resolves the founder's
  * own dates through `resolvePeriodOption` as they are typed.
@@ -358,7 +492,11 @@ export function buildPeriodOptions(input: PeriodOptionsInput): PeriodOption[] {
   }
 
   const anchorEnd = newest?.period.end ?? null;
-  const anchorEndMs = anchorEnd ? dayMs(anchorEnd) : null;
+  // The two candidate ends every open-ended preset is tried against, in
+  // preference order: already-measured first, creatable second. `openEnded`
+  // skips nulls and duplicates, so a project synced today collapses to one.
+  const nowIso = todayIso(today);
+  const ends: readonly (string | null)[] = [anchorEnd, nowIso];
 
   // ── 2. since each grant award ────────────────────────────────────────────
   if (awards.length === 0) {
@@ -373,37 +511,19 @@ export function buildPeriodOptions(input: PeriodOptionsInput): PeriodOption[] {
   } else {
     for (const award of awards) {
       const start = award.reportingStartDate ?? award.awardDate;
-      const label = `Since ${award.grantor} award`;
-      const hint = `From ${start}${anchorEnd ? ` to ${anchorEnd}` : ""}`;
-      if (!anchorEnd) {
-        options.push(
-          unresolvable(
-            `since_grant_award:${award.id}`,
-            label,
-            hint,
-            "Nothing has been synced for this project yet, so there is no end date for the grant window."
-          )
-        );
-        continue;
-      }
-      const period = safeRange(start, anchorEnd);
-      if (!period) {
-        options.push(
-          unresolvable(
-            `since_grant_award:${award.id}`,
-            label,
-            hint,
-            `The award's reporting start (${start}) is after the newest snapshot (${anchorEnd}), so there is no window to report on yet.`
-          )
-        );
-        continue;
-      }
-      options.push({
-        id: `since_grant_award:${award.id}`,
-        label,
-        hint,
-        ...resolvePeriodOption(period, snapshots, today),
-      });
+      options.push(
+        openEnded(
+          `since_grant_award:${award.id}`,
+          `Since ${award.grantor} award`,
+          () => start,
+          ends,
+          snapshots,
+          today,
+          `The award's reporting start (${start}) is after ${
+            nowIso ?? "today"
+          }, so there is no window to report on yet.`
+        )
+      );
     }
   }
 
@@ -422,59 +542,41 @@ export function buildPeriodOptions(input: PeriodOptionsInput): PeriodOption[] {
         "No report has been generated for this project yet, so there is no previous period to continue from."
       )
     );
-  } else if (anchorEnd === null || anchorEndMs === null) {
-    options.push(
-      unresolvable(
-        "since_last_report",
-        "Since last report",
-        "Starts the day after the previous report's period ended",
-        "Nothing has been synced for this project yet."
-      )
-    );
   } else {
     const start = isoDay(lastEndMs + MS_PER_DAY);
-    const hint = `From ${start} to ${anchorEnd}`;
-    const period = safeRange(start, anchorEnd);
     options.push(
-      period
-        ? {
-            id: "since_last_report",
-            label: "Since last report",
-            hint,
-            ...resolvePeriodOption(period, snapshots, today),
-          }
-        : unresolvable(
-            "since_last_report",
-            "Since last report",
-            hint,
-            `The last report already covers everything through ${input.lastReportPeriodEnd}, which is on or after the newest snapshot (${anchorEnd}). Sync a newer period first.`
-          )
+      openEnded(
+        "since_last_report",
+        "Since last report",
+        () => start,
+        ends,
+        snapshots,
+        today,
+        `The last report already covers everything through ${input.lastReportPeriodEnd}, which is on or after ${
+          nowIso ?? "today"
+        }. There is no newer window to report on yet.`
+      )
     );
   }
 
   // ── 4. trailing windows ──────────────────────────────────────────────────
   for (const days of [30, 90]) {
-    const id = `last_${days}_days`;
-    const label = `Last ${days} days`;
-    if (anchorEndMs === null || anchorEnd === null) {
-      options.push(
-        unresolvable(
-          id,
-          label,
-          `The ${days} days ending at the newest snapshot`,
-          "Nothing has been synced for this project yet."
-        )
-      );
-      continue;
-    }
-    // Inclusive of both ends, so N days back is N-1 steps.
-    const start = isoDay(anchorEndMs - (days - 1) * MS_PER_DAY);
-    const period = safeRange(start, anchorEnd);
-    const hint = `From ${start} to ${anchorEnd}`;
     options.push(
-      period
-        ? { id, label, hint, ...resolvePeriodOption(period, snapshots, today) }
-        : unresolvable(id, label, hint, "Could not build this window.")
+      openEnded(
+        `last_${days}_days`,
+        `Last ${days} days`,
+        // The start moves with the end — "the 90 days ending at the newest
+        // snapshot" and "the 90 days ending today" are different windows.
+        // Inclusive of both ends, so N days back is N-1 steps.
+        (end) => {
+          const endMs = dayMs(end);
+          return endMs === null ? null : isoDay(endMs - (days - 1) * MS_PER_DAY);
+        },
+        ends,
+        snapshots,
+        today,
+        "Could not build this window."
+      )
     );
   }
 
@@ -488,6 +590,7 @@ export function buildPeriodOptions(input: PeriodOptionsInput): PeriodOption[] {
     basis: null,
     reconstruction: null,
     disabledReason: null,
+    createAction: null,
   });
 
   return options;

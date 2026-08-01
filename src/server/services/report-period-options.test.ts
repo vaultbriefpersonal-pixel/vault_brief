@@ -143,15 +143,65 @@ describe("resolvePeriodOption", () => {
     expect(r.disabledReason).toContain("Last 4 months");
   });
 
-  it("disables a non-month window and says the product cannot produce one", () => {
+  it("refuses a non-month window that ENDS IN THE PAST, and offers no sync", () => {
+    // Balances are read live and a lone custom window has no chain to walk
+    // back through, so syncing this would stamp today's holdings with
+    // 2026-06-30 and label them `observed`. Nothing can produce it.
     const r = resolvePeriodOption(
       periodFromRange("2026-04-01", "2026-06-30"),
       MONTHLY,
       TODAY
     );
     expect(r.snapshotId).toBeNull();
+    expect(r.createAction).toBeNull();
+    expect(r.disabledReason).toContain("has to end today");
     expect(r.disabledReason).toContain("whole calendar months");
-    expect(r.disabledReason).not.toContain("Sync now");
+  });
+
+  it("OFFERS a custom sync for a non-month window ending today", () => {
+    // The whole point of the change: this window is not a calendar month and
+    // no backfill depth can produce it, but one live read can.
+    const r = resolvePeriodOption(
+      periodFromRange("2026-02-14", TODAY),
+      MONTHLY,
+      TODAY
+    );
+    expect(r.snapshotId).toBeNull();
+    expect(r.createAction).toEqual({
+      kind: "period",
+      start: "2026-02-14",
+      end: TODAY,
+    });
+    expect(r.disabledReason).toContain("Sync this period");
+  });
+
+  it("prefers the months backfill for a month-shaped window", () => {
+    // A custom window of the same shape would collide with that month's own
+    // monthly snapshot on (project_id, snapshot_date).
+    const r = resolvePeriodOption(periodOfMonth("2026-03"), MONTHLY, TODAY);
+    expect(r.createAction).toEqual({ kind: "months", months: 4 });
+  });
+
+  it("refuses a window longer than the reconstruction horizon", () => {
+    const r = resolvePeriodOption(
+      periodFromRange("2024-01-01", TODAY),
+      MONTHLY,
+      TODAY
+    );
+    expect(r.createAction).toBeNull();
+    // `assertPeriodSupported` passes it — that gate reads only the END, which
+    // is today. The length rule is `assertCustomSyncWindow`'s.
+    expect(r.disabledReason).toContain("at most 12 months");
+  });
+
+  it("refuses a window that has not finished yet", () => {
+    const r = resolvePeriodOption(
+      periodFromRange("2026-07-01", "2026-09-30"),
+      MONTHLY,
+      TODAY
+    );
+    expect(r.createAction).toBeNull();
+    expect(r.disabledReason).toContain("has not finished yet");
   });
 
   it("checks the reconstruction horizon BEFORE coverage", () => {
@@ -182,13 +232,34 @@ describe("buildPeriodOptions", () => {
     expect(first.period?.kind).toBe("month");
   });
 
-  it("anchors every preset to the newest snapshot, never to today", () => {
-    // Anchoring to `today` would claim a window whose final days have no data
-    // at all — the treasury has not been read since the last sync.
+  it("never offers a window ending after today", () => {
     const opts = buildPeriodOptions(base);
     for (const o of opts) {
-      if (o.period) expect(o.period.end <= "2026-06-30").toBe(true);
+      if (o.period) expect(o.period.end <= TODAY).toBe(true);
     }
+  });
+
+  it("prefers the newest snapshot's end when a snapshot already covers it", () => {
+    // Free path: no sync, no cost. `last_30_days` ending at the June snapshot
+    // is exactly June, so it resolves against s-jun rather than proposing the
+    // 30 days ending today.
+    const o = buildPeriodOptions(base).find((x) => x.id === "last_30_days")!;
+    expect(o.period?.end).toBe("2026-06-30");
+    expect(o.snapshotId).toBe("s-jun");
+    expect(o.createAction).toBeNull();
+  });
+
+  it("falls back to a window ending TODAY when nothing covers the snapshot-anchored one", () => {
+    // The 90 days ending at the June snapshot are not covered by anything, and
+    // nothing can create them (they end a month ago). The 90 days ending today
+    // can be created, so that is the window offered.
+    const o = buildPeriodOptions(base).find((x) => x.id === "last_90_days")!;
+    expect(o.period?.end).toBe(TODAY);
+    expect(o.createAction).toEqual({
+      kind: "period",
+      start: "2026-05-03",
+      end: TODAY,
+    });
   });
 
   it("offers 'since last report' starting the day AFTER the previous period", () => {
@@ -204,10 +275,31 @@ describe("buildPeriodOptions", () => {
     expect(o.snapshotId).toBe("s-jun");
   });
 
-  it("disables 'since last report' when the last report already covers everything", () => {
+  it("offers the not-yet-reported remainder when the last report reaches the newest snapshot", () => {
+    // Under the old snapshot-only anchor this was "nothing left to report".
+    // There IS something left — the days since that report closed — and one
+    // sync can measure them.
     const opts = buildPeriodOptions({
       ...base,
       lastReportPeriodEnd: "2026-06-30",
+    });
+    const o = opts.find((x) => x.id === "since_last_report")!;
+    expect(o.period?.start).toBe("2026-07-01");
+    expect(o.period?.end).toBe(TODAY);
+    // July is a calendar month, but it is the IN-PROGRESS one — no backfill
+    // depth reaches it, because sync's months loop ends at the last COMPLETED
+    // month. One custom window ending today does reach it.
+    expect(o.createAction).toEqual({
+      kind: "period",
+      start: "2026-07-01",
+      end: TODAY,
+    });
+  });
+
+  it("disables 'since last report' when the last report runs past today", () => {
+    const opts = buildPeriodOptions({
+      ...base,
+      lastReportPeriodEnd: "2026-09-30",
     });
     const o = opts.find((x) => x.id === "since_last_report")!;
     expect(o.period).toBeNull();
@@ -234,20 +326,41 @@ describe("buildPeriodOptions", () => {
     const o = opts.find((x) => x.id === "since_grant_award:ga1")!;
     expect(o.label).toBe("Since Optimism Foundation award");
     expect(o.period?.start).toBe("2026-02-14");
-    expect(o.period?.end).toBe("2026-06-30");
-    // No snapshot spans that window — every snapshot is a calendar month.
+    // THE PAYOFF OF THIS WHOLE STAGE. No snapshot spans a 168-day grant window
+    // and none ever will by accident — but one custom sync creates it, so the
+    // option is offered with the sync attached instead of greyed out.
+    expect(o.period?.end).toBe(TODAY);
     expect(o.snapshotId).toBeNull();
-    expect(o.disabledReason).toContain("whole calendar months");
+    expect(o.createAction).toEqual({
+      kind: "period",
+      start: "2026-02-14",
+      end: TODAY,
+    });
+    expect(o.disabledReason).toContain("Sync this period");
   });
 
-  it("does not invent a window for an award dated after the newest snapshot", () => {
+  it("offers the window since an award dated after the newest snapshot", () => {
+    // The award landed after the last sync, which is not a reason there is no
+    // window — the window is award-date → today, and a sync can measure it.
     const opts = buildPeriodOptions({
       ...base,
       grantAwards: [{ id: "ga2", grantor: "ENS DAO", awardDate: "2026-07-01" }],
     });
     const o = opts.find((x) => x.id === "since_grant_award:ga2")!;
+    expect(o.period?.start).toBe("2026-07-01");
+    expect(o.period?.end).toBe(TODAY);
+    expect(o.createAction?.kind).toBe("period");
+  });
+
+  it("does not invent a window for an award dated in the future", () => {
+    const opts = buildPeriodOptions({
+      ...base,
+      grantAwards: [{ id: "ga3", grantor: "ENS DAO", awardDate: "2026-09-01" }],
+    });
+    const o = opts.find((x) => x.id === "since_grant_award:ga3")!;
     expect(o.period).toBeNull();
-    expect(o.disabledReason).toContain("after the newest snapshot");
+    expect(o.createAction).toBeNull();
+    expect(o.disabledReason).toContain("after 2026-07-31");
   });
 
   it("counts a trailing window inclusively at both ends", () => {
@@ -260,7 +373,9 @@ describe("buildPeriodOptions", () => {
   it("keeps 90 days at 90 days across month boundaries", () => {
     const o = buildPeriodOptions(base).find((x) => x.id === "last_90_days")!;
     expect(o.period?.days).toBe(90);
-    expect(o.period?.start).toBe("2026-04-02");
+    // Ending today, because nothing covers the 90 days ending at the June
+    // snapshot and nothing could create them either.
+    expect(o.period?.start).toBe("2026-05-03");
   });
 
   it("always ends with a selectable custom entry carrying no window", () => {

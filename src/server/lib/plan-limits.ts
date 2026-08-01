@@ -70,32 +70,89 @@ export async function filterEligibleProjects<
  */
 export const FREE_REPORT_LIMIT = 1;
 
+/** Whether this project may generate another report, and the numbers behind it. */
+export interface ReportAllowance {
+  allowed: boolean;
+  /** Reports already generated for this project. Display only, never the verdict. */
+  used: number;
+  limit: number;
+  /** The message to show a user. Null when `allowed`. */
+  reason: string | null;
+}
+
 /**
- * Throws FORBIDDEN when `projectId` has already used its free report and its
- * OWNER (`ownerId` — pass `project.userId` from `requireProject`, never the
- * calling session user, since a project member acting on someone else's
- * project must be judged by the OWNER's plan) is still on the free plan.
+ * THE report cap, in its non-throwing form, and the single place the rule lives.
+ *
+ * Two shapes are needed because two kinds of caller ask the question, and they
+ * need opposite things from the answer:
+ *
+ *   • An explicit user action ("generate this report") wants `assertCanGenerateReport`
+ *     — refusing IS the outcome, and a FORBIDDEN carrying the reason is right.
+ *   • A background or compound action (a sync that ends by generating a report,
+ *     the monthly cron) must NOT throw. The snapshot it just wrote is good and
+ *     must be kept; only the report is skipped. Throwing there would either
+ *     lose the sync's work or turn a normal free-plan state into an error the
+ *     founder cannot act on.
+ *
+ * Both go through this function, so there is exactly one definition of "is the
+ * owner on a paid plan, and how many reports has this project used". A second
+ * copy is one edit away from a free-tier hole.
+ *
+ * `ownerId` is the PROJECT OWNER (`project.userId` from `requireProject`), never
+ * the calling session user: a project member acting on someone else's project
+ * is judged by the owner's plan.
  */
-export async function assertCanGenerateReport(
+export async function reportAllowance(
   ownerId: string,
   projectId: string
-): Promise<void> {
+): Promise<ReportAllowance> {
+  // Plan first, usage second — same order the throwing form has always used.
+  //
+  // Both queries always run, where the throwing form used to stop after the
+  // first for a paid owner. That is deliberate: `used` is part of the answer
+  // now (the UI renders "1 of 1 used"), and a shape that reports usage must
+  // not report a number it did not look up. One indexed count against the
+  // cost of the LLM call this gates is not a trade worth making.
   const [owner] = await db
     .select({ plan: users.plan })
     .from(users)
     .where(eq(users.id, ownerId))
     .limit(1);
-  if (owner?.plan && owner.plan !== "free") return;
 
   const [row] = await db
     .select({ count: sql<number>`count(*)` })
     .from(reports)
     .where(eq(reports.projectId, projectId));
+  const used = Number(row?.count ?? 0);
 
-  if (Number(row?.count ?? 0) >= FREE_REPORT_LIMIT) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: `The free plan includes ${FREE_REPORT_LIMIT} report per project. Contact hello@vaultbrief.io to keep generating reports for this project.`,
-    });
+  if (owner?.plan && owner.plan !== "free") {
+    return { allowed: true, used, limit: FREE_REPORT_LIMIT, reason: null };
   }
+
+  if (used >= FREE_REPORT_LIMIT) {
+    return {
+      allowed: false,
+      used,
+      limit: FREE_REPORT_LIMIT,
+      reason: `The free plan includes ${FREE_REPORT_LIMIT} report per project. Contact hello@vaultbrief.io to keep generating reports for this project.`,
+    };
+  }
+  return { allowed: true, used, limit: FREE_REPORT_LIMIT, reason: null };
+}
+
+/**
+ * Throws FORBIDDEN when `projectId` has already used its free report and its
+ * OWNER is still on the free plan. The throwing form of `reportAllowance`, for
+ * callers where refusing is the outcome.
+ */
+export async function assertCanGenerateReport(
+  ownerId: string,
+  projectId: string
+): Promise<void> {
+  const allowance = await reportAllowance(ownerId, projectId);
+  if (allowance.allowed) return;
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: allowance.reason ?? "Report limit reached",
+  });
 }
