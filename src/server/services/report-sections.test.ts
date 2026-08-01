@@ -20,7 +20,10 @@ import {
   EXPENSE_CATEGORY_NAMES,
   grantDeliverables,
   grantFundUsage,
+  grantLeftoverFunds,
+  grantPlanDeviations,
   INCOME_CATEGORY_NAMES,
+  NO_PLAN_DEVIATION,
   RECURRING_INCOME_FLOOR_USD,
   splitIncome,
 } from "./report-derived";
@@ -3706,5 +3709,359 @@ describe("comparisonBasis — provenance of the balances being compared", () => 
     expect(
       section("previous_month_comparison").userPromptFragment(ctx)
     ).toContain("BALANCE BASIS");
+  });
+});
+
+// ─── the grant-report blocks ───────────────────────────────────────────────
+//
+// Leftover Grant Funds, Deviation from the Plan, Live Dashboard, and the
+// Source of Truth field threaded through three existing sections.
+//
+// The single most consequential thing under test is the SCOPE BOUNDARY. There
+// are two subtractions that both look like "money in minus money out":
+//
+//   TREASURY SCOPE — `received − spent` — BANNED, and still banned. The
+//   treasury is fungible and its opening balance is recorded nowhere.
+//   GRANT SCOPE — `received − utilized` — legal, and what these tests cover:
+//   both terms are sums over ONE award's tranche rows, and the second term is
+//   a founder's hand-entered assertion about that grant's money.
+//
+// A regression that merged the two would not crash. It would print a
+// confident, wrong figure in the document a funder decides from.
+
+function leftoverCtx(
+  tranches: Record<string, unknown>[],
+  awardOver: Record<string, unknown> = {}
+): ReportSectionContext {
+  return contextWith({ expensesByCategory: { payroll: 300_000 } }, null, {
+    grantAwards: [award(awardOver)] as never,
+    grantTranches: tranches as never,
+  });
+}
+
+/** $100K received. Utilisation is added per test. */
+const RECEIVED_100K = {
+  id: "t1",
+  amountUsd: "100000",
+  receivedDate: "2026-02-03",
+};
+
+describe("leftover funds — the derived view", () => {
+  it("computes received minus utilized at grant scope", () => {
+    const [row] = grantLeftoverFunds(
+      leftoverCtx([tranche({ ...RECEIVED_100K, utilizedUsd: "40000" })])
+    );
+    expect(row.receivedToDateUsd).toBe(100_000);
+    expect(row.utilizedToDateUsd).toBe(40_000);
+    expect(row.leftoverUsd).toBe(60_000);
+    expect(row.warnings).toEqual([]);
+  });
+
+  it("never derives the figure from treasury spend", () => {
+    // The fixture spends $300K of payroll. If any of that leaked into the
+    // utilisation term the leftover would be -$200K rather than $60K — the
+    // banned treasury-scope subtraction wearing this section's label.
+    const [row] = grantLeftoverFunds(
+      leftoverCtx([tranche({ ...RECEIVED_100K, utilizedUsd: "40000" })])
+    );
+    expect(row.leftoverUsd).toBe(60_000);
+    expect(row.leftoverUsd).not.toBe(-200_000);
+  });
+
+  it("treats unrecorded utilisation as null, never as zero", () => {
+    // Zero would make the leftover the entire receipt — a confident claim that
+    // an award nobody has reported on is completely unspent.
+    const [row] = grantLeftoverFunds(leftoverCtx([tranche(RECEIVED_100K)]));
+    expect(row.utilizedToDateUsd).toBeNull();
+    expect(row.leftoverUsd).toBeNull();
+  });
+
+  it("counts a zero utilisation as recorded, because zero is an answer", () => {
+    const [row] = grantLeftoverFunds(
+      leftoverCtx([tranche({ ...RECEIVED_100K, utilizedUsd: "0" })])
+    );
+    expect(row.utilizedToDateUsd).toBe(0);
+    expect(row.leftoverUsd).toBe(100_000);
+  });
+
+  it("reports a negative leftover rather than clamping or throwing", () => {
+    // The 81,000-against-75,000 case from the research corpus: a real report a
+    // grant program accepted. Clamping to zero would delete the only fact here.
+    const [row] = grantLeftoverFunds(
+      leftoverCtx([
+        tranche({
+          id: "t1",
+          amountUsd: "75000",
+          receivedDate: "2026-02-03",
+          utilizedUsd: "81000",
+        }),
+      ])
+    );
+    expect(row.leftoverUsd).toBe(-6_000);
+    expect(row.warnings.join(" ")).toContain("EXCEEDS recorded receipts");
+    expect(row.warnings.join(" ")).toContain("$6.0K");
+  });
+
+  it("flags partial utilisation so the leftover reads as an upper bound", () => {
+    const [row] = grantLeftoverFunds(
+      leftoverCtx([
+        tranche({ ...RECEIVED_100K, utilizedUsd: "40000" }),
+        tranche({ id: "t2", amountUsd: "150000", receivedDate: "2026-03-04" }),
+      ])
+    );
+    expect(row.utilizationRecordedCount).toBe(1);
+    expect(row.receivedTrancheCount).toBe(2);
+    expect(row.warnings.join(" ")).toContain("UPPER BOUND");
+  });
+
+  it("flags utilisation booked against a tranche that has not arrived", () => {
+    const [row] = grantLeftoverFunds(
+      leftoverCtx([
+        tranche({ id: "t1", amountUsd: "100000", utilizedUsd: "40000" }),
+      ])
+    );
+    expect(row.warnings.join(" ")).toContain("NOT recorded as received");
+  });
+
+  it("carries the founder's plan, and null when none was stated", () => {
+    const withPlan = grantLeftoverFunds(
+      leftoverCtx([tranche(RECEIVED_100K)], {
+        leftoverFundsPlan: "Rolls into the Q3 audit.",
+      })
+    );
+    expect(withPlan[0].plan).toBe("Rolls into the Q3 audit.");
+    expect(
+      grantLeftoverFunds(leftoverCtx([tranche(RECEIVED_100K)]))[0].plan
+    ).toBeNull();
+  });
+});
+
+describe("leftover funds — the section", () => {
+  it("ships off by default, so no stored config changes", () => {
+    expect(section("leftover_funds").defaultEnabled).toBe(false);
+    expect(resolveSections(null).map((s) => s.id)).not.toContain(
+      "leftover_funds"
+    );
+  });
+
+  it("gates off when neither a figure nor a plan exists", () => {
+    const ctx = leftoverCtx([tranche(RECEIVED_100K)]);
+    expect(section("leftover_funds").requires(ctx)).toBe(false);
+    expect(section("leftover_funds").userPromptFragment(ctx)).toBe("");
+  });
+
+  it("opens on a plan alone, with the figure declared not computable", () => {
+    const ctx = leftoverCtx([tranche(RECEIVED_100K)], {
+      leftoverFundsPlan: "Returned to the grantor.",
+    });
+    expect(section("leftover_funds").requires(ctx)).toBe(true);
+    const fragment = section("leftover_funds").userPromptFragment(ctx);
+    expect(fragment).toContain("NOT COMPUTABLE");
+    expect(fragment).toContain("Returned to the grantor.");
+  });
+
+  it("opens on a figure alone, and refuses to invent the plan", () => {
+    const ctx = leftoverCtx([
+      tranche({ ...RECEIVED_100K, utilizedUsd: "40000" }),
+    ]);
+    const fragment = section("leftover_funds").userPromptFragment(ctx);
+    expect(fragment).toContain("$60.0K");
+    expect(fragment).toContain("NOT STATED");
+    expect(fragment).toContain("Do NOT propose one");
+  });
+
+  it("ships no rules when the fragment is empty", () => {
+    // buildSystemPrompt selects a rule by whether the FRAGMENT is non-empty,
+    // not by `requires`. Gating only `requires` leaks the rules for a section
+    // that has no data — the bug that has bitten this file twice.
+    const ctx = leftoverCtx([tranche(RECEIVED_100K)]);
+    expect(buildSystemPrompt([section("leftover_funds")], ctx)).not.toContain(
+      "### Leftover Grant Funds"
+    );
+  });
+});
+
+describe("the grant-scope boundary holds", () => {
+  it("keeps every leftover figure out of Grant Funding Received", () => {
+    const ctx = leftoverCtx(
+      [tranche({ ...RECEIVED_100K, utilizedUsd: "40000" })],
+      { leftoverFundsPlan: "Returned." }
+    );
+    const usage = section("grant_fund_usage").userPromptFragment(ctx);
+    expect(usage).toContain("NEVER subtract spending from an award");
+    expect(usage).not.toContain("Leftover");
+    expect(usage).not.toContain("utilised");
+    expect(usage).not.toContain("$60.0K");
+  });
+
+  it("keeps the leftover field off the view that section renders", () => {
+    // Structural, not textual: `grant_fund_usage` reads GrantAwardView, and
+    // that view carries no leftover-shaped key for a future edit to reach for.
+    const ctx = leftoverCtx([
+      tranche({ ...RECEIVED_100K, utilizedUsd: "40000" }),
+    ]);
+    const [view] = grantFundUsage(ctx).awards;
+    expect(Object.keys(view)).not.toContain("leftoverUsd");
+    expect(Object.keys(view)).not.toContain("utilizedToDateUsd");
+  });
+});
+
+describe("plan deviation", () => {
+  it("ships off by default", () => {
+    expect(section("plan_deviation").defaultEnabled).toBe(false);
+  });
+
+  it("states an explicit no-change sentence when nothing was recorded", () => {
+    // The mechanic worth copying. A blank optional box lets a material change
+    // go unreported by simply not being typed, and an empty box is
+    // indistinguishable from an unchanged plan to the reader.
+    const ctx = leftoverCtx([tranche(RECEIVED_100K)]);
+    const [row] = grantPlanDeviations(ctx);
+    expect(row.statement).toBe(NO_PLAN_DEVIATION);
+    expect(row.affirmed).toBe(false);
+    expect(section("plan_deviation").requires(ctx)).toBe(true);
+    expect(section("plan_deviation").userPromptFragment(ctx)).toContain(
+      "No changes to the original plan."
+    );
+  });
+
+  it("uses the founder's own words once stated, unhedged", () => {
+    const ctx = leftoverCtx([tranche(RECEIVED_100K)], {
+      planDeviation: "Swapped the second audit vendor.",
+    });
+    const [row] = grantPlanDeviations(ctx);
+    expect(row.statement).toBe("Swapped the second audit vendor.");
+    expect(row.affirmed).toBe(true);
+    expect(section("plan_deviation").userPromptFragment(ctx)).not.toContain(
+      "standing statement"
+    );
+  });
+
+  it("treats a whitespace-only entry as unstated", () => {
+    const ctx = leftoverCtx([tranche(RECEIVED_100K)], { planDeviation: "   " });
+    expect(grantPlanDeviations(ctx)[0].statement).toBe(NO_PLAN_DEVIATION);
+  });
+
+  it("goes fully silent with no award at all, rule included", () => {
+    const ctx = contextWith({});
+    expect(section("plan_deviation").requires(ctx)).toBe(false);
+    expect(buildSystemPrompt([section("plan_deviation")], ctx)).not.toContain(
+      "### Deviation from the Plan"
+    );
+  });
+});
+
+describe("external dashboard", () => {
+  it("ships off by default", () => {
+    expect(section("external_dashboard").defaultEnabled).toBe(false);
+  });
+
+  it("stays silent without a URL", () => {
+    const ctx = contextWith({});
+    expect(section("external_dashboard").requires(ctx)).toBe(false);
+    expect(section("external_dashboard").userPromptFragment(ctx)).toBe("");
+  });
+
+  it("treats a whitespace-only URL as absent", () => {
+    const ctx = contextWith({}, null, {
+      project: { name: "Test Protocol", externalDashboardUrl: "   " },
+    } as unknown as Partial<ReportSectionContext>);
+    expect(section("external_dashboard").requires(ctx)).toBe(false);
+  });
+
+  it("renders the URL verbatim and names it the source of truth", () => {
+    const ctx = contextWith({}, null, {
+      project: {
+        name: "Test Protocol",
+        externalDashboardUrl: "https://dune.com/example/treasury",
+      },
+    } as unknown as Partial<ReportSectionContext>);
+    const fragment = section("external_dashboard").userPromptFragment(ctx);
+    expect(fragment).toContain("https://dune.com/example/treasury");
+    expect(fragment).toContain("the dashboard is the source of truth");
+    expect(section("external_dashboard").systemPromptFragment).toContain(
+      "Do not describe, summarise or characterise what the dashboard shows"
+    );
+  });
+});
+
+describe("source of truth", () => {
+  it("is a field, not a section", () => {
+    expect(LIBRARY_IDS).not.toContain("source_of_truth");
+  });
+
+  it("adds nothing to an item that has none", () => {
+    // What keeps every existing prompt byte-identical, and therefore every
+    // cached report valid: the field only ever appends.
+    const ctx = leftoverCtx([tranche(RECEIVED_100K)]);
+    expect(section("grant_fund_usage").userPromptFragment(ctx)).not.toContain(
+      "Source of Truth"
+    );
+  });
+
+  it("prefers sourceOfTruth over the older, narrower txHash", () => {
+    const ctx = leftoverCtx([
+      tranche({
+        ...RECEIVED_100K,
+        txHash: "0xold",
+        sourceOfTruth: "https://etherscan.io/tx/0xnew",
+      }),
+    ]);
+    const fragment = section("grant_fund_usage").userPromptFragment(ctx);
+    expect(fragment).toContain("Source of Truth: https://etherscan.io/tx/0xnew");
+    expect(fragment).not.toContain("0xold");
+  });
+
+  it("falls back to txHash so evidence recorded earlier is not lost", () => {
+    const ctx = leftoverCtx([tranche({ ...RECEIVED_100K, txHash: "0xold" })]);
+    expect(section("grant_fund_usage").userPromptFragment(ctx)).toContain(
+      "Source of Truth: 0xold"
+    );
+  });
+
+  it("carries a deliverable's pointer through grantDeliverables", () => {
+    const ctx = contextWith({}, null, {
+      grantAwards: [award()] as never,
+      grantTranches: [],
+      milestones: [
+        {
+          id: "gm1",
+          projectId: "p1",
+          title: "Audit published",
+          status: "completed",
+          targetDate: "2026-03-01",
+          completedDate: "2026-03-20",
+          grantAwardId: AWARD_ID,
+          sourceOfTruth: "https://github.com/org/repo/pull/12",
+        },
+      ] as never,
+    });
+    expect(grantDeliverables(ctx)[0].deliverables[0].sourceOfTruth).toBe(
+      "https://github.com/org/repo/pull/12"
+    );
+    expect(
+      section("grant_milestone_progress").userPromptFragment(ctx)
+    ).toContain("Source of Truth: https://github.com/org/repo/pull/12");
+  });
+
+  it("carries an outbound allocation's pointer into Grants Distributed", () => {
+    const ctx = contextWith({}, null, {
+      grants: [
+        {
+          id: "g1",
+          projectId: "p1",
+          recipient: "Acme Research",
+          amountUsd: "50000",
+          status: "committed",
+          category: null,
+          period: "2026-04",
+          notes: null,
+          sourceOfTruth: "0xallocation",
+        },
+      ] as never,
+    });
+    expect(section("grants_distributed").userPromptFragment(ctx)).toContain(
+      "Acme Research: $50.0K (committed) — Source of Truth: 0xallocation"
+    );
   });
 });

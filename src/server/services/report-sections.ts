@@ -32,6 +32,8 @@ import {
   compositionOf,
   grantDeliverables,
   grantFundUsage,
+  grantLeftoverFunds,
+  grantPlanDeviations,
   liquidityOf,
   netFlowOf,
   signedUsd,
@@ -1631,6 +1633,46 @@ const majorTransactions: ReportSection = {
     "Needs a synced period containing transactions above the reporting threshold.",
 };
 
+// ─── Source of Truth ───────────────────────────────────────────────────────
+//
+// Optimism's exact term, kept verbatim rather than paraphrased to "evidence"
+// or "reference": it is the most transferable concept the grant-report
+// research found, a reader who has seen one Optimism report recognises the
+// heading instantly, and a synonym would quietly become a different promise.
+//
+// NOT A SECTION. It is a per-item field threaded through the three places a
+// report makes a checkable claim — outbound allocations (`grants_distributed`),
+// disbursement lines (`grant_fund_usage`) and committed deliverables
+// (`grant_milestone_progress`). A standalone "Sources" block would divorce each
+// pointer from the claim it backs, which is the only thing that makes it useful.
+//
+// It ADDS to a line and never replaces or placeholders one: an item with
+// nothing recorded renders byte for byte as it did before this field existed,
+// so no `llm_cache` entry for an existing report is invalidated by the data
+// half of this change.
+
+/**
+ * The trailing "— Source of Truth: <pointer>" for one item, or "" when none is
+ * recorded.
+ *
+ * Deliberately does not validate or linkify the value. A tx hash, an explorer
+ * URL, a GitHub PR, a dashboard URL and a bare address are all legitimate and
+ * only some are URLs; the model is told to reproduce it verbatim, so anything
+ * this function did to it would be a transformation of evidence.
+ */
+function sourceOfTruthSuffix(value: string | null | undefined): string {
+  const v = (value ?? "").trim();
+  return v.length > 0 ? ` — Source of Truth: ${v}` : "";
+}
+
+/**
+ * The shared rule bullet, identical wording in all three sections that carry a
+ * Source of Truth. One constant rather than three hand-copied bullets, because
+ * three copies drift and a reader meeting the term in two sections of one
+ * document must not be told two different things about it.
+ */
+const SOURCE_OF_TRUTH_RULE = `- **Where a line carries "Source of Truth", reproduce that value verbatim and keep it attached to the item it belongs to.** Copy it exactly — a hash, a URL, an address — without shortening, relabelling, linkifying or moving it into a footnote. Never invent one, never carry one over from a different item, and never write a placeholder for an item that has none: an item without a Source of Truth simply renders without one.`;
+
 const grantsDistributed: ReportSection = {
   id: "grants_distributed",
   title: "Grants Distributed",
@@ -1651,7 +1693,9 @@ const grantsDistributed: ReportSection = {
       (g) =>
         `- ${g.recipient}: ${formatUsd(Number(g.amountUsd))} (${g.status}${
           g.category ? `, ${g.category}` : ""
-        })${g.notes ? ` — ${g.notes}` : ""}`
+        })${g.notes ? ` — ${g.notes}` : ""}${sourceOfTruthSuffix(
+          g.sourceOfTruth
+        )}`
     );
     return `\n## Grants this period\n- Committed: ${formatUsd(committed)}\n- Disbursed: ${formatUsd(
       disbursed
@@ -1661,7 +1705,8 @@ const grantsDistributed: ReportSection = {
 - Only render when the input includes a "## Grants this period" block.
 - Lead with two sub-bullets: total committed this period, total disbursed this period (use the figures verbatim from the input).
 - If 5+ grants are listed, group by category (when present) into a short table; otherwise render as bullets.
-- Don't editorialize — state recipients, amounts, status. Investors compare deployment efficiency, not narrative.`,
+- Don't editorialize — state recipients, amounts, status. Investors compare deployment efficiency, not narrative.
+${SOURCE_OF_TRUTH_RULE}`,
   notReadyHint: "Click Edit data to add grants for this period.",
 };
 
@@ -1761,7 +1806,16 @@ function awardBlock(a: GrantAwardView): string[] {
       const received = t.receivedDate
         ? `received ${t.receivedDate}`
         : "NOT YET RECEIVED";
-      lines.push(`  - ${t.label}: ${formatUsd(t.amountUsd)}, ${expected}, ${received}`);
+      // Utilisation is deliberately NOT printed here. It belongs to
+      // `leftover_funds`, whose whole job is to state it with its caveats
+      // attached; this section's rules ban every remaining-shaped figure
+      // absolutely, and putting the utilised number in front of the model
+      // beside a receipt is an invitation to do the banned subtraction.
+      lines.push(
+        `  - ${t.label}: ${formatUsd(
+          t.amountUsd
+        )}, ${expected}, ${received}${sourceOfTruthSuffix(t.sourceOfTruth)}`
+      );
     }
   }
 
@@ -1901,7 +1955,8 @@ const grantFundUsageSection: ReportSection = {
 - When the input carries the coverage ratio, the fungibility clause travels with it in the same sentence, every time: the treasury is fungible and the ratio does not assert that grant funds specifically paid these costs. A ratio quoted without that clause is a claim the data does not support.
 - Report the cross-check line as given. CONSISTENT means the founder's recorded tranches and the classified on-chain inflows agree, and the receipt figure can be stated as independently corroborated — that is the strongest statement available here. DIVERGING means they do not agree: say the recorded receipts are not confirmed by the classified on-chain inflows for this period, and do not decide which side is right. UNAVAILABLE means no comparison was possible — present the receipt figures as founder-entered and unverified.
 - If the input carries a PERIOD DISCLOSURE or a SCHEDULE NOTE, that caveat MUST appear in the rendered section. Dropping it misrepresents what the numbers are; it is not a stylistic trim.
-- No editorialising about grant performance — no "efficient use of funds", "strong execution against the award", no grades. State the figures and their caveats.`,
+- No editorialising about grant performance — no "efficient use of funds", "strong execution against the award", no grades. State the figures and their caveats.
+${SOURCE_OF_TRUTH_RULE}`,
   notReadyHint:
     "Click Edit data to record the grant you received — the grantor, the award, and its disbursement tranches.",
 };
@@ -1945,7 +2000,7 @@ const grantMilestoneProgress: ReportSection = {
                 : `${Math.abs(d.slippageDays)} days early against target`;
         return `- [${d.status}] ${d.title}: ${target}, ${actual} — ${slip}${
           d.description ? ` — ${d.description}` : ""
-        }`;
+        }${sourceOfTruthSuffix(d.sourceOfTruth)}`;
       });
       return [`Deliverables committed under ${name}:`, ...rows].join("\n");
     });
@@ -1961,9 +2016,203 @@ const grantMilestoneProgress: ReportSection = {
 - A deliverable marked completed before this reporting period is not new progress. Distinguish it from one completed inside the period, exactly as the input labels them.
 - **Do not explain why anything slipped.** The input records dates and statuses, not causes. A reason that does not appear verbatim in this input is fabrication, however plausible.
 - Do not editorialise or grade — no "excellent delivery record", no "concerning delays". State status, dates and slippage; a bare table with no commentary is a complete answer.
-- This section is about deliverables committed under a grant. Do not merge it with Milestones Completed, and do not repeat rows between the two.`,
+- This section is about deliverables committed under a grant. Do not merge it with Milestones Completed, and do not repeat rows between the two.
+${SOURCE_OF_TRUTH_RULE} In this section's table it belongs in its own final column, so a funder can scan straight down the evidence.`,
   notReadyHint:
     "Click Edit data to record a grant award, then attach the milestones you committed to deliver under it.",
+};
+
+// ─── leftover grant funds ──────────────────────────────────────────────────
+//
+// ⚠️ SCOPE BOUNDARY — the reason this section is legal and `grant_fund_usage`'s
+// absolute ban is not weakened by it.
+//
+// `grant_fund_usage` may never state a remaining figure because at TREASURY
+// scope there is none to state: the treasury is fungible, no dollar in it
+// carries a provenance, and the opening balance at `period.start` is recorded
+// nowhere. That ban stands, unchanged, and this section does not touch it.
+//
+// This section is at GRANT scope. Both sides of the subtraction are sums over
+// `grant_tranches` rows for ONE award — receipts from `received_date`,
+// utilisation from the hand-entered `utilized_usd` — and no treasury figure
+// appears anywhere in it. It is legal precisely because the founder asserted
+// utilisation about that grant's money specifically, which is something no
+// balance can do.
+//
+// A future contributor who "simplifies" this into the treasury version, or
+// backfills `utilized_usd` from `expensesByCategory`, has re-derived the
+// banned number and put it in the document a funding decision is made from.
+// The two live in separate derived views for exactly that reason: the view
+// `grant_fund_usage` renders carries no leftover field at all.
+//
+// The manual half is the point of the block. The NUMBER is derivable; the
+// INTENT is not. Nothing in any dataset says whether the remainder funds a
+// second audit, is returned to the grantor, or rolls into next quarter — and
+// the intent is the half grant programs actually mandate an answer to.
+
+const leftoverFunds: ReportSection = {
+  id: "leftover_funds",
+  title: "Leftover Grant Funds",
+  description:
+    "Grant money received but not yet used, per award, with the founder's stated plan for it. Grant-scoped and computed from the tranche schedule — never from treasury balances. Off by default.",
+  defaultEnabled: false,
+  // An award qualifies on EITHER half: a computable figure, or a stated plan.
+  // Requiring both would hide a plan from a founder who has not yet itemised
+  // utilisation, and hide a figure from one who has not yet decided the plan —
+  // and each half is worth reporting on its own.
+  requires: (ctx) =>
+    grantLeftoverFunds(ctx).some((v) => v.leftoverUsd !== null || v.plan !== null),
+  userPromptFragment: (ctx) => {
+    const rows = grantLeftoverFunds(ctx).filter(
+      (v) => v.leftoverUsd !== null || v.plan !== null
+    );
+    if (rows.length === 0) return "";
+
+    const lines: string[] = [
+      "SCOPE RULE — this governs every sentence in this section:",
+      "- Every figure below is GRANT-SCOPED: it is a sum over one award's recorded disbursement tranches. None of it is a treasury balance, and none of it was derived from treasury spending.",
+      "- Do NOT combine these figures with the treasury total, the burn rate, operating outflows, or anything from the Grant Funding Received section. In particular, never present a leftover figure as money sitting in the treasury — the treasury is fungible and holds no identifiable grant balance.",
+      "- The leftover figure and the plan for it are two different answers. Report both. Never let the arithmetic stand in for the intent, and never infer an intent from the number.",
+      "",
+    ];
+
+    for (const row of rows) {
+      lines.push(`Award: ${row.label} (status: ${row.status})`);
+      lines.push(
+        `- Grant funds received to date: ${formatUsd(row.receivedToDateUsd)}`
+      );
+
+      if (row.utilizedToDateUsd === null) {
+        lines.push(
+          `- Recorded as utilised: NOT RECORDED. No tranche under this award carries a utilisation figure. That is NOT the same as zero utilised — say the utilisation has not been reported, and do not treat the full receipt as leftover.`
+        );
+        lines.push(
+          `- Leftover: NOT COMPUTABLE without a utilisation figure. Do not estimate one, and do not substitute operating outflows for it.`
+        );
+      } else {
+        lines.push(
+          `- Recorded as utilised: ${formatUsd(
+            row.utilizedToDateUsd
+          )}, from ${row.utilizationRecordedCount} of the ${
+            row.receivedTrancheCount
+          } tranche(s) received to date.`
+        );
+        lines.push(
+          `- Leftover (grant funds received minus grant funds utilised, for this award only): ${formatUsd(
+            row.leftoverUsd as number
+          )}.`
+        );
+      }
+
+      lines.push(
+        row.plan === null
+          ? `- Plan for the leftover funds: NOT STATED. Say the plan has not been recorded. Do NOT propose one, do not guess at one, and do not describe the absence as a decision to hold the funds.`
+          : `- Plan for the leftover funds, as stated by the project (reproduce its substance, do not embellish it): ${row.plan}`
+      );
+
+      // Non-fatal, every time. Real accepted grant reports do not balance; the
+      // contract is render both numbers and attach the warning.
+      for (const w of row.warnings) {
+        lines.push(`- WARNING — this caveat MUST appear in the rendered section: ${w}`);
+      }
+      lines.push("");
+    }
+
+    return `\n## Leftover grant funds (${ctx.period.tag})\n${lines
+      .join("\n")
+      .trimEnd()}`;
+  },
+  systemPromptFragment: `### Leftover Grant Funds (CONDITIONAL)
+- Only render when the input contains a "## Leftover grant funds" block. One short sub-section per award, in the order given.
+- **Every figure here is grant-scoped and comes from one award's tranche schedule. It is NOT a treasury balance.** Never say the leftover is "in the treasury", "on hand", "available", or "unallocated capital"; never add it to, subtract it from, or compare it against the treasury total, the runway, or the burn rate. The treasury is fungible and holds no identifiable balance of grant money — that ban is absolute elsewhere in this report and nothing in this section relaxes it.
+- **Report the number and the plan as two separate answers, and report both.** The plan is the part the grant program asked for; a leftover figure with no plan beside it is half an answer, and a plan with no figure is still worth stating.
+- **When the input says the plan is NOT STATED, say so plainly and stop.** Do not propose a use for the money, do not suggest one, and do not describe the silence as a decision to retain the funds. Inventing an intent here is the most consequential fabrication available in this section: it puts a commitment the project never made in front of the party that can enforce it.
+- **When the input says utilisation is NOT RECORDED, the leftover is not computable and you must not compute one.** "Not recorded" is not zero; do not treat the whole receipt as leftover, and do not substitute this period's operating outflows for a utilisation figure.
+- **Reproduce every WARNING line as a caveat in the rendered text.** Figures that do not reconcile are reported, not resolved: when utilisation exceeds receipts, state both numbers and call it a discrepancy in the records rather than an overspend by the project; when utilisation covers only some tranches, state the leftover as an upper bound and say how many tranches are unaccounted for. Never drop a warning to tidy the prose, and never pick a side between two founder-entered numbers.
+- No grading. No "efficient", "prudent", "underutilised", "sitting idle". State the figures, the plan, and the caveats.`,
+  notReadyHint:
+    "Click Edit data to record what you have utilised against each grant tranche, and your plan for anything left over.",
+};
+
+// ─── deviation from the plan ───────────────────────────────────────────────
+//
+// The one section in the library whose fragment is NON-EMPTY WITH NO DATA, and
+// that is the entire design. Every real grant-report template in the research
+// corpus forces an affirmative answer to "did anything change?", and the value
+// is in the forcing: a blank optional box lets a material change go unreported
+// by simply not being filled in, and to the reader an empty box and an
+// unchanged plan look exactly the same. So an award with nothing recorded still
+// renders "No changes to the original plan." — a statement the founder owns
+// when they send the report, rather than a silence nobody has to account for.
+
+const planDeviation: ReportSection = {
+  id: "plan_deviation",
+  title: "Deviation from the Plan",
+  description:
+    "A standing statement, expected every reporting period, of how the work departed from the plan the grant was awarded against. Defaults to an explicit \"No changes to the original plan.\" Off by default.",
+  defaultEnabled: false,
+  // Gated on an award existing, NOT on a deviation having been typed: the
+  // whole point is that the section speaks when nothing was typed.
+  requires: (ctx) => grantPlanDeviations(ctx).length > 0,
+  userPromptFragment: (ctx) => {
+    const rows = grantPlanDeviations(ctx);
+    if (rows.length === 0) return "";
+    const lines = rows.map(
+      (r) =>
+        `- ${r.label}: ${r.statement}${
+          r.affirmed
+            ? ""
+            : " (this is the standing statement the project reports when it has recorded no change)"
+        }`
+    );
+    return `\n## Deviation from the plan (${
+      ctx.period.tag
+    })\nOne statement per grant award. Every award has one — an award with no recorded change carries the standing "no changes" statement rather than being omitted.\n\n${lines.join(
+      "\n"
+    )}`;
+  },
+  systemPromptFragment: `### Deviation from the Plan (CONDITIONAL)
+- Only render when the input contains a "## Deviation from the plan" block. One line or short paragraph per award, in the order given.
+- **Render a statement for every award the input lists, including the ones that report no change.** This section exists to force an explicit answer; dropping the "no changes" lines as uninformative destroys the only thing that distinguishes an unchanged plan from an unanswered question.
+- Report each statement as the project's own. Reproduce its substance faithfully — you may tighten the wording, but do not soften a change, do not add a cause the input does not give, and do not expand a one-line statement into a narrative.
+- The parenthetical about a standing statement is provenance for you, not copy for the report: do not reproduce it, and do not hedge the sentence with "reportedly", "apparently" or similar.
+- Do not grade the deviation. No "minor", "significant", "concerning", "well-managed" — those are the reader's judgement to make, and this section is where a grantor most needs the unvarnished statement.
+- Do not repeat slippage already covered by Grant Deliverable Progress. A date that moved is a deliverable fact; a change of approach, scope or method is a plan deviation.`,
+  notReadyHint:
+    "Click Edit data to record a grant you received — every award reports its plan deviation each period.",
+};
+
+// ─── external dashboard ────────────────────────────────────────────────────
+//
+// The block that says out loud what is true of every report this product
+// generates: THE REPORT IS NOT THE SOURCE OF TRUTH FOR ITS OWN NUMBERS. Every
+// Arbitrum report in the research corpus carries a dashboard link for exactly
+// this reason — the figures are a snapshot of something live, and the live
+// thing is where a reader should go to check them.
+//
+// Project-level rather than award-level: the claim is about the whole document
+// and is just as true for a project with no grant.
+
+const externalDashboard: ReportSection = {
+  id: "external_dashboard",
+  title: "Live Dashboard",
+  description:
+    "A link to where the live numbers actually live, stated as the source of truth this report is a snapshot of. Off by default.",
+  defaultEnabled: false,
+  requires: (ctx) => (ctx.project.externalDashboardUrl ?? "").trim().length > 0,
+  userPromptFragment: (ctx) => {
+    const url = (ctx.project.externalDashboardUrl ?? "").trim();
+    if (url.length === 0) return "";
+    return `\n## Live dashboard\n- Dashboard URL, to be reproduced exactly as given: ${url}\n- This report covers ${ctx.period.start} to ${ctx.period.end}. The dashboard is live and its figures will move after this report is written; the dashboard is the source of truth, not this document.`;
+  },
+  systemPromptFragment: `### Live Dashboard (CONDITIONAL)
+- Only render when the input contains a "## Live dashboard" block. Two or three sentences, no heading ornament, no table.
+- **Reproduce the URL character for character.** Do not shorten it, do not wrap it in a vanity label, do not append tracking or fragment parameters, and never write a URL the input did not give you.
+- State plainly that the dashboard is the source of truth for these figures and that this report is a snapshot of them as of the period end. That framing is the entire point of the section — do not soften it into "for more detail, see also".
+- Do not describe, summarise or characterise what the dashboard shows. You cannot see it. Any claim about its contents would be fabricated, and it would be fabricated about the one artifact a reader is being sent to check.
+- Do not restate any figure from elsewhere in the report here.`,
+  notReadyHint:
+    "Add a dashboard URL in project settings — the live board your report's figures come from.",
 };
 
 const tokenMetrics: ReportSection = {
@@ -2489,6 +2738,13 @@ export const SECTION_LIBRARY: readonly ReportSection[] = [
   // the wrong one is hard to choose by accident. Both are off by default, so
   // no existing project's resolved list changes.
   grantFundUsageSection,
+  // Directly after `grant_fund_usage`, whose figures it continues and whose
+  // absolute ban on a treasury-scoped remaining figure it does NOT relax — see
+  // the scope-boundary comment above the section. Adjacency is deliberate: a
+  // reader meets "what arrived" and "what is left of it" in that order, and a
+  // founder choosing sections sees the two descriptions side by side, where
+  // "grant-scoped, never from treasury balances" is hard to misread.
+  leftoverFunds,
   tokenMetrics,
   governanceUpdates,
   developmentProgress,
@@ -2497,6 +2753,10 @@ export const SECTION_LIBRARY: readonly ReportSection[] = [
   // project can run both, one reporting what shipped this period and the other
   // reporting every commitment made to a funder, shipped or not.
   grantMilestoneProgress,
+  // Immediately after the deliverables it qualifies. A grantor reads "here is
+  // where we are against what we committed to" and the very next thing they
+  // need is whether what we committed to is still the plan.
+  planDeviation,
   partnersIntegrations,
   anomalies,
   nextPeriodForecast,
@@ -2504,6 +2764,10 @@ export const SECTION_LIBRARY: readonly ReportSection[] = [
   lookingAhead,
   asks,
   qaHighlights,
+  // Last on purpose. It is a pointer OUT of the document — "the live figures
+  // live over there, this is a snapshot" — and it only reads as that once the
+  // reader has seen the figures it is qualifying.
+  externalDashboard,
 ];
 
 const SECTION_BY_ID: Record<string, ReportSection> = Object.fromEntries(

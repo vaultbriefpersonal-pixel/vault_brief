@@ -28,6 +28,17 @@ const MANUAL_DATA_SECTIONS = new Set([
   // SectionDataModal.
   "grant_fund_usage",
   "grant_milestone_progress",
+  // Same renderer again, and for the same reason: both read the award record.
+  // `leftover_funds` needs per-tranche utilisation plus the award's plan for
+  // the remainder; `plan_deviation` needs the award's deviation statement.
+  // Neither has a table of its own, so neither gets a renderer of its own.
+  "leftover_funds",
+  "plan_deviation",
+  // `external_dashboard` is deliberately NOT here. Its one field lives on the
+  // project, not in a manual-entry table, and it is edited in project settings
+  // beside the other project-level fields — a modal holding a single URL that
+  // duplicates a settings input is two places to change one value. The
+  // section's notReadyHint says where to go instead.
 ]);
 
 /**

@@ -17,6 +17,16 @@ const ISO_DATE = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 
 /**
+ * "Source of Truth" for one deliverable — Optimism's exact term, and the same
+ * schema as the copies in grants.ts and grant-awards.ts.
+ *
+ * DELIBERATELY NOT `z.string().url()`: a PR link, a tx hash, a dashboard URL
+ * and a bare address are all legitimate here and only some are URLs. A funder
+ * checking a deliverable most often wants the commit or the transaction.
+ */
+const sourceOfTruthSchema = z.string().trim().max(500).optional().nullable();
+
+/**
  * Resolve the grant award a milestone is being attached to, and refuse one
  * that belongs to a different project.
  *
@@ -84,6 +94,7 @@ export const milestonesRouter = router({
          * Set, it is what makes the row visible to `grant_milestone_progress`.
          */
         grantAwardId: z.string().uuid().optional().nullable(),
+        sourceOfTruth: sourceOfTruthSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -112,6 +123,7 @@ export const milestonesRouter = router({
         completedDate: ISO_DATE.optional().nullable(),
         /** Null detaches the milestone from its award without deleting it. */
         grantAwardId: z.string().uuid().optional().nullable(),
+        sourceOfTruth: sourceOfTruthSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {

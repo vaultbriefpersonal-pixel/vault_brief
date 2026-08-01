@@ -41,6 +41,7 @@ export default function ProjectSettingsPage({ params }: Props) {
     tokenSymbol: "",
     githubOrg: "",
     snapshotSpace: "",
+    externalDashboardUrl: "",
     foundedDate: "",
     lastFundingRound: "",
     lastFundingAmount: "",
@@ -69,6 +70,9 @@ export default function ProjectSettingsPage({ params }: Props) {
         githubOrg: project.githubOrg ?? "",
         snapshotSpace:
           (project as { snapshotSpace?: string | null }).snapshotSpace ?? "",
+        externalDashboardUrl:
+          (project as { externalDashboardUrl?: string | null })
+            .externalDashboardUrl ?? "",
         foundedDate: project.foundedDate ?? "",
         lastFundingRound: project.lastFundingRound ?? "",
         lastFundingAmount: project.lastFundingAmount?.toString() ?? "",
@@ -108,6 +112,11 @@ export default function ProjectSettingsPage({ params }: Props) {
       tokenSymbol: form.tokenSymbol || null,
       githubOrg: form.githubOrg || null,
       snapshotSpace: form.snapshotSpace.trim() || null,
+      // Blank clears the column, which silences the Live Dashboard section
+      // rather than rendering an empty pointer. The router validates it as a
+      // real URL, so a half-typed value is rejected at submit instead of
+      // reaching a reader as a dead link.
+      externalDashboardUrl: form.externalDashboardUrl.trim() || null,
       foundedDate: form.foundedDate || null,
       lastFundingRound: form.lastFundingRound || null,
       lastFundingAmount: form.lastFundingAmount
@@ -132,6 +141,12 @@ export default function ProjectSettingsPage({ params }: Props) {
     ["tokenSymbol", "Token symbol", "text", false],
     ["githubOrg", "GitHub org", "text", false],
     ["snapshotSpace", "Snapshot space (e.g. ens.eth)", "text", false],
+    [
+      "externalDashboardUrl",
+      "Live dashboard URL (Dune, Flipside, …)",
+      "url",
+      false,
+    ],
     ["foundedDate", "Founded date", "date", false],
     ["lastFundingRound", "Last funding round", "text", false],
     ["lastFundingAmount", "Last funding amount (USD)", "number", false],

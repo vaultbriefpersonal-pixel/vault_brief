@@ -45,6 +45,8 @@ const SECTION_TITLES: Record<string, string> = {
   looking_ahead: "Milestones",
   grant_fund_usage: "Grant funding received (money awarded to you)",
   grant_milestone_progress: "Grant funding received (money awarded to you)",
+  leftover_funds: "Grant funding received (money awarded to you)",
+  plan_deviation: "Grant funding received (money awarded to you)",
 };
 
 const PERIOD_RE = /^\d{4}-\d{2}$/;
@@ -74,6 +76,17 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 4,
   textTransform: "uppercase",
   letterSpacing: "0.05em",
+};
+
+// Sub-label prose under a field. Used where the field's BEHAVIOUR is not
+// guessable from its name — a blank "Deviation from the plan" box does not
+// look like it will print a sentence, and a founder who does not know that
+// cannot make an informed decision to leave it blank.
+const helpTextStyle: React.CSSProperties = {
+  fontSize: 11,
+  lineHeight: 1.5,
+  color: "var(--vb-dim)",
+  margin: "5px 0 0",
 };
 
 const submitStyle: React.CSSProperties = {
@@ -230,7 +243,9 @@ export function SectionDataModal({
               the founder who opened the deliverables section first would find
               no way to create the award the attachment needs. */}
           {(sectionId === "grant_fund_usage" ||
-            sectionId === "grant_milestone_progress") && (
+            sectionId === "grant_milestone_progress" ||
+            sectionId === "leftover_funds" ||
+            sectionId === "plan_deviation") && (
             <GrantAwardsRenderer projectId={projectId} />
           )}
         </div>
@@ -442,6 +457,7 @@ function GrantsRenderer({ projectId }: { projectId: string }) {
   const [category, setCategory] = useState("");
   const [period, setPeriod] = useState(defaultPeriod());
   const [notes, setNotes] = useState("");
+  const [sourceOfTruth, setSourceOfTruth] = useState("");
 
   function submit() {
     if (!recipient || !amountUsd) return;
@@ -454,6 +470,7 @@ function GrantsRenderer({ projectId }: { projectId: string }) {
         category: category || undefined,
         period,
         notes: notes || undefined,
+        sourceOfTruth: sourceOfTruth.trim() || undefined,
       },
       {
         onSuccess: () => {
@@ -461,6 +478,7 @@ function GrantsRenderer({ projectId }: { projectId: string }) {
           setAmountUsd("");
           setCategory("");
           setNotes("");
+          setSourceOfTruth("");
         },
       }
     );
@@ -534,6 +552,19 @@ function GrantsRenderer({ projectId }: { projectId: string }) {
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Delivered SDK v2 ahead of schedule"
           />
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={labelStyle}>Source of Truth (optional)</label>
+          <input
+            style={inputStyle}
+            value={sourceOfTruth}
+            onChange={(e) => setSourceOfTruth(e.target.value)}
+            placeholder="Tx hash, explorer link, or the proposal that authorised it"
+          />
+          <p style={helpTextStyle}>
+            The pointer a reader can check. The money left the treasury, so a
+            transaction hash usually exists — that is the strongest answer here.
+          </p>
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
           <button
@@ -620,6 +651,8 @@ interface AwardFormValues {
   reportingCadence: AwardCadence | "";
   nextReportDue: string;
   amountUsdAtReceipt: string;
+  leftoverFundsPlan: string;
+  planDeviation: string;
   agreementUrl: string;
   notes: string;
 }
@@ -644,6 +677,11 @@ function emptyAward(): AwardFormValues {
     reportingCadence: "",
     nextReportDue: "",
     amountUsdAtReceipt: "",
+    // Both blank. `planDeviation` blank is NOT "no answer" — the report
+    // supplies the standing "No changes to the original plan." sentence, which
+    // is the whole point of that block. See the column comment in schema.ts.
+    leftoverFundsPlan: "",
+    planDeviation: "",
     agreementUrl: "",
     notes: "",
   };
@@ -818,6 +856,43 @@ function AwardFields({
         />
       </div>
       <div style={{ gridColumn: "1 / -1" }}>
+        <label style={labelStyle}>
+          Plan for leftover funds (optional)
+        </label>
+        <textarea
+          rows={2}
+          style={{ ...inputStyle, resize: "vertical" }}
+          value={values.leftoverFundsPlan}
+          onChange={(e) => set({ leftoverFundsPlan: e.target.value })}
+          placeholder="What happens to grant money you have received and not used yet"
+        />
+        <p style={helpTextStyle}>
+          The report works out <em>how much</em> is left from the tranche
+          amounts you record below. It cannot work out what you intend to do
+          with it, and that is the part grant programs ask for.
+        </p>
+      </div>
+      <div style={{ gridColumn: "1 / -1" }}>
+        <label style={labelStyle}>
+          Deviation from the original plan (this period)
+        </label>
+        <textarea
+          rows={2}
+          style={{ ...inputStyle, resize: "vertical" }}
+          value={values.planDeviation}
+          onChange={(e) => set({ planDeviation: e.target.value })}
+          placeholder="How the work departed from the plan the grant was awarded against"
+        />
+        <p style={helpTextStyle}>
+          Leave blank and the report states{" "}
+          <strong style={{ color: "var(--vb-text)" }}>
+            &ldquo;No changes to the original plan.&rdquo;
+          </strong>{" "}
+          It is never silently omitted — an unanswered question and an unchanged
+          plan look identical to a funder, so the report always answers.
+        </p>
+      </div>
+      <div style={{ gridColumn: "1 / -1" }}>
         <label style={labelStyle}>Agreement link (optional)</label>
         <input
           style={inputStyle}
@@ -887,6 +962,8 @@ function GrantAwardsRenderer({ projectId }: { projectId: string }) {
         reportingCadence: form.reportingCadence || null,
         nextReportDue: form.nextReportDue || null,
         status: form.status,
+        leftoverFundsPlan: form.leftoverFundsPlan.trim() || null,
+        planDeviation: form.planDeviation.trim() || null,
         agreementUrl: form.agreementUrl.trim() || null,
         notes: form.notes.trim() || null,
       },
@@ -994,6 +1071,8 @@ type AwardRow = {
   awardAmountToken: string | null;
   awardTokenSymbol: string | null;
   amountUsdAtReceipt: string | null;
+  leftoverFundsPlan: string | null;
+  planDeviation: string | null;
   reportingCadence: string | null;
   nextReportDue: string | null;
   agreementUrl: string | null;
@@ -1004,6 +1083,9 @@ type AwardRow = {
     amountUsd: string;
     expectedDate: string | null;
     receivedDate: string | null;
+    utilizedUsd: string | null;
+    txHash: string | null;
+    sourceOfTruth: string | null;
   }[];
 };
 
@@ -1053,6 +1135,8 @@ function AwardCard({
       ? (award.reportingCadence as AwardCadence)
       : "",
     nextReportDue: award.nextReportDue ? String(award.nextReportDue) : "",
+    leftoverFundsPlan: award.leftoverFundsPlan ?? "",
+    planDeviation: award.planDeviation ?? "",
     agreementUrl: award.agreementUrl ?? "",
     notes: award.notes ?? "",
   }));
@@ -1062,13 +1146,21 @@ function AwardCard({
   const [amountUsd, setAmountUsd] = useState("");
   const [expectedDate, setExpectedDate] = useState("");
   const [receivedDate, setReceivedDate] = useState("");
+  const [utilizedUsd, setUtilizedUsd] = useState("");
+  const [sourceOfTruth, setSourceOfTruth] = useState("");
 
   const trancheAmount = Number(amountUsd);
+  // Blank utilisation is VALID and means "not recorded" — never zero. It is
+  // the state every tranche starts in, and the Leftover Grant Funds section
+  // reports it as unreported rather than treating the whole receipt as
+  // leftover. See the column comment on grantTranches.utilizedUsd.
+  const trancheUtilized = blankOrNumber(utilizedUsd);
   const trancheValid =
     label.trim().length > 0 &&
     amountUsd.trim().length > 0 &&
     Number.isFinite(trancheAmount) &&
     trancheAmount >= 0 &&
+    trancheUtilized.ok &&
     (!expectedDate || ISO_DATE_RE.test(expectedDate)) &&
     (!receivedDate || ISO_DATE_RE.test(receivedDate));
 
@@ -1099,6 +1191,12 @@ function AwardCard({
         reportingCadence: edit.reportingCadence || null,
         nextReportDue: edit.nextReportDue || null,
         status: edit.status,
+        // Explicit null, like the amounts above: clearing the box must be able
+        // to clear the stored value. For planDeviation that returns the award
+        // to the standing "No changes to the original plan." statement rather
+        // than to silence.
+        leftoverFundsPlan: edit.leftoverFundsPlan.trim() || null,
+        planDeviation: edit.planDeviation.trim() || null,
         agreementUrl: edit.agreementUrl.trim() || null,
         notes: edit.notes.trim() || null,
       },
@@ -1115,6 +1213,8 @@ function AwardCard({
         amountUsd: trancheAmount,
         expectedDate: expectedDate || null,
         receivedDate: receivedDate || null,
+        utilizedUsd: trancheUtilized.value,
+        sourceOfTruth: sourceOfTruth.trim() || null,
       },
       {
         onSuccess: () => {
@@ -1122,6 +1222,8 @@ function AwardCard({
           setAmountUsd("");
           setExpectedDate("");
           setReceivedDate("");
+          setUtilizedUsd("");
+          setSourceOfTruth("");
         },
       }
     );
@@ -1240,6 +1342,12 @@ function AwardCard({
                     {t.receivedDate
                       ? ` · received ${t.receivedDate}`
                       : " · not yet received"}
+                    {t.utilizedUsd != null
+                      ? ` · $${Number(t.utilizedUsd).toLocaleString()} utilised`
+                      : " · utilisation not recorded"}
+                    {t.sourceOfTruth ?? t.txHash
+                      ? ` · source: ${t.sourceOfTruth ?? t.txHash}`
+                      : ""}
                   </span>
                 </span>
                 <RemoveBtn onClick={() => removeTranche.mutate({ id: t.id })} />
@@ -1290,6 +1398,43 @@ function AwardCard({
             />
           </div>
         </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 2fr",
+            gap: 8,
+            marginTop: 8,
+          }}
+        >
+          <div>
+            <label style={labelStyle}>Utilised so far (USD)</label>
+            <input
+              style={inputStyle}
+              type="number"
+              min="0"
+              value={utilizedUsd}
+              onChange={(e) => setUtilizedUsd(e.target.value)}
+              placeholder="Leave blank if not yet reported"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Source of Truth</label>
+            <input
+              style={inputStyle}
+              value={sourceOfTruth}
+              onChange={(e) => setSourceOfTruth(e.target.value)}
+              placeholder="0xabc… , an explorer link, or a dashboard URL"
+            />
+          </div>
+        </div>
+        <p style={helpTextStyle}>
+          <strong style={{ color: "var(--vb-text)" }}>Utilised</strong> is what
+          you have spent <em>of this tranche</em>, entered by hand. It is not
+          read from your treasury: treasury money is fungible, so no balance can
+          say which dollars came from this grant. Blank means &ldquo;not
+          reported&rdquo;, which the report says plainly — it never reads blank
+          as zero.
+        </p>
         <button
           type="button"
           style={{ ...submitStyle, marginTop: 8 }}
@@ -2122,6 +2267,7 @@ function MilestonesRenderer({ projectId }: { projectId: string }) {
   const [status, setStatus] = useState<MilestoneStatus>("in_progress");
   const [targetDate, setTargetDate] = useState("");
   const [completedDate, setCompletedDate] = useState("");
+  const [sourceOfTruth, setSourceOfTruth] = useState("");
 
   // Inline edit-mode for an existing row. We don't open a separate modal —
   // the row's render swaps to a form when its id matches editingId.
@@ -2147,6 +2293,7 @@ function MilestonesRenderer({ projectId }: { projectId: string }) {
         targetDate: targetDate || undefined,
         completedDate:
           status === "completed" ? completedDate || undefined : undefined,
+        sourceOfTruth: sourceOfTruth.trim() || undefined,
       },
       {
         onSuccess: () => {
@@ -2155,6 +2302,7 @@ function MilestonesRenderer({ projectId }: { projectId: string }) {
           setTargetDate("");
           setCompletedDate("");
           setStatus("in_progress");
+          setSourceOfTruth("");
         },
       }
     );
@@ -2195,6 +2343,20 @@ function MilestonesRenderer({ projectId }: { projectId: string }) {
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Short context — what this means for the product or treasury."
           />
+        </div>
+        <div>
+          <label style={labelStyle}>Source of Truth (optional)</label>
+          <input
+            style={inputStyle}
+            value={sourceOfTruth}
+            onChange={(e) => setSourceOfTruth(e.target.value)}
+            placeholder="PR link, tx hash, dashboard URL, or address"
+          />
+          <p style={helpTextStyle}>
+            The pointer a reader can check for themselves. Shown beside this
+            milestone in grant deliverable reporting; left blank, the row simply
+            renders without one.
+          </p>
         </div>
         <div
           style={{

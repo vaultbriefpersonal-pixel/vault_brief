@@ -267,6 +267,24 @@ export const projectsRouter = router({
           .optional()
           .nullable(),
         snapshotSpace: z.string().trim().min(1).max(120).optional().nullable(),
+        /**
+         * Where the live figures actually live — read by the
+         * `external_dashboard` section, whose claim is that this report is a
+         * snapshot and the dashboard is the source of truth.
+         *
+         * `url()` HERE and not on the per-item `sourceOfTruth` fields, and the
+         * difference is deliberate: this value is rendered to a reader as
+         * somewhere to GO, so it has to be navigable, whereas a Source of
+         * Truth may legitimately be a bare tx hash or address. Null clears it,
+         * which silences the section.
+         */
+        externalDashboardUrl: z
+          .string()
+          .trim()
+          .url()
+          .max(500)
+          .optional()
+          .nullable(),
         discordWebhookUrl: z
           .string()
           .trim()

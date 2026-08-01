@@ -1051,6 +1051,21 @@ export interface GrantTrancheView {
   receivedDate: string | null;
   /** Received, and received inside this reporting window specifically. */
   receivedInPeriod: boolean;
+  /**
+   * Founder-entered utilisation of THIS tranche. NULL means not recorded, and
+   * every consumer must branch on it — never coerce to 0, which would assert
+   * that a tranche nobody has reported on is entirely unspent. See the column
+   * comment on `grantTranches.utilizedUsd`, which explains at length why this
+   * figure is entered by hand rather than derived from treasury spend.
+   */
+  utilizedUsd: number | null;
+  /**
+   * The pointer a reader can check: a tx hash, an explorer URL, a GitHub link,
+   * a dashboard URL, or an address. Prefers `sourceOfTruth` and falls back to
+   * the older, narrower `txHash` so no tranche recorded before this field
+   * existed loses its evidence. Null when neither is set.
+   */
+  sourceOfTruth: string | null;
 }
 
 /** One award with its schedule resolved against the period. */
@@ -1227,6 +1242,13 @@ export function grantFundUsage(ctx: ReportSectionContext): GrantFundUsage {
           receivedDate,
           receivedInPeriod:
             receivedDate !== null && dateInPeriod(receivedDate, ctx.period),
+          // `== null` covers undefined too: a fixture or an older row that
+          // predates the column arrives without the key at all, and `0` is
+          // exactly the wrong reading of that.
+          utilizedUsd: t.utilizedUsd == null ? null : toNumber(t.utilizedUsd),
+          // The new, wider field wins; `txHash` is the fallback so evidence
+          // recorded before "Source of Truth" existed still reaches the reader.
+          sourceOfTruth: t.sourceOfTruth ?? t.txHash ?? null,
         };
       });
 
@@ -1332,6 +1354,240 @@ export function grantFundUsage(ctx: ReportSectionContext): GrantFundUsage {
   return result;
 }
 
+// ─── leftover grant funds ──────────────────────────────────────────────────
+//
+// ⚠️ READ THE BOUNDARY BEFORE TOUCHING ANYTHING BELOW.
+//
+// There are two different subtractions in this codebase that both look like
+// "money in minus money out", and exactly one of them is legal:
+//
+//   TREASURY SCOPE — BANNED. `received − spent` against the treasury is
+//   unrepresentable. The treasury is fungible, so no dollar in it carries a
+//   provenance, and the opening balance at `period.start` is not recorded
+//   anywhere in the system. The only remaining-shaped figure permitted at
+//   treasury scope is `awarded − received` (undisbursed): a fact about the
+//   grantor's DISBURSEMENT SCHEDULE, not about spending. `grant_fund_usage`
+//   states that ban absolutely and it is NOT relaxed by anything here.
+//
+//   GRANT SCOPE — LEGAL, AND THIS IS IT. `received − utilized`, where both
+//   terms are sums over `grant_tranches` rows for ONE award: receipts from
+//   `received_date`, utilisation from the hand-entered `utilized_usd`. No
+//   treasury figure appears on either side of the minus sign. It is legal
+//   precisely because the founder asserted the second term about that grant's
+//   money specifically — something no balance can do.
+//
+// A later reader who "simplifies" one of these into the other has re-derived
+// the banned number and put it in a document a funding decision is made from.
+// The two are kept in separate views on purpose: `GrantAwardView` — what
+// `grant_fund_usage` renders — deliberately carries NO leftover field, so that
+// section's fragment has nothing to reach for even by accident.
+
+/** "Optimism Foundation — RetroPGF Round 4", or just the grantor. */
+function awardLabel(grantor: string, program: string | null): string {
+  return program ? `${grantor} — ${program}` : grantor;
+}
+
+/**
+ * One award's leftover position: the derivable number, and the manual plan
+ * that the number alone cannot supply.
+ */
+export interface GrantLeftoverView {
+  awardId: string;
+  /** "Grantor — Program", pre-joined so both consumers name the award alike. */
+  label: string;
+  status: string;
+  /** Sum of tranches received on or before `period.end`. Cumulative. */
+  receivedToDateUsd: number;
+  /**
+   * Sum of `utilizedUsd` over the tranches that carry one. NULL when NOT ONE
+   * tranche has a figure recorded — which is a different statement from zero
+   * utilisation and must never be flattened into it.
+   */
+  utilizedToDateUsd: number | null;
+  /**
+   * `receivedToDateUsd − utilizedToDateUsd`. Null whenever utilisation is
+   * unrecorded. GRANT SCOPE ONLY — see the boundary note above this block.
+   * May be NEGATIVE, and a negative value is reported rather than suppressed:
+   * real accepted grant reports have utilisation exceeding receipts.
+   */
+  leftoverUsd: number | null;
+  /** How many received tranches carry a utilisation figure, of how many exist. */
+  utilizationRecordedCount: number;
+  receivedTrancheCount: number;
+  /**
+   * Non-fatal disclosures about figures that do not reconcile.
+   *
+   * NOTHING HERE THROWS AND NOTHING HERE SUPPRESSES A NUMBER. Real, accepted
+   * grant reports do not balance — one grantee in the research corpus reported
+   * spending 81,000 against 75,000 received, another's percentages summed to
+   * 106% — and a tool that rejects those rejects reports the programs approved.
+   * The contract is: render both numbers, attach the warning, let the reader
+   * judge. Empty when everything ties out.
+   */
+  warnings: string[];
+  /**
+   * The founder's stated plan for the leftover. NULL means unstated, which the
+   * section reports as unstated — it never invents one, and it never treats
+   * the arithmetic as a substitute for the intent.
+   */
+  plan: string | null;
+}
+
+const GRANT_LEFTOVER_MEMO = new WeakMap<
+  ReportSectionContext,
+  GrantLeftoverView[]
+>();
+
+/**
+ * Leftover funds per award, for every award granted as of `period.end`.
+ *
+ * Returns a row per award even when nothing is computable, so the section can
+ * decide what "nothing recorded" should say; the section's own gate is what
+ * drops awards with neither a figure nor a plan.
+ *
+ * Shared by `requires()` and the fragment, like every other accessor here, so
+ * the readiness chip and the rendered number can never disagree.
+ */
+export function grantLeftoverFunds(
+  ctx: ReportSectionContext
+): GrantLeftoverView[] {
+  const cached = GRANT_LEFTOVER_MEMO.get(ctx);
+  if (cached) return cached;
+
+  const plans = new Map(
+    awardsForPeriod(ctx).map((a) => [a.id, a.leftoverFundsPlan ?? null])
+  );
+
+  const result: GrantLeftoverView[] = grantFundUsage(ctx).awards.map((award) => {
+    // Received on or before period.end — the same cumulative basis as
+    // `receivedToDateUsd`, so the two sides of the subtraction cover the same
+    // set of tranches. Utilisation on a tranche outside that set is counted
+    // too (it is money the founder says they used) but it is flagged, because
+    // using a tranche that has not arrived is a data-entry inconsistency.
+    const received = award.tranches.filter(
+      (t) => t.receivedDate !== null && t.receivedDate <= ctx.period.end
+    );
+    const withUtilisation = award.tranches.filter((t) => t.utilizedUsd !== null);
+    const utilizedToDateUsd =
+      withUtilisation.length === 0
+        ? null
+        : withUtilisation.reduce((sum, t) => sum + (t.utilizedUsd ?? 0), 0);
+
+    const receivedTrancheCount = received.length;
+    const utilizationRecordedCount = received.filter(
+      (t) => t.utilizedUsd !== null
+    ).length;
+
+    const leftoverUsd =
+      utilizedToDateUsd === null
+        ? null
+        : award.receivedToDateUsd - utilizedToDateUsd;
+
+    const warnings: string[] = [];
+
+    // Partial coverage. The sum is real but INCOMPLETE, so the leftover it
+    // implies is an upper bound rather than a figure. Saying so is the whole
+    // job; refusing to print it would be worse.
+    if (
+      utilizedToDateUsd !== null &&
+      utilizationRecordedCount < receivedTrancheCount
+    ) {
+      warnings.push(
+        `Utilisation is recorded for ${utilizationRecordedCount} of the ${receivedTrancheCount} tranches received to date. The utilised total is therefore INCOMPLETE and the leftover figure is an UPPER BOUND, not a balance. State it as "at most" and say how many tranches are unaccounted for.`
+      );
+    }
+
+    // Utilisation booked against money that has not arrived.
+    const utilisedUnreceived = withUtilisation.filter(
+      (t) => t.receivedDate === null || t.receivedDate > ctx.period.end
+    );
+    if (utilisedUnreceived.length > 0) {
+      warnings.push(
+        `${utilisedUnreceived.length} tranche(s) carry a utilisation figure but are NOT recorded as received on or before ${ctx.period.end}. Both entries are founder-entered and the report cannot tell which is wrong — say the two records disagree, and do not reconcile them.`
+      );
+    }
+
+    // The 81,000-against-75,000 case. Reported, never suppressed and never
+    // clamped to zero: a clamp would hide the only fact in the row.
+    if (leftoverUsd !== null && leftoverUsd < 0) {
+      warnings.push(
+        `Recorded utilisation (${formatUsd(
+          utilizedToDateUsd as number
+        )}) EXCEEDS recorded receipts (${formatUsd(
+          award.receivedToDateUsd
+        )}) by ${formatUsd(
+          Math.abs(leftoverUsd)
+        )}. There is no leftover; report BOTH figures and the gap between them as a discrepancy in the records, and do not present the shortfall as an overspend finding about the project.`
+      );
+    }
+
+    return {
+      awardId: award.id,
+      label: awardLabel(award.grantor, award.program),
+      status: award.status,
+      receivedToDateUsd: award.receivedToDateUsd,
+      utilizedToDateUsd,
+      leftoverUsd,
+      utilizationRecordedCount,
+      receivedTrancheCount,
+      warnings,
+      plan: plans.get(award.id) ?? null,
+    };
+  });
+
+  GRANT_LEFTOVER_MEMO.set(ctx, result);
+  return result;
+}
+
+// ─── deviation from the plan ───────────────────────────────────────────────
+
+/** One award's standing answer to "did the plan change?". */
+export interface GrantPlanDeviationView {
+  awardId: string;
+  label: string;
+  /** What the report states. Never empty — see `affirmed`. */
+  statement: string;
+  /**
+   * True when the founder actually typed this period's statement; false when
+   * `statement` is `NO_PLAN_DEVIATION` supplied by the product.
+   *
+   * The section renders the same sentence either way ON PURPOSE. A blank
+   * optional box is exactly what this block exists to replace: it lets a
+   * material change go unreported by simply not being filled in, and to the
+   * reader an empty box and an unchanged plan are indistinguishable. Forcing
+   * the affirmative negative is the mechanic the real reports use.
+   */
+  affirmed: boolean;
+}
+
+/**
+ * The standing text a report states when nobody has recorded a deviation.
+ *
+ * Lives here rather than as a column DEFAULT so that it is visibly the
+ * PRODUCT's sentence rather than a row somebody appears to have written, and
+ * so rewording it is a code change instead of a migration against prod.
+ */
+export const NO_PLAN_DEVIATION = "No changes to the original plan.";
+
+/**
+ * One entry per award granted as of `period.end`, always. There is no
+ * "nothing to report" case: an award with no recorded deviation still gets a
+ * row carrying `NO_PLAN_DEVIATION`, which is the point of the block.
+ */
+export function grantPlanDeviations(
+  ctx: ReportSectionContext
+): GrantPlanDeviationView[] {
+  return awardsForPeriod(ctx).map((a) => {
+    const stated = (a.planDeviation ?? "").trim();
+    return {
+      awardId: a.id,
+      label: awardLabel(a.grantor, a.program ?? null),
+      statement: stated.length > 0 ? stated : NO_PLAN_DEVIATION,
+      affirmed: stated.length > 0,
+    };
+  });
+}
+
 // ─── grant deliverables ────────────────────────────────────────────────────
 
 export interface GrantDeliverableView {
@@ -1352,6 +1608,12 @@ export interface GrantDeliverableView {
   overdue: boolean;
   /** Completed inside this reporting window, as opposed to earlier. */
   completedInPeriod: boolean;
+  /**
+   * The pointer a funder can check that this deliverable landed — a PR link, a
+   * tx hash, a dashboard URL, an address. Null is the normal case and renders
+   * as nothing, so a deliverable without one reports exactly as it does today.
+   */
+  sourceOfTruth: string | null;
 }
 
 export interface GrantAwardDeliverables {
@@ -1430,6 +1692,7 @@ export function grantDeliverables(
             overdue,
             completedInPeriod:
               completed && dateInPeriod(completedDate as string, ctx.period),
+            sourceOfTruth: m.sourceOfTruth ?? null,
           };
         })
         .sort((a, b) =>
