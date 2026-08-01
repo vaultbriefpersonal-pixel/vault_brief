@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, asc, desc, sql } from "drizzle-orm";
+import { eq, and, asc, desc } from "drizzle-orm";
 import { after } from "next/server";
 import { router, protectedProcedure } from "../trpc";
 import {
@@ -17,7 +17,7 @@ import { renderAndStorePDF } from "@/server/services/pdf-storage";
 import {
   assertTrialActive,
   assertCanGenerateReport,
-  FREE_REPORT_LIMIT,
+  reportAllowance,
 } from "@/server/lib/plan-limits";
 import {
   assertPeriodSupported,
@@ -271,29 +271,12 @@ export const reportsRouter = router({
     .input(z.object({ projectId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const project = await requireProject(ctx, input.projectId);
-
-      const [row] = await ctx.db
-        .select({ count: sql<number>`count(*)` })
-        .from(reports)
-        .where(eq(reports.projectId, input.projectId));
-      const used = Number(row?.count ?? 0);
-
-      try {
-        await assertCanGenerateReport(project.userId, input.projectId);
-        return { allowed: true, reason: null, used, limit: FREE_REPORT_LIMIT };
-      } catch (err) {
-        // Only the plan refusal is an answer; anything else is a real fault
-        // and must not be reported to the UI as "you are out of reports".
-        if (err instanceof TRPCError && err.code === "FORBIDDEN") {
-          return {
-            allowed: false,
-            reason: err.message,
-            used,
-            limit: FREE_REPORT_LIMIT,
-          };
-        }
-        throw err;
-      }
+      // `reportAllowance` IS the policy — the same function `assertCanGenerateReport`
+      // is built on, and the same one `projects.sync` and the auto-generate cron
+      // now consult before writing a row. Returned verbatim: a real fault
+      // propagates as a fault rather than being caught and rendered as
+      // "you are out of reports".
+      return reportAllowance(project.userId, input.projectId);
     }),
 
   /**

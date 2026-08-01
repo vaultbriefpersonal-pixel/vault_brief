@@ -52,6 +52,33 @@ export interface PrecomputedBalances {
 
 export interface CreateSnapshotOptions {
   precomputedBalances?: PrecomputedBalances | null;
+  /**
+   * The exact `(period_start, snapshot_date)` pair to store, when the caller
+   * already knows it.
+   *
+   * WHY A CALLER WOULD EVER NEED THIS. The pair is normally DERIVED from
+   * `period`, and that derivation runs through two different timezone
+   * conventions: `snapshot_date` is `period.end` projected onto a UTC day,
+   * while `snapshotPeriodStart` decides whether the range is a calendar month
+   * by reading `period`'s LOCAL components. Both are correct for the monthly
+   * path, whose Dates are built with local constructors and whose start is
+   * re-derived from `snapshot_date`'s month anyway.
+   *
+   * An arbitrary window has neither property, and the derivation misreads it in
+   * both directions: at UTC-4 a window of 2 → 31 July has a `start` whose local
+   * day is the 1st, so `monthsInDateRange` calls it a calendar month and
+   * `snapshotPeriodStart` stores 1 July — a different, wrong window, wearing a
+   * `kind: "month"` label. Since a report's period must EXACTLY match its
+   * snapshot's, the window the founder asked for would then be unselectable
+   * forever.
+   *
+   * So `projects.sync` passes the window it validated, verbatim. Absent — every
+   * existing caller — the derivation is unchanged, which is what keeps the
+   * monthly path bit-for-bit identical.
+   *
+   * Both values are 'YYYY-MM-DD'.
+   */
+  storedPeriod?: { start: string; end: string } | null;
 }
 
 /**
@@ -110,7 +137,10 @@ export async function prepareMonthlySnapshot(
   });
   if (!project) throw new Error(`Project ${projectId} not found`);
 
-  const snapshotDate = period.end.toISOString().split("T")[0];
+  // An explicit window wins outright — see `storedPeriod`. Otherwise the pair
+  // is derived exactly as it always was.
+  const snapshotDate =
+    options.storedPeriod?.end ?? period.end.toISOString().split("T")[0];
   // The other end of the same window. Derived through `snapshotPeriodStart`
   // rather than as `period.start.toISOString().split("T")[0]`, because the
   // naive projection turns an ordinary monthly sync into a 31-day CUSTOM
@@ -118,7 +148,8 @@ export async function prepareMonthlySnapshot(
   // read that function's header, it owns the reasoning. For a calendar month
   // it returns exactly what `periodFromSnapshot` already reconstructs from a
   // NULL column, so writing this cannot change any existing report.
-  const periodStart = snapshotPeriodStart(period, snapshotDate);
+  const periodStart =
+    options.storedPeriod?.start ?? snapshotPeriodStart(period, snapshotDate);
 
   // Collision guard, checked BEFORE the fetches below rather than beside the
   // upsert, so a refusal costs one indexed lookup instead of a full round of

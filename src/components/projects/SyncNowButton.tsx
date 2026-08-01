@@ -80,16 +80,29 @@ export function SyncNowButton({ projectId }: Props) {
 
   const sync = trpc.projects.sync.useMutation({
     onSuccess: (res) => {
-      setStatus("ok");
       const snapCount = res.snapshotIds?.length ?? 0;
       const errCount = res.errors?.length ?? 0;
+      // A 200 that wrote nothing is not a success. Every period can be refused
+      // — the period-collision guard does exactly that — and reporting
+      // "Snapshot synced" over an empty write would be the most misleading
+      // thing on the page.
+      setStatus(snapCount === 0 ? "error" : "ok");
       const parts: string[] = [];
-      if (snapCount > 1) parts.push(`${snapCount} months synced`);
+      if (snapCount === 0) parts.push("Nothing was synced");
+      else if (snapCount > 1) parts.push(`${snapCount} months synced`);
       else parts.push("Snapshot synced");
       if (res.reportGenerated) parts.push("report generated");
       else if (res.reportId) parts.push("report exists");
       if (errCount > 0) parts.push(`${errCount} period(s) failed`);
-      setMessage(parts.join(" · ") + ".");
+      // The first failure's own words, not just a count. A period can fail
+      // because a snapshot already exists at that date describing a DIFFERENT
+      // reporting window — `snapshotPeriodConflicts` refuses rather than
+      // overwrite the data under an existing report — and that refusal is only
+      // actionable if the founder can read it.
+      const firstError = res.errors?.[0]?.error;
+      setMessage(
+        parts.join(" · ") + "." + (firstError ? ` ${firstError}` : "")
+      );
       router.refresh();
       setTimeout(() => setStatus("idle"), 5000);
     },

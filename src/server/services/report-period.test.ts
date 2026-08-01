@@ -15,6 +15,10 @@ import {
   snapshotPeriodStart,
   snapshotPeriodConflicts,
   assertPeriodSupported,
+  assertCustomSyncWindow,
+  END_TOLERANCE_DAYS,
+  MAX_CUSTOM_SYNC_DAYS,
+  MAX_RECONSTRUCTION_MONTHS,
 } from "./report-period";
 
 /** The shape every report in production has had until now. */
@@ -1011,5 +1015,193 @@ describe("burnPeriodDays", () => {
     expect(
       burnPeriodDays({} as unknown as { snapshotDate: string })
     ).toBeUndefined();
+  });
+});
+
+describe("assertCustomSyncWindow", () => {
+  const TODAY = "2026-07-31";
+
+  it("accepts a long window that ENDS TODAY — the grant case", () => {
+    // 168 days, not a calendar month, not month-aligned. This is precisely the
+    // window "since we received the grant, through now" names, and it is the
+    // one thing the product could not create before.
+    const period = periodFromRange("2026-02-14", TODAY);
+    expect(period.kind).toBe("custom");
+    expect(assertCustomSyncWindow(period, TODAY)).toEqual({ ok: true });
+  });
+
+  it("accepts a window inside the end tolerance in either direction", () => {
+    // The tolerance absorbs timezone slop on a UTC-dated period read from a
+    // clock 13 hours away — the SAME number `assertPeriodSupported` uses at its
+    // near end, deliberately, so the picker cannot offer what the sync refuses.
+    expect(END_TOLERANCE_DAYS).toBe(2);
+    for (const end of ["2026-07-29", "2026-07-30", TODAY, "2026-08-01", "2026-08-02"]) {
+      expect(
+        assertCustomSyncWindow(periodFromRange("2026-06-01", end), TODAY).ok
+      ).toBe(true);
+    }
+  });
+
+  it("REFUSES a window ending in the past — the bug this rule exists for", () => {
+    // A single custom window has no chain: pass 1 runs once with no carried
+    // balances, so the row is written from a LIVE read and stamped `observed`.
+    // Ending it in the past would put today's balances under a past date with a
+    // claim of accuracy attached.
+    const r = assertCustomSyncWindow(
+      periodFromRange("2026-02-14", "2026-06-30"),
+      TODAY
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error("unreachable");
+    expect(r.code).toBe("WINDOW_ENDS_IN_PAST");
+    expect(r.reason).toContain("31 days ago");
+    // Points at the thing that DOES chain properly.
+    expect(r.reason).toContain("whole calendar months");
+    expect(r.reason).toContain("Last N months");
+  });
+
+  it("refuses one day past the tolerance, and not one day inside it", () => {
+    expect(
+      assertCustomSyncWindow(periodFromRange("2026-06-01", "2026-07-29"), TODAY).ok
+    ).toBe(true);
+    expect(
+      assertCustomSyncWindow(periodFromRange("2026-06-01", "2026-07-28"), TODAY).ok
+    ).toBe(false);
+  });
+
+  it("refuses a window that has not finished yet", () => {
+    const r = assertCustomSyncWindow(
+      periodFromRange("2026-07-01", "2026-08-31"),
+      TODAY
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error("unreachable");
+    expect(r.code).toBe("WINDOW_ENDS_IN_FUTURE");
+    expect(r.reason).toContain("2026-08-31");
+  });
+
+  it("refuses a window longer than the reconstruction horizon", () => {
+    // 366 days is the ceiling, so a whole year always fits — including one
+    // containing a leap day.
+    expect(MAX_CUSTOM_SYNC_DAYS).toBe(366);
+    expect(MAX_CUSTOM_SYNC_DAYS).toBe(
+      Math.ceil(MAX_RECONSTRUCTION_MONTHS * DAYS_PER_MONTH)
+    );
+    expect(
+      assertCustomSyncWindow(periodFromRange("2025-08-01", TODAY), TODAY).ok
+    ).toBe(true);
+
+    const r = assertCustomSyncWindow(
+      periodFromRange("2024-01-01", TODAY),
+      TODAY
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error("unreachable");
+    expect(r.code).toBe("WINDOW_TOO_LONG");
+  });
+
+  it("reports length before the end date, so a stale long window says 'too long'", () => {
+    // Otherwise a grant awarded three years ago and reported "through now"
+    // would be refused for a reason that is not the problem.
+    const r = assertCustomSyncWindow(
+      periodFromRange("2020-01-01", "2023-01-01"),
+      TODAY
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error("unreachable");
+    expect(r.code).toBe("WINDOW_TOO_LONG");
+  });
+
+  it("accepts a leap year measured end to end", () => {
+    // 2028 is a leap year: 2027-03-01 → 2028-02-29 is 366 days inclusive.
+    const period = periodFromRange("2027-03-01", "2028-02-29");
+    expect(period.days).toBe(366);
+    expect(assertCustomSyncWindow(period, "2028-02-29").ok).toBe(true);
+  });
+
+  it("throws only on an unusable clock — this is an authorisation gate", () => {
+    const period = periodFromRange("2026-06-01", TODAY);
+    expect(() => assertCustomSyncWindow(period, "not-a-day")).toThrow(
+      /unparseable 'today'/
+    );
+  });
+
+  it("reads a Date clock through getUTC*, matching the rest of the module", () => {
+    const period = periodFromRange("2026-02-14", TODAY);
+    expect(
+      assertCustomSyncWindow(period, new Date("2026-07-31T23:30:00.000Z")).ok
+    ).toBe(true);
+  });
+});
+
+/**
+ * The back-compat surface of the custom-window change.
+ *
+ * `projects.sync` with no `period` argument must build EXACTLY the windows it
+ * built before, so this reproduces its months loop verbatim and asserts the
+ * invariant that matters downstream: every window it produces is a calendar
+ * month, in whatever timezone the test happens to run in. That is what keeps
+ * `monthsInDateRange` at exactly 1 and `snapshotPeriodStart` on the identity
+ * path against the NULL fallback.
+ */
+describe("projects.sync's months loop (back-compat)", () => {
+  function monthsLoop(now: Date, months: number): Array<{ start: Date; end: Date }> {
+    const periods: Array<{ start: Date; end: Date }> = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const start = new Date(now.getFullYear(), now.getMonth() - 1 - i, 1);
+      const end = new Date(now.getFullYear(), now.getMonth() - i, 0, 23, 59, 59);
+      periods.push({ start, end });
+    }
+    return periods;
+  }
+
+  // Every month of the year as the "now", so a 31-day month, February and a
+  // year boundary are all covered rather than whichever one today happens to be.
+  const CLOCKS = Array.from({ length: 12 }, (_, m) => new Date(2026, m, 15, 9, 30));
+
+  it("yields exactly `months` windows, oldest first, ending at the last completed month", () => {
+    for (const now of CLOCKS) {
+      for (const months of [1, 12]) {
+        const periods = monthsLoop(now, months);
+        expect(periods.length).toBe(months);
+        const last = periods[periods.length - 1];
+        expect(last.end.getFullYear()).toBe(
+          new Date(now.getFullYear(), now.getMonth(), 0).getFullYear()
+        );
+        expect(last.end.getMonth()).toBe(
+          new Date(now.getFullYear(), now.getMonth(), 0).getMonth()
+        );
+        for (let i = 1; i < periods.length; i++) {
+          expect(periods[i].start.getTime()).toBeGreaterThan(
+            periods[i - 1].start.getTime()
+          );
+        }
+      }
+    }
+  });
+
+  it("every window it builds normalises to EXACTLY one month", () => {
+    for (const now of CLOCKS) {
+      for (const range of monthsLoop(now, 12)) {
+        expect(monthsInDateRange(range)).toBe(1);
+      }
+    }
+  });
+
+  it("stores a period_start that reads back as the same calendar month", () => {
+    for (const now of CLOCKS) {
+      for (const range of monthsLoop(now, 12)) {
+        const snapshotDate = range.end.toISOString().split("T")[0];
+        const stored = snapshotPeriodStart(range, snapshotDate);
+        const readBack = periodFromSnapshot({
+          snapshotDate,
+          periodStart: stored,
+        });
+        expect(readBack.kind).toBe("month");
+        // Bit-for-bit what the NULL fallback already reconstructs, which is
+        // what let the migration land without changing any existing report.
+        expect(readBack).toEqual(periodFromSnapshot({ snapshotDate }));
+      }
+    }
   });
 });

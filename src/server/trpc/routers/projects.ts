@@ -29,7 +29,7 @@ import {
   autofillLimiter,
 } from "@/server/lib/ratelimit";
 import { fetchTokenMetadata } from "@/server/services/project-autofill";
-import { assertTrialActive } from "@/server/lib/plan-limits";
+import { assertTrialActive, reportAllowance } from "@/server/lib/plan-limits";
 import {
   prepareMonthlySnapshot,
   writeSnapshot,
@@ -46,12 +46,18 @@ import { getHistoricalPrice } from "@/server/services/price-resolver";
 import { generateAndSaveReport } from "@/server/services/report-generator";
 import { evaluateReadiness } from "@/server/services/report-sections";
 import { changeSignificanceFloor } from "@/server/services/report-derived";
-import { periodFromSnapshot } from "@/server/services/report-period";
+import {
+  assertCustomSyncWindow,
+  periodFromRange,
+  periodFromSnapshot,
+} from "@/server/services/report-period";
 
 // Mirror of validation in walletsRouter — keep in sync. Inlined here so the
 // create-project mutation can validate wallets before any DB writes (one
 // failed wallet shouldn't leave a half-onboarded project sitting around).
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+/** A `date` column as it travels over the wire — mirrors `isoDate` in reports.ts. */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const WALLET_CHAINS = [
   "ethereum",
@@ -618,42 +624,164 @@ export const projectsRouter = router({
    * Only the newest period is `observed`; everything older is `reconstructed`
    * and says so in `balance_basis`.
    *
-   * Rate limits are unchanged:
+   * ─── ONE EXPLICIT WINDOW, INSTEAD OF N MONTHS ─────────────────────────────
+   *
+   * `period` is the alternative to `months`, and the two are MUTUALLY
+   * EXCLUSIVE — supplying both is refused rather than silently resolved, since
+   * either choice of winner would give a caller a window it did not ask for.
+   * With a period, `periods` is that single window and everything below runs
+   * unchanged: pass 1 executes once with `carried === null` (a live balance
+   * read), hits `if (i === 0) break` so nothing is walked back, and the row is
+   * `observed`. Pass 2, the dedup and the report path are already period-shaped.
+   *
+   * This is the only thing that could ever create a non-month snapshot, and
+   * therefore the only thing that makes "since we received the grant, through
+   * now" reportable.
+   *
+   * Rate limits:
    *   - 1-month sync: 3/hr per project (syncLimiter)
-   *   - backfill (>1 month): additionally 2/day per project (backfillLimiter)
+   *   - backfill (>1 month) AND any custom window: additionally 2/day per
+   *     project (backfillLimiter). A custom window can span a year of transfer
+   *     history in one call, which is the cost `backfillLimiter` exists to
+   *     bound — the fact that it writes one row rather than twelve does not
+   *     make it cheap.
    */
   sync: protectedProcedure
     .input(
       z.object({
         projectId: z.string().uuid(),
-        months: z.number().int().min(1).max(12).default(1),
+        // No `.default(1)`: the default has to be applied AFTER the
+        // mutual-exclusion check, or a caller who passed only `period` would
+        // arrive here holding `months: 1` and be refused for contradicting
+        // itself.
+        months: z.number().int().min(1).max(12).optional(),
+        period: z
+          .object({
+            start: z.string().regex(ISO_DATE_RE, "expected a 'YYYY-MM-DD' date"),
+            end: z.string().regex(ISO_DATE_RE, "expected a 'YYYY-MM-DD' date"),
+          })
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       await assertTrialActive(ctx.session.user.id!);
+      if (input.months !== undefined && input.period) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Pass either `months` (whole calendar months, walked backwards from the last completed one) " +
+            "or `period` (one explicit window), not both — they describe different windows and there is " +
+            "no sensible way to honour both.",
+        });
+      }
       // Needed beyond the access check: `priceReconstruction` classifies the
       // walked-back holdings through the SAME own-token predicate every other
       // surface uses, and that predicate reads the project's token identity.
       const project = await requireProject(ctx, input.projectId);
       await checkLimit(syncLimiter, input.projectId);
-      if (input.months > 1) {
+      if (input.period || (input.months ?? 1) > 1) {
         await checkLimit(backfillLimiter, input.projectId);
       }
 
-      // Build periods oldest → newest. getLastMonthPeriod() returns the most
-      // recent fully-closed month; walk back from there.
       const periods: Array<{ start: Date; end: Date }> = [];
+      // The 'YYYY-MM-DD' each period is KNOWN by, parallel to `periods`. The
+      // months path keeps deriving it exactly as before
+      // (`end.toISOString().slice(0,10)`); the custom path uses the window it
+      // validated, because that Date is a LOCAL end-of-day and its UTC
+      // projection is a day later west of Greenwich.
+      const periodLabels: string[] = [];
+      // The exact stored window per period, or null to let data-sync derive it.
+      const storedPeriods: Array<{ start: string; end: string } | null> = [];
       const now = new Date();
-      for (let i = input.months - 1; i >= 0; i--) {
-        // i months back from "last completed month" — for i=0 → last month
-        const start = new Date(now.getFullYear(), now.getMonth() - 1 - i, 1);
-        const end = new Date(now.getFullYear(), now.getMonth() - i, 0, 23, 59, 59);
-        periods.push({ start, end });
+      if (input.period) {
+        // `periodFromRange` is the validator for shape: it already refuses an
+        // unparseable or inverted range with a message that names the offending
+        // value, so re-deriving those checks here would be a second, weaker copy.
+        let window;
+        try {
+          window = periodFromRange(input.period.start, input.period.end);
+        } catch (err) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: err instanceof Error ? err.message : "Invalid period",
+          });
+        }
+        // The rule that matters: an end date at/near today. Balances are read
+        // live and a lone window has no chain to walk back through, so a window
+        // ending in the past would write today's balances under a past date
+        // AND stamp them `observed`. Lives in report-period.ts so the picker
+        // enforces the identical rule without a second copy of it.
+        const support = assertCustomSyncWindow(window, now);
+        if (!support.ok) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: support.reason });
+        }
+        // ── the two dates, and why they are built LOCALLY ──
+        //
+        // These Dates are consumed as INSTANTS, by `fetchAndClassify` (block
+        // lookup either side of the window), `fetchGitHubActivity`, and
+        // `monthsInDateRange`, which divides this period's outflows into a
+        // per-month burn. `monthsInDateRange` reads LOCAL components — it has
+        // to, because the months loop below builds its Dates with local
+        // constructors and reading those as UTC would turn every ordinary
+        // monthly sync into a 31-day custom period east of Greenwich. Handing
+        // it UTC-anchored Dates instead breaks the same function from the other
+        // side: at UTC-4 a window of 2 → 31 July has a LOCAL start of the 1st,
+        // so it is misread as a calendar month and normalised by 1 instead of
+        // by 30/30.4375.
+        //
+        // Matching the months path's convention is therefore the correct choice
+        // for the instants. What it costs is the STORED pair — a local
+        // end-of-day projects onto the next UTC day west of Greenwich — and
+        // that is paid for separately, by handing `prepareMonthlySnapshot` the
+        // validated window verbatim through `storedPeriod`. The stored
+        // `(period_start, snapshot_date)` is then exactly what was asked for in
+        // every timezone, which is what lets the resulting snapshot be found
+        // again: a report's period must match its snapshot's period EXACTLY.
+        const [sy, sm, sd] = window.start.split("-").map(Number);
+        const [ey, em, ed] = window.end.split("-").map(Number);
+        periods.push({
+          start: new Date(sy, sm - 1, sd),
+          end: new Date(ey, em - 1, ed, 23, 59, 59),
+        });
+        periodLabels.push(window.end);
+        storedPeriods.push({ start: window.start, end: window.end });
+      } else {
+        // Build periods oldest → newest. getLastMonthPeriod() returns the most
+        // recent fully-closed month; walk back from there. UNCHANGED — this is
+        // the entire back-compat surface, and `sync` with no `period` argument
+        // must build exactly the windows it built before.
+        const months = input.months ?? 1;
+        for (let i = months - 1; i >= 0; i--) {
+          // i months back from "last completed month" — for i=0 → last month
+          const start = new Date(now.getFullYear(), now.getMonth() - 1 - i, 1);
+          const end = new Date(now.getFullYear(), now.getMonth() - i, 0, 23, 59, 59);
+          periods.push({ start, end });
+          // Derived exactly as before, and `storedPeriod` stays null so
+          // `prepareMonthlySnapshot` keeps deriving the pair through
+          // `snapshotPeriodStart`. Both arrays are filled on THIS path too so
+          // they stay index-parallel with `periods` — a months sync that left
+          // them empty would make every `periodLabels[i]` below undefined.
+          periodLabels.push(end.toISOString().slice(0, 10));
+          storedPeriods.push(null);
+        }
       }
 
+      // Per-period failures, returned rather than thrown so a partial backfill
+      // still reports what it did manage.
+      //
+      // THE COLLISION REFUSAL ARRIVES HERE, AND IT IS CORRECT.
+      // `prepareMonthlySnapshot` calls `snapshotPeriodConflicts` and throws when
+      // a snapshot already exists at this `snapshot_date` describing a DIFFERENT
+      // window — which a grant window ending on a month-end will hit, because
+      // `treasury_snapshots` is unique on `(project_id, snapshot_date)` ALONE
+      // and that month's monthly snapshot already occupies the row. Overwriting
+      // it would silently change the data under any report already pointing at
+      // it. Widening the unique key to include `period_start` is a separate
+      // migration (it invalidates this file's `ON CONFLICT` target the instant
+      // the DDL lands), so until then the refusal is the guard, not a bug — and
+      // its message has to reach the caller intact, which is what this array is
+      // for. Callers must surface `errors[].error` verbatim.
       const errors: Array<{ period: string; error: string }> = [];
-      const periodLabel = (p: { start: Date; end: Date }) =>
-        p.end.toISOString().slice(0, 10);
 
       // ── Pass 1: newest → oldest, chaining from one live balance read ──────
       //
@@ -665,7 +793,11 @@ export const projectsRouter = router({
       // The balances for the period about to be prepared. Null means "read them
       // live", which is true exactly once — for the newest period.
       let carried: PrecomputedBalances | null = null;
-      const observedAsOf = periodLabel(periods[periods.length - 1]);
+      // Read from the parallel array, never re-derived from `period.end`. On the
+      // custom path that Date is a LOCAL end-of-day whose UTC projection is a
+      // day later west of Greenwich, so re-deriving here would label the
+      // reconstruction with a date the row does not carry.
+      const observedAsOf = periodLabels[periods.length - 1];
 
       for (let i = periods.length - 1; i >= 0; i--) {
         const period = periods[i];
@@ -673,7 +805,21 @@ export const projectsRouter = router({
           const result = await prepareMonthlySnapshot(
             input.projectId,
             period,
-            { precomputedBalances: carried }
+            {
+              precomputedBalances: carried,
+              // The window this sync validated, verbatim. Null on the months
+              // path, where `snapshotPeriodStart` derives the pair exactly as
+              // it always has. Without this the custom path falls back to that
+              // derivation and stores a window nobody asked for: a local
+              // end-of-day projects onto the next UTC day west of Greenwich,
+              // and `snapshotPeriodStart` reading local components can call a
+              // 2→31 July window a calendar month — which also switches
+              // per-month normalisation off for a 30-day period. Either way the
+              // stored pair stops matching what the picker asks for, and
+              // `snapshotCovering` matches start and end EXACTLY, so the
+              // founder's window becomes unreachable forever.
+              storedPeriod: storedPeriods[i],
+            }
           );
           prepared[i] = result;
 
@@ -704,7 +850,7 @@ export const projectsRouter = router({
           const walked = reconstructBalances({
             balances: source,
             transfers: result.balanceLegs,
-            asOf: periodLabel(periods[i - 1]),
+            asOf: periodLabels[i - 1],
             observedAsOf,
             stepsFromObserved: periods.length - i,
             carriedForwardWallets: carriedForward,
@@ -744,7 +890,7 @@ export const projectsRouter = router({
           };
         } catch (err) {
           errors.push({
-            period: periodLabel(period),
+            period: periodLabels[i],
             error: err instanceof Error ? err.message : String(err),
           });
           // The chain is broken: without this period's legs there is no honest
@@ -771,7 +917,7 @@ export const projectsRouter = router({
           latestSnapshot = snap; // loop runs oldest → newest, so this ends on the newest
         } catch (err) {
           errors.push({
-            period: periodLabel(periods[i]),
+            period: periodLabels[i],
             error: err instanceof Error ? err.message : String(err),
           });
         }
@@ -832,6 +978,31 @@ export const projectsRouter = router({
           snapshotIds,
           reportId: existing.id,
           reportGenerated: false,
+          errors,
+        };
+      }
+
+      // THE REPORT CAP APPLIES HERE TOO.
+      //
+      // This path creates a `reports` row, so it is subject to the same free-plan
+      // limit as `reports.generate` — and until now it was not, which made the
+      // cap trivially bypassable through the product's most-used button: every
+      // Sync now produced a new period, the exact-window dedup above missed, and
+      // a new report was written. `reports.canGenerate` reported "out of reports"
+      // to the UI while rows kept appearing behind it.
+      //
+      // NON-THROWING on purpose. The snapshots above were written successfully
+      // and must be kept: the sync did its job, and being on the free plan is a
+      // normal state, not a failure of it. So this returns the same shape as the
+      // already-reported case — the caller sees `reportGenerated: false` and a
+      // reason it can show — rather than throwing away a completed sync.
+      const allowance = await reportAllowance(project.userId, input.projectId);
+      if (!allowance.allowed) {
+        return {
+          snapshotIds,
+          reportId: null,
+          reportGenerated: false,
+          reportSkippedReason: allowance.reason,
           errors,
         };
       }

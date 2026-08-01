@@ -111,8 +111,13 @@ const MONTH_ABBR = [
  * How far in the past `period.end` may sit before a period is refused.
  * Two days covers timezone slop (a UTC-dated period read from a UTC+13 clock)
  * plus the legitimate "through yesterday" case. See `assertPeriodSupported`.
+ *
+ * Exported because `assertCustomSyncWindow` needs THE SAME number: both
+ * questions are "is this period's end close enough to now that a live balance
+ * read describes it?", asked at generation time and at sync time. Two constants
+ * would drift into a window the picker offers and the sync refuses.
  */
-const END_TOLERANCE_DAYS = 2;
+export const END_TOLERANCE_DAYS = 2;
 
 // ─── parsing ───────────────────────────────────────────────────────────────
 
@@ -846,6 +851,130 @@ export function assertPeriodSupported(
       "Past balances are not read from chain — they are walked backwards from today's holdings through each period's transfer history — and no sync in this product reaches further back than that, " +
       "so there is no honest way to state what this treasury held on that date.",
   };
+}
+
+/**
+ * The longest window a single custom sync may cover, in days.
+ *
+ * `MAX_RECONSTRUCTION_MONTHS` expressed in days rather than a second literal,
+ * so "how far back can this product see" has exactly one definition. Rounded UP
+ * (12 × 30.4375 = 365.25 → 366) so a whole year is always inside the ceiling,
+ * including one that contains a leap day — refusing 2027-03-01 → 2028-02-29
+ * while allowing 2026-03-01 → 2027-02-28 would be an arbitrary difference the
+ * founder cannot see the cause of.
+ */
+export const MAX_CUSTOM_SYNC_DAYS = Math.ceil(
+  MAX_RECONSTRUCTION_MONTHS * DAYS_PER_MONTH
+);
+
+export type CustomSyncSupport =
+  | { ok: true }
+  | {
+      ok: false;
+      code:
+        | "WINDOW_TOO_LONG"
+        | "WINDOW_ENDS_IN_FUTURE"
+        | "WINDOW_ENDS_IN_PAST";
+      reason: string;
+    };
+
+/**
+ * May `projects.sync` create a snapshot for this window in ONE call, as a
+ * single custom period?
+ *
+ * ── WHY THIS EXISTS, AND WHY THE END DATE IS THE WHOLE POINT ──
+ *
+ * A months-based sync walks a CHAIN: it takes one live balance read for the
+ * newest period and reconstructs each older period from the next-newer one's
+ * transfer history, stamping every walked-back row `reconstructed`. A single
+ * custom window has no chain — `periods.length === 1` means pass 1 runs once
+ * with `carried === null`, hits `if (i === 0) break`, and the row it writes is
+ * `observed`.
+ *
+ * `fetchAllBalances` takes no date. It reads the wallets AS OF NOW. So a custom
+ * window ending in the past would write TODAY's balances under that past date
+ * and label them observed — the exact bug balance-reconstruction.ts exists to
+ * prevent, and strictly worse than the original, because the original at least
+ * did not carry a claim of accuracy.
+ *
+ * Hence the near-end rule, using the SAME `END_TOLERANCE_DAYS` the generation
+ * gate uses: a custom window has to end at, or within slop of, today. Anything
+ * older is reachable only as whole calendar months, which is what the
+ * months-based backfill produces and what the refusal points at.
+ *
+ * Flows are NOT subject to this: inflows, outflows, burn and GitHub activity
+ * are genuinely measured over `[start, end]` by `fetchAndClassify`, however
+ * long the window is. Only the BALANCES are as-of-now, and only they constrain
+ * the end date.
+ *
+ * RETURNS A RESULT, NEVER THROWS on the period — same contract as
+ * `assertPeriodSupported`, and for the same reason: the tRPC mutation turns a
+ * refusal into a BAD_REQUEST and the picker turns it into a visible reason. A
+ * garbage `today` still throws; this is an authorisation gate and failing open
+ * on a broken clock is not an option.
+ */
+export function assertCustomSyncWindow(
+  period: ReportPeriod,
+  today: string | Date
+): CustomSyncSupport {
+  const todayMs = utcDayMs(today);
+  if (todayMs === null) {
+    throw new Error(
+      `report-period: unparseable 'today' ${JSON.stringify(today)} — cannot decide custom-window support`
+    );
+  }
+  const endMs = utcDayMs(period?.end);
+  if (endMs === null) {
+    throw new Error(
+      `report-period: period has unparseable end ${JSON.stringify(period?.end)}`
+    );
+  }
+
+  // Length first: a grant awarded three years ago and reported "through now"
+  // fails on length, not on its end date, and being told about the end date
+  // would send the founder looking for a problem that is not there.
+  if (period.days > MAX_CUSTOM_SYNC_DAYS) {
+    return {
+      ok: false,
+      code: "WINDOW_TOO_LONG",
+      reason:
+        `A single reporting window may span at most ${MAX_RECONSTRUCTION_MONTHS} months ` +
+        `(${MAX_CUSTOM_SYNC_DAYS} days); ${period.label} is ${period.days} days. ` +
+        `${MAX_RECONSTRUCTION_MONTHS} months is how far back VaultBrief can read a treasury's history at all, ` +
+        "so a longer window would have a start date behind which nothing is measurable.",
+    };
+  }
+
+  const daysStale = (todayMs - endMs) / MS_PER_DAY;
+
+  if (daysStale < -END_TOLERANCE_DAYS) {
+    return {
+      ok: false,
+      code: "WINDOW_ENDS_IN_FUTURE",
+      reason:
+        `A reporting period ending ${period.end} has not finished yet — today is ${isoDay(todayMs)}. ` +
+        "Treasury balances are read live, as of now, so this window would record today's holdings " +
+        "under a date that has not arrived, and its transfer totals would cover only the part of the " +
+        "window that has actually happened.",
+    };
+  }
+
+  if (daysStale > END_TOLERANCE_DAYS) {
+    return {
+      ok: false,
+      code: "WINDOW_ENDS_IN_PAST",
+      reason:
+        `A custom reporting window has to end today, or within ${END_TOLERANCE_DAYS} days of it. ` +
+        `${period.end} closed ${Math.round(daysStale)} days ago. ` +
+        "Balances are read LIVE and a single custom window has nothing newer to walk back from, " +
+        `so syncing this one would stamp today's holdings with ${period.end} and label them observed. ` +
+        'Past periods are reachable only as whole calendar months, through Sync now ▾ → "Last N months", ' +
+        "which chains backwards through each month's own transfer history and labels the reconstructed " +
+        "balances as estimates.",
+    };
+  }
+
+  return { ok: true };
 }
 
 // ─── internals ─────────────────────────────────────────────────────────────
