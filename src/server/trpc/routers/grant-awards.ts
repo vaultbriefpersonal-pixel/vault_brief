@@ -33,6 +33,24 @@ const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 const STATUS = ["active", "completed", "terminated"] as const;
 
 /**
+ * The allowed reporting cadences. Enforced HERE and not as a database CHECK,
+ * the same call `project_budgets.category` documents in schema.ts: keeping the
+ * set in the server's input schema means a fifth cadence is a code change
+ * rather than another migration against prod.
+ *
+ * `milestone_based` is not a synonym for `ad_hoc`: the first reports when a
+ * tranche's milestone lands (a schedule the award itself defines), the second
+ * has no schedule at all. Collapsing them would make "when is the next report
+ * due" unanswerable for exactly the awards that have an answer.
+ */
+const REPORTING_CADENCES = [
+  "monthly",
+  "quarterly",
+  "milestone_based",
+  "ad_hoc",
+] as const;
+
+/**
  * Finite and non-negative — the same reasoning project-budgets.ts spells out
  * for `plannedUsdSchema`: bare `z.number()` admits NaN and Infinity, both of
  * which survive superjson transport intact and land in a numeric column as an
@@ -61,8 +79,21 @@ const awardShape = {
   awardAmountUsd: amountUsdSchema.optional().nullable(),
   awardAmountToken: amountTokenSchema.optional().nullable(),
   awardTokenSymbol: z.string().trim().max(20).optional().nullable(),
+  /**
+   * What the money was worth ON ARRIVAL — deliberately a separate field from
+   * `awardAmountUsd`, which is the figure the AGREEMENT states. For a
+   * token-denominated award the two differ by whatever the token did between
+   * signature and disbursement, and either one printed under the other's
+   * heading is a number the grant never contained. See the column comment in
+   * schema.ts. Same finite/non-negative guard as every other money field here.
+   */
+  amountUsdAtReceipt: amountUsdSchema.optional().nullable(),
   awardDate: ISO_DATE,
   reportingStartDate: ISO_DATE.optional().nullable(),
+  reportingCadence: z.enum(REPORTING_CADENCES).optional().nullable(),
+  // Nothing consumes this yet — Stage 8 reminders read it. Validated as a real
+  // date now so the reminder job never meets a 'next Tuesday' in a date column.
+  nextReportDue: ISO_DATE.optional().nullable(),
   status: z.enum(STATUS).default("active"),
   agreementUrl: z.string().url().max(500).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
@@ -124,8 +155,11 @@ export const grantAwardsRouter = router({
           awardAmountUsd: numOrNull(input.awardAmountUsd) ?? null,
           awardAmountToken: numOrNull(input.awardAmountToken) ?? null,
           awardTokenSymbol: input.awardTokenSymbol ?? null,
+          amountUsdAtReceipt: numOrNull(input.amountUsdAtReceipt) ?? null,
           awardDate: input.awardDate,
           reportingStartDate: input.reportingStartDate ?? null,
+          reportingCadence: input.reportingCadence ?? null,
+          nextReportDue: input.nextReportDue ?? null,
           status: input.status,
           agreementUrl: input.agreementUrl ?? null,
           notes: input.notes ?? null,
@@ -153,15 +187,24 @@ export const grantAwardsRouter = router({
         awardAmountUsd: awardShape.awardAmountUsd,
         awardAmountToken: awardShape.awardAmountToken,
         awardTokenSymbol: awardShape.awardTokenSymbol,
+        amountUsdAtReceipt: awardShape.amountUsdAtReceipt,
         awardDate: ISO_DATE.optional(),
         reportingStartDate: awardShape.reportingStartDate,
+        reportingCadence: awardShape.reportingCadence,
+        nextReportDue: awardShape.nextReportDue,
         status: z.enum(STATUS).optional(),
         agreementUrl: awardShape.agreementUrl,
         notes: awardShape.notes,
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, awardAmountUsd, awardAmountToken, ...rest } = input;
+      const {
+        id,
+        awardAmountUsd,
+        awardAmountToken,
+        amountUsdAtReceipt,
+        ...rest
+      } = input;
       await requireGrantAward(ctx, id);
       const [row] = await ctx.db
         .update(grantAwards)
@@ -172,6 +215,12 @@ export const grantAwardsRouter = router({
             : {}),
           ...(awardAmountToken !== undefined
             ? { awardAmountToken: numOrNull(awardAmountToken) }
+            : {}),
+          // Same numeric-column treatment as the two above: a number becomes a
+          // string, an explicit null clears the field, and absent means leave
+          // the stored value alone.
+          ...(amountUsdAtReceipt !== undefined
+            ? { amountUsdAtReceipt: numOrNull(amountUsdAtReceipt) }
             : {}),
           updatedAt: new Date(),
         })

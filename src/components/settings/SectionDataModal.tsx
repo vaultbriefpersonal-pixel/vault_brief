@@ -590,6 +590,24 @@ const AWARD_STATUS_LABELS: Record<AwardStatus, string> = {
   terminated: "Terminated",
 };
 
+// Must stay in step with REPORTING_CADENCES in trpc/routers/grant-awards.ts —
+// that Zod enum is the enforcing copy (the column itself is plain TEXT), so a
+// value added here and not there is rejected at submit.
+const AWARD_CADENCES = [
+  "monthly",
+  "quarterly",
+  "milestone_based",
+  "ad_hoc",
+] as const;
+type AwardCadence = (typeof AWARD_CADENCES)[number];
+
+const AWARD_CADENCE_LABELS: Record<AwardCadence, string> = {
+  monthly: "Monthly",
+  quarterly: "Quarterly",
+  milestone_based: "On each milestone",
+  ad_hoc: "Ad hoc — no fixed schedule",
+};
+
 interface AwardFormValues {
   grantor: string;
   program: string;
@@ -598,6 +616,10 @@ interface AwardFormValues {
   awardAmountUsd: string;
   awardAmountToken: string;
   awardTokenSymbol: string;
+  // "" = the agreement states no cadence, which the column stores as NULL.
+  reportingCadence: AwardCadence | "";
+  nextReportDue: string;
+  amountUsdAtReceipt: string;
   agreementUrl: string;
   notes: string;
 }
@@ -619,6 +641,9 @@ function emptyAward(): AwardFormValues {
     awardAmountUsd: "",
     awardAmountToken: "",
     awardTokenSymbol: "",
+    reportingCadence: "",
+    nextReportDue: "",
+    amountUsdAtReceipt: "",
     agreementUrl: "",
     notes: "",
   };
@@ -652,6 +677,12 @@ function awardFormErrors(v: AwardFormValues): string[] {
   }
   if (token.value !== null && !v.awardTokenSymbol.trim()) {
     errors.push("A token amount needs its token symbol.");
+  }
+  if (!blankOrNumber(v.amountUsdAtReceipt).ok) {
+    errors.push("USD value at receipt must be a non-negative number, or blank.");
+  }
+  if (v.nextReportDue && !ISO_DATE_RE.test(v.nextReportDue)) {
+    errors.push("Next report due must be YYYY-MM-DD.");
   }
   if (v.agreementUrl.trim() && !URL_RE.test(v.agreementUrl.trim())) {
     errors.push("Agreement link must start with http:// or https://.");
@@ -745,6 +776,47 @@ function AwardFields({
           />
         </div>
       </div>
+      <div>
+        {/* Deliberately NOT the same field as "Award amount (USD)" above. That
+            one is what the agreement says; this one is what the money was
+            worth on the day it arrived, which for a token grant is a different
+            number. Leaving it blank is correct for a plain USD grant. */}
+        <label style={labelStyle}>USD value at receipt (optional)</label>
+        <input
+          style={inputStyle}
+          type="number"
+          min="0"
+          value={values.amountUsdAtReceipt}
+          onChange={(e) => set({ amountUsdAtReceipt: e.target.value })}
+          placeholder="What the tokens were worth on arrival"
+        />
+      </div>
+      <div>
+        <label style={labelStyle}>Reporting cadence (optional)</label>
+        <select
+          style={inputStyle}
+          value={values.reportingCadence}
+          onChange={(e) =>
+            set({ reportingCadence: e.target.value as AwardCadence | "" })
+          }
+        >
+          <option value="">Not stated</option>
+          {AWARD_CADENCES.map((c) => (
+            <option key={c} value={c}>
+              {AWARD_CADENCE_LABELS[c]}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label style={labelStyle}>Next report due (optional)</label>
+        <input
+          type="date"
+          style={inputStyle}
+          value={values.nextReportDue}
+          onChange={(e) => set({ nextReportDue: e.target.value })}
+        />
+      </div>
       <div style={{ gridColumn: "1 / -1" }}>
         <label style={labelStyle}>Agreement link (optional)</label>
         <input
@@ -810,7 +882,10 @@ function GrantAwardsRenderer({ projectId }: { projectId: string }) {
         awardAmountUsd: usd,
         awardAmountToken: token,
         awardTokenSymbol: token === null ? null : form.awardTokenSymbol.trim(),
+        amountUsdAtReceipt: blankOrNumber(form.amountUsdAtReceipt).value,
         awardDate: form.awardDate,
+        reportingCadence: form.reportingCadence || null,
+        nextReportDue: form.nextReportDue || null,
         status: form.status,
         agreementUrl: form.agreementUrl.trim() || null,
         notes: form.notes.trim() || null,
@@ -918,6 +993,9 @@ type AwardRow = {
   awardAmountUsd: string | null;
   awardAmountToken: string | null;
   awardTokenSymbol: string | null;
+  amountUsdAtReceipt: string | null;
+  reportingCadence: string | null;
+  nextReportDue: string | null;
   agreementUrl: string | null;
   notes: string | null;
   tranches: {
@@ -963,6 +1041,18 @@ function AwardCard({
     awardAmountToken:
       award.awardAmountToken == null ? "" : String(Number(award.awardAmountToken)),
     awardTokenSymbol: award.awardTokenSymbol ?? "",
+    amountUsdAtReceipt:
+      award.amountUsdAtReceipt == null
+        ? ""
+        : String(Number(award.amountUsdAtReceipt)),
+    // An unrecognised stored cadence falls back to "Not stated" rather than
+    // silently rewriting itself to the first option in the list.
+    reportingCadence: (AWARD_CADENCES as readonly string[]).includes(
+      award.reportingCadence ?? ""
+    )
+      ? (award.reportingCadence as AwardCadence)
+      : "",
+    nextReportDue: award.nextReportDue ? String(award.nextReportDue) : "",
     agreementUrl: award.agreementUrl ?? "",
     notes: award.notes ?? "",
   }));
@@ -1001,7 +1091,13 @@ function AwardCard({
         awardAmountUsd: blankOrNumber(edit.awardAmountUsd).value,
         awardAmountToken: token,
         awardTokenSymbol: token === null ? null : edit.awardTokenSymbol.trim(),
+        amountUsdAtReceipt: blankOrNumber(edit.amountUsdAtReceipt).value,
         awardDate: edit.awardDate,
+        // Explicit null for the same reason as the amounts above: clearing the
+        // dropdown means "no cadence stated", and undefined would leave the
+        // stored value in place, making it impossible to unset.
+        reportingCadence: edit.reportingCadence || null,
+        nextReportDue: edit.nextReportDue || null,
         status: edit.status,
         agreementUrl: edit.agreementUrl.trim() || null,
         notes: edit.notes.trim() || null,
@@ -1081,6 +1177,14 @@ function AwardCard({
                     } awarded (no USD figure)`
                   : "award amount not recorded"}{" "}
               · ${received.toLocaleString()} received to date
+              {award.amountUsdAtReceipt != null
+                ? ` · $${Number(
+                    award.amountUsdAtReceipt
+                  ).toLocaleString()} value at receipt`
+                : ""}
+              {award.nextReportDue
+                ? ` · next report due ${String(award.nextReportDue)}`
+                : ""}
             </div>
           </div>
           <button
