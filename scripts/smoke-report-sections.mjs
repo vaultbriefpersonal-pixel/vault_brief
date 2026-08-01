@@ -938,5 +938,564 @@ const baseInput = {
   }
 }
 
+// 13) The grant-report blocks — leftover funds, plan deviation, live
+// dashboard — plus the Source of Truth field threaded through three existing
+// sections.
+//
+// All three sections ship OFF, so every assertion below that expects output
+// has to opt in explicitly; the first assertion in each group pins the
+// off-by-default half, which is what keeps an existing project's resolved
+// section list unchanged by this deploy.
+{
+  const AWARD_ID = "aw1";
+
+  const award = (over = {}) => ({
+    id: AWARD_ID,
+    projectId: "p1",
+    grantor: "Optimism Foundation",
+    program: "Grants Council S6",
+    awardAmountUsd: "500000",
+    awardAmountToken: null,
+    awardTokenSymbol: null,
+    amountUsdAtReceipt: null,
+    awardDate: "2026-01-15",
+    reportingStartDate: null,
+    reportingCadence: "quarterly",
+    nextReportDue: null,
+    status: "active",
+    leftoverFundsPlan: null,
+    planDeviation: null,
+    agreementUrl: null,
+    notes: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...over,
+  });
+
+  const tranche = (over = {}) => ({
+    id: "tr1",
+    grantAwardId: AWARD_ID,
+    projectId: "p1",
+    label: "Tranche 1 — on signature",
+    amountUsd: "100000",
+    expectedDate: "2026-02-01",
+    receivedDate: "2026-02-03",
+    utilizedUsd: null,
+    txHash: null,
+    sourceOfTruth: null,
+    notes: null,
+    createdAt: new Date(),
+    ...over,
+  });
+
+  /** Product defaults, plus the named sections switched on. */
+  const enabling = (...ids) =>
+    SECTION_LIBRARY_META.map((m) => ({
+      id: m.id,
+      enabled: m.defaultEnabled || ids.includes(m.id),
+    }));
+
+  // ── leftover_funds ──────────────────────────────────────────────────────
+
+  // Off by default even with a fully populated award.
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award({ leftoverFundsPlan: "Returned to the grantor." })],
+      grantTranches: [tranche({ utilizedUsd: "40000" })],
+    });
+    check(
+      "leftover: section is off by default even with utilisation and a plan",
+      !system.includes("### Leftover Grant Funds") &&
+        !user.includes("## Leftover grant funds")
+    );
+  }
+
+  // Enabled, but neither half recorded: the gate is false, so the RULE must
+  // go silent too. `buildSystemPrompt` selects rules by whether the fragment
+  // is non-empty, not by `requires` — this is the assertion that proves the
+  // new section did not reintroduce the leak that has bitten this file twice.
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award()],
+      grantTranches: [tranche()],
+      storedSections: enabling("leftover_funds"),
+    });
+    check(
+      "leftover: enabled with no utilisation and no plan renders no rule and no data",
+      !system.includes("### Leftover Grant Funds") &&
+        !user.includes("## Leftover grant funds")
+    );
+  }
+
+  // The ordinary case: $100K received, $40K utilised, $60K left, plan stated.
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [
+        award({ leftoverFundsPlan: "Rolls into the Q3 audit engagement." }),
+      ],
+      grantTranches: [tranche({ utilizedUsd: "40000" })],
+      storedSections: enabling("leftover_funds"),
+    });
+    check(
+      "leftover: received minus utilised is computed at grant scope",
+      user.includes("- Grant funds received to date: $100.0K") &&
+        user.includes("- Recorded as utilised: $40.0K") &&
+        user.includes(
+          "- Leftover (grant funds received minus grant funds utilised, for this award only): $60.0K"
+        )
+    );
+    check(
+      "leftover: the founder's plan travels with the figure",
+      user.includes(
+        "Plan for the leftover funds, as stated by the project (reproduce its substance, do not embellish it): Rolls into the Q3 audit engagement."
+      )
+    );
+    check(
+      "leftover: the rule forbids calling the leftover a treasury balance",
+      system.includes("### Leftover Grant Funds") &&
+        system.includes("It is NOT a treasury balance") &&
+        system.includes("The treasury is fungible and holds no identifiable")
+    );
+  }
+
+  // A plan with no utilisation figure: the section still renders, states the
+  // figure is not computable, and must NOT treat the whole receipt as leftover.
+  {
+    const { user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award({ leftoverFundsPlan: "Returned to the grantor." })],
+      grantTranches: [tranche()],
+      storedSections: enabling("leftover_funds"),
+    });
+    check(
+      "leftover: unrecorded utilisation is not computable, and is not zero",
+      user.includes("- Recorded as utilised: NOT RECORDED") &&
+        user.includes("That is NOT the same as zero utilised") &&
+        user.includes("- Leftover: NOT COMPUTABLE without a utilisation figure")
+    );
+  }
+
+  // A figure with no plan: reported as unstated, never invented.
+  {
+    const { user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award()],
+      grantTranches: [tranche({ utilizedUsd: "40000" })],
+      storedSections: enabling("leftover_funds"),
+    });
+    check(
+      "leftover: an unstated plan is reported as unstated, never invented",
+      user.includes("- Plan for the leftover funds: NOT STATED") &&
+        user.includes("Do NOT propose one")
+    );
+  }
+
+  // ── figures that do not reconcile are WARNED ABOUT, never rejected ──────
+  //
+  // The 81,000-against-75,000 case from the research corpus. A tool that
+  // hard-fails here rejects a report the grant program accepted.
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award()],
+      grantTranches: [
+        tranche({ amountUsd: "75000", utilizedUsd: "81000" }),
+      ],
+      storedSections: enabling("leftover_funds"),
+    });
+    check(
+      "leftover: utilisation exceeding receipts renders both numbers, not an error",
+      user.includes("- Grant funds received to date: $75.0K") &&
+        user.includes("- Recorded as utilised: $81.0K") &&
+        user.includes("Recorded utilisation ($81.0K) EXCEEDS recorded receipts ($75.0K) by $6.0K"),
+      "real accepted grant reports do not balance"
+    );
+    check(
+      "leftover: the overspend is a records discrepancy, not a finding about the project",
+      user.includes(
+        "do not present the shortfall as an overspend finding about the project"
+      ) && user.includes("WARNING — this caveat MUST appear in the rendered section")
+    );
+    check(
+      "leftover: the rule requires every warning to survive into the report",
+      system.includes("Reproduce every WARNING line as a caveat") &&
+        system.includes("Figures that do not reconcile are reported, not resolved")
+    );
+  }
+
+  // Partial utilisation: two received tranches, one figure. The leftover is an
+  // upper bound and must be labelled as one.
+  {
+    const { user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award()],
+      grantTranches: [
+        tranche({ utilizedUsd: "40000" }),
+        tranche({
+          id: "tr2",
+          label: "Tranche 2 — on milestone 1",
+          amountUsd: "150000",
+          expectedDate: "2026-03-01",
+          receivedDate: "2026-03-04",
+        }),
+      ],
+      storedSections: enabling("leftover_funds"),
+    });
+    check(
+      "leftover: partial utilisation is disclosed as an upper bound",
+      user.includes("from 1 of the 2 tranche(s) received to date") &&
+        user.includes("the leftover figure is an UPPER BOUND, not a balance")
+    );
+  }
+
+  // Utilisation booked against a tranche that has not arrived.
+  {
+    const { user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award()],
+      grantTranches: [
+        tranche({ receivedDate: null, utilizedUsd: "40000" }),
+      ],
+      storedSections: enabling("leftover_funds"),
+    });
+    check(
+      "leftover: utilisation on an unreceived tranche is flagged, not reconciled",
+      user.includes(
+        "1 tranche(s) carry a utilisation figure but are NOT recorded as received"
+      ) && user.includes("do not reconcile them")
+    );
+  }
+
+  // THE BOUNDARY. `grant_fund_usage` must still never see or state a leftover
+  // figure — its absolute ban is not relaxed by the section next door.
+  {
+    const { user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award({ leftoverFundsPlan: "Returned." })],
+      grantTranches: [tranche({ utilizedUsd: "40000" })],
+      storedSections: enabling("grant_fund_usage"),
+    });
+    const usageBlock = user.slice(
+      user.indexOf("## Grant funding received and its use")
+    );
+    check(
+      "boundary: Grant Funding Received still carries no leftover or utilised figure",
+      usageBlock.length > 0 &&
+        !usageBlock.includes("Leftover") &&
+        !usageBlock.includes("utilised") &&
+        usageBlock.includes("NEVER subtract spending from an award"),
+      "the treasury-scope ban is untouched by the grant-scope section"
+    );
+  }
+
+  // ── plan_deviation ──────────────────────────────────────────────────────
+
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award()],
+      grantTranches: [tranche()],
+    });
+    check(
+      "deviation: section is off by default even with an award on record",
+      !system.includes("### Deviation from the Plan") &&
+        !user.includes("## Deviation from the plan")
+    );
+  }
+
+  // THE MECHANIC: nothing typed still produces an affirmative statement. This
+  // is the one section in the library whose fragment is non-empty with no data,
+  // and it is the whole reason the block exists.
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award()],
+      grantTranches: [tranche()],
+      storedSections: enabling("plan_deviation"),
+    });
+    check(
+      "deviation: an unrecorded deviation still states 'No changes to the original plan.'",
+      user.includes(
+        "- Optimism Foundation — Grants Council S6: No changes to the original plan."
+      ),
+      "a blank optional box is exactly what this block replaces"
+    );
+    check(
+      "deviation: the standing-statement provenance is marked for the model, not for the reader",
+      user.includes(
+        "(this is the standing statement the project reports when it has recorded no change)"
+      ) &&
+        system.includes(
+          "The parenthetical about a standing statement is provenance for you, not copy for the report"
+        )
+    );
+    check(
+      "deviation: the rule forbids dropping the no-change lines",
+      system.includes(
+        "Render a statement for every award the input lists, including the ones that report no change"
+      )
+    );
+  }
+
+  {
+    const { user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [
+        award({
+          planDeviation:
+            "Swapped the second audit vendor after their Q1 capacity fell through.",
+        }),
+      ],
+      grantTranches: [tranche()],
+      storedSections: enabling("plan_deviation"),
+    });
+    check(
+      "deviation: a stated deviation replaces the standing statement, unhedged",
+      user.includes(
+        "- Optimism Foundation — Grants Council S6: Swapped the second audit vendor after their Q1 capacity fell through."
+      ) &&
+        !user.includes("standing statement the project reports")
+    );
+  }
+
+  // No award at all: the section has nothing to speak for and goes fully
+  // silent, rule included.
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      storedSections: enabling("plan_deviation"),
+    });
+    check(
+      "deviation: with no grant award, the rule and the data block both vanish",
+      !system.includes("### Deviation from the Plan") &&
+        !user.includes("## Deviation from the plan")
+    );
+  }
+
+  // ── external_dashboard ──────────────────────────────────────────────────
+
+  const DASHBOARD = "https://dune.com/example/treasury";
+
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      project: { ...project, externalDashboardUrl: DASHBOARD },
+    });
+    check(
+      "dashboard: section is off by default even with a URL on the project",
+      !system.includes("### Live Dashboard") &&
+        !user.includes("## Live dashboard")
+    );
+  }
+
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      storedSections: enabling("external_dashboard"),
+    });
+    check(
+      "dashboard: enabled with no URL renders no rule and no data block",
+      !system.includes("### Live Dashboard") &&
+        !user.includes("## Live dashboard")
+    );
+  }
+
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      project: { ...project, externalDashboardUrl: DASHBOARD },
+      storedSections: enabling("external_dashboard"),
+    });
+    check(
+      "dashboard: the URL travels verbatim with the period it qualifies",
+      user.includes(`Dashboard URL, to be reproduced exactly as given: ${DASHBOARD}`) &&
+        user.includes("the dashboard is the source of truth, not this document")
+    );
+    check(
+      "dashboard: the model is forbidden from describing a page it cannot see",
+      system.includes("### Live Dashboard") &&
+        system.includes("Do not describe, summarise or characterise what the dashboard shows") &&
+        system.includes("Reproduce the URL character for character")
+    );
+  }
+
+  // ── Source of Truth — a field, not a section ────────────────────────────
+  //
+  // It must never appear in SECTION_LIBRARY, and it must ADD to a line rather
+  // than placeholder one: an item with nothing recorded renders exactly as it
+  // did before the field existed, which is what leaves cached prompts valid.
+  {
+    check(
+      "source of truth: is a field, not a section in the library",
+      !SECTION_LIBRARY_META.some((m) => m.id === "source_of_truth")
+    );
+  }
+
+  {
+    const { user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award()],
+      grantTranches: [tranche()],
+      storedSections: enabling("grant_fund_usage"),
+    });
+    check(
+      "source of truth: an item without one renders no placeholder",
+      user.includes("Tranche 1 — on signature: $100.0K") &&
+        !user.includes("Source of Truth")
+    );
+  }
+
+  {
+    const { system, user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award()],
+      grantTranches: [
+        tranche({ sourceOfTruth: "https://etherscan.io/tx/0xfeed" }),
+      ],
+      storedSections: enabling("grant_fund_usage"),
+    });
+    check(
+      "source of truth: a tranche's pointer rides on the tranche's own line",
+      user.includes(
+        "Tranche 1 — on signature: $100.0K, expected 2026-02-01, received 2026-02-03 — Source of Truth: https://etherscan.io/tx/0xfeed"
+      )
+    );
+    check(
+      "source of truth: the rule says reproduce verbatim and never invent one",
+      system.includes("reproduce that value verbatim") &&
+        system.includes("Never invent one")
+    );
+  }
+
+  // The fallback: a tranche recorded before the field existed still surfaces
+  // its evidence through the older, narrower `txHash`.
+  {
+    const { user } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award()],
+      grantTranches: [tranche({ txHash: "0xdeadbeef" })],
+      storedSections: enabling("grant_fund_usage"),
+    });
+    check(
+      "source of truth: falls back to txHash so pre-existing evidence is not lost",
+      user.includes("received 2026-02-03 — Source of Truth: 0xdeadbeef")
+    );
+  }
+
+  {
+    const { user } = buildReportPrompts({
+      ...baseInput,
+      grants: [
+        { ...grants[0], sourceOfTruth: "0xallocation" },
+        grants[1],
+      ],
+      storedSections: enabling("grants_distributed"),
+    });
+    check(
+      "source of truth: an outbound allocation carries its pointer, and one without stays bare",
+      user.includes(
+        "- Acme Research: $50.0K (committed, research) — Source of Truth: 0xallocation"
+      ) && user.includes("- Beta Tooling: $25.0K (disbursed) — delivered SDK v2\n")
+    );
+  }
+
+  {
+    const { user } = buildReportPrompts({
+      ...baseInput,
+      milestones: [
+        {
+          id: "gm1",
+          projectId: "p1",
+          title: "Audit report published",
+          status: "completed",
+          targetDate: "2026-03-01",
+          completedDate: "2026-03-20",
+          grantAwardId: AWARD_ID,
+          sourceOfTruth: "https://github.com/test-org/audits/pull/12",
+        },
+      ],
+      grantAwards: [award()],
+      grantTranches: [tranche()],
+      storedSections: enabling("grant_milestone_progress"),
+    });
+    check(
+      "source of truth: a grant deliverable carries its pointer into the table",
+      user.includes(
+        "Source of Truth: https://github.com/test-org/audits/pull/12"
+      ) &&
+        user.includes(
+          "19 days late against target"
+        )
+    );
+  }
+
+  // ── the library itself ──────────────────────────────────────────────────
+  {
+    const { enabled } = buildReportPrompts({ ...baseInput });
+    const ids = enabled.map((s) => s.id);
+    check(
+      "library: none of the three new sections joins an existing project's defaults",
+      !ids.includes("leftover_funds") &&
+        !ids.includes("plan_deviation") &&
+        !ids.includes("external_dashboard"),
+      "resolveSections only splices defaultEnabled sections, so stored configs are untouched"
+    );
+    check(
+      "library: leftover_funds sits directly after grant_fund_usage",
+      SECTION_LIBRARY_META.findIndex((m) => m.id === "leftover_funds") ===
+        SECTION_LIBRARY_META.findIndex((m) => m.id === "grant_fund_usage") + 1
+    );
+    check(
+      "library: plan_deviation sits directly after grant_milestone_progress",
+      SECTION_LIBRARY_META.findIndex((m) => m.id === "plan_deviation") ===
+        SECTION_LIBRARY_META.findIndex(
+          (m) => m.id === "grant_milestone_progress"
+        ) + 1
+    );
+    check(
+      "library: external_dashboard is last — it points out of the document",
+      SECTION_LIBRARY_META[SECTION_LIBRARY_META.length - 1].id ===
+        "external_dashboard"
+    );
+  }
+
+  // A stored config that predates all three keeps its exact order, and the
+  // three do not appear in it.
+  {
+    const stored = [
+      { id: "qa_highlights", enabled: true },
+      { id: "executive_summary", enabled: true },
+      { id: "treasury_overview", enabled: true },
+    ];
+    const { enabled } = buildReportPrompts({
+      ...baseInput,
+      grantAwards: [award({ planDeviation: "Scope narrowed." })],
+      grantTranches: [tranche({ utilizedUsd: "40000" })],
+      project: { ...project, externalDashboardUrl: DASHBOARD },
+      storedSections: stored,
+    });
+    const ids = enabled.map((s) => s.id);
+    // `qa_highlights` leading is the whole point: it is LAST in the library
+    // and first in this founder's config, so anything that sorted by library
+    // position rather than splicing against a present neighbour would move it.
+    // (`key_takeaways` legitimately lands between the two entries below — it
+    // is defaultEnabled and absent from the stored config, so `resolveSections`
+    // splices it after its anchor. That is pre-existing behaviour, unrelated to
+    // this stage.)
+    check(
+      "library: a founder's deliberate reorder is not disturbed by the new sections",
+      ids[0] === "qa_highlights" &&
+        ids[1] === "executive_summary" &&
+        ids.indexOf("treasury_overview") > ids.indexOf("executive_summary") &&
+        !ids.includes("leftover_funds") &&
+        !ids.includes("plan_deviation") &&
+        !ids.includes("external_dashboard")
+    );
+  }
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

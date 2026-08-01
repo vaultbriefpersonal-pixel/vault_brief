@@ -73,6 +73,17 @@ const amountTokenSchema = z
   .finite("Token amount must be a finite number")
   .nonnegative("Token amount cannot be negative");
 
+/**
+ * "Source of Truth" — Optimism's exact term, and the same schema as the copies
+ * in grants.ts and milestones.ts.
+ *
+ * DELIBERATELY NOT `z.string().url()`: a bare tx hash and a bare address are
+ * both legitimate answers and neither is a URL. On a tranche this is the wider
+ * successor to `txHash`, which is kept and still accepted — the renderer
+ * prefers this field and falls back to that one.
+ */
+const sourceOfTruthSchema = z.string().trim().max(500).optional().nullable();
+
 const awardShape = {
   grantor: z.string().trim().min(1).max(200),
   program: z.string().trim().max(200).optional().nullable(),
@@ -95,6 +106,23 @@ const awardShape = {
   // date now so the reminder job never meets a 'next Tuesday' in a date column.
   nextReportDue: ISO_DATE.optional().nullable(),
   status: z.enum(STATUS).default("active"),
+  /**
+   * What the project intends to do with grant money it has received and not
+   * used. The FIGURE is derived from the tranche rows; this is the INTENT,
+   * which no dataset contains and which grant programs are the ones actually
+   * asking for. Read by the `leftover_funds` section alongside the number.
+   */
+  leftoverFundsPlan: z.string().trim().max(2000).optional().nullable(),
+  /**
+   * How the work departed from the plan the grant was awarded against.
+   *
+   * Optional HERE but not optional in the report: the `plan_deviation` section
+   * renders an explicit "No changes to the original plan." when this is null,
+   * because forcing an affirmative negative is the mechanic worth copying and
+   * a blank box is not the same thing. The default lives in the section, not
+   * in this schema and not in a column DEFAULT.
+   */
+  planDeviation: z.string().trim().max(2000).optional().nullable(),
   agreementUrl: z.string().url().max(500).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
 };
@@ -104,7 +132,16 @@ const trancheShape = {
   amountUsd: amountUsdSchema,
   expectedDate: ISO_DATE.optional().nullable(),
   receivedDate: ISO_DATE.optional().nullable(), // null = not yet disbursed
+  /**
+   * How much of THIS tranche has been used. NOT treasury spend and never
+   * derived from it — see the column comment in schema.ts. Absent/null means
+   * "not recorded", which the report states as such; it is never read as zero,
+   * so the same finite/non-negative guard as every other money field applies
+   * only to a value that was actually supplied.
+   */
+  utilizedUsd: amountUsdSchema.optional().nullable(),
   txHash: z.string().trim().max(120).optional().nullable(),
+  sourceOfTruth: sourceOfTruthSchema,
   notes: z.string().max(2000).optional().nullable(),
 };
 
@@ -161,6 +198,8 @@ export const grantAwardsRouter = router({
           reportingCadence: input.reportingCadence ?? null,
           nextReportDue: input.nextReportDue ?? null,
           status: input.status,
+          leftoverFundsPlan: input.leftoverFundsPlan ?? null,
+          planDeviation: input.planDeviation ?? null,
           agreementUrl: input.agreementUrl ?? null,
           notes: input.notes ?? null,
         })
@@ -193,6 +232,8 @@ export const grantAwardsRouter = router({
         reportingCadence: awardShape.reportingCadence,
         nextReportDue: awardShape.nextReportDue,
         status: z.enum(STATUS).optional(),
+        leftoverFundsPlan: awardShape.leftoverFundsPlan,
+        planDeviation: awardShape.planDeviation,
         agreementUrl: awardShape.agreementUrl,
         notes: awardShape.notes,
       })
@@ -266,7 +307,13 @@ export const grantAwardsRouter = router({
           amountUsd: input.amountUsd.toString(), // numeric column wants string
           expectedDate: input.expectedDate ?? null,
           receivedDate: input.receivedDate ?? null,
+          // Same numeric-column treatment as amountUsd above, but nullable:
+          // absent means the utilisation has not been reported, which the
+          // report says out loud. It must never land as "0.00", which would
+          // assert that an unreported tranche is entirely unspent.
+          utilizedUsd: numOrNull(input.utilizedUsd) ?? null,
           txHash: input.txHash ?? null,
+          sourceOfTruth: input.sourceOfTruth ?? null,
           notes: input.notes ?? null,
         })
         .returning();
@@ -290,12 +337,14 @@ export const grantAwardsRouter = router({
         amountUsd: amountUsdSchema.optional(),
         expectedDate: trancheShape.expectedDate,
         receivedDate: trancheShape.receivedDate,
+        utilizedUsd: trancheShape.utilizedUsd,
         txHash: trancheShape.txHash,
+        sourceOfTruth: trancheShape.sourceOfTruth,
         notes: trancheShape.notes,
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, grantAwardId, amountUsd, ...rest } = input;
+      const { id, grantAwardId, amountUsd, utilizedUsd, ...rest } = input;
       await requireGrantTranche(ctx, id);
 
       let reparent = {};
@@ -311,6 +360,13 @@ export const grantAwardsRouter = router({
           ...reparent,
           ...(amountUsd !== undefined
             ? { amountUsd: amountUsd.toString() }
+            : {}),
+          // An explicit null CLEARS the utilisation back to "not recorded",
+          // which a founder who entered a figure by mistake needs; absent
+          // leaves the stored value alone. Same PATCH semantics as the award
+          // amounts in `updateAward`.
+          ...(utilizedUsd !== undefined
+            ? { utilizedUsd: numOrNull(utilizedUsd) }
             : {}),
         })
         .where(eq(grantTranches.id, id))

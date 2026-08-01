@@ -72,8 +72,21 @@ Existing scripts: `add-snapshot-space.mjs`, `add-report-sections.mjs`,
 `add-manual-section-tables.mjs`, `add-chat-notify-channels.mjs`,
 `add-project-members.mjs`, `add-project-budgets.mjs`,
 `add-snapshot-period.mjs`, `add-grant-awards.mjs`,
-`add-snapshot-balance-basis.mjs`. These are one-shots kept as a record;
+`add-snapshot-balance-basis.mjs`, `add-grant-award-fields.mjs`,
+`add-grant-report-fields.mjs`. These are one-shots kept as a record;
 each is safe to re-run (all use `IF NOT EXISTS`).
+
+`add-grant-report-fields.mjs` is **not yet applied** and, like
+`add-snapshot-balance-basis.mjs` below, **must run before the code that
+depends on it deploys**. It adds seven additive nullable columns —
+`grant_awards.leftover_funds_plan` / `.plan_deviation`,
+`grant_tranches.utilized_usd` / `.source_of_truth`,
+`milestones.source_of_truth`, `grants.source_of_truth`,
+`projects.external_dashboard_url` — all of which `schema.ts` now names, so
+every drizzle-generated query against those four tables fails with
+`column "..." does not exist` until it has run. It must be applied AFTER
+`add-grant-award-fields.mjs`, which is the previous change to
+`grant_awards`. Nothing is backfilled and no column carries a DEFAULT.
 
 `add-snapshot-balance-basis.mjs` **must be applied before the code that
 depends on it deploys**, and this is the direction that matters: it adds

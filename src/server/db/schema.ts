@@ -126,6 +126,23 @@ export const projects = pgTable("projects", {
   // the governance section can auto-import proposals via the Snapshot
   // public GraphQL API instead of forcing manual entry.
   snapshotSpace: text("snapshot_space"),
+  /**
+   * Where the live numbers actually live — a Dune board, a Flipside dashboard,
+   * a public analytics page. Read by the `external_dashboard` section, whose
+   * whole claim is that THE REPORT IS NOT THE SOURCE OF TRUTH FOR ITS OWN
+   * FIGURES: every Arbitrum grant report in the research corpus carries one.
+   *
+   * On `projects` rather than on `grant_awards` deliberately. The claim is
+   * about the document as a whole and is just as true for a project with no
+   * grant, so an award-scoped column would make the block unrenderable for
+   * exactly the readers who also need it. A project with several dashboards is
+   * a later problem and a later table; one column is the smallest thing that
+   * works. NULL means no dashboard was given, which silences the block rather
+   * than rendering an empty pointer.
+   *
+   * Mirrors scripts/migrations/add-grant-report-fields.mjs.
+   */
+  externalDashboardUrl: text("external_dashboard_url"),
 
   // Optional chat-channel delivery for "new report available" pings,
   // additive alongside investor email (never a replacement). Null on
@@ -454,6 +471,24 @@ export const milestones = pgTable("milestones", {
   grantAwardId: uuid("grant_award_id").references(() => grantAwards.id, {
     onDelete: "set null",
   }),
+  /**
+   * "Source of Truth" — Optimism's exact term, kept verbatim because it is the
+   * most transferable idea the grant-report research found: every claimed item
+   * carries a pointer the reader can check for themselves.
+   *
+   * Deliberately plain TEXT and deliberately unvalidated in shape. A tx hash,
+   * a block-explorer URL, a GitHub PR link, a dashboard URL and a bare address
+   * are all legitimate answers, and only two of those are URLs — a url() guard
+   * here would reject the evidence a chain-native reader trusts most.
+   *
+   * NULL is the normal case and renders as nothing at all. A deliverable with
+   * no source of truth is reported exactly as it is today; the field only ever
+   * ADDS a pointer, so no existing prompt changes byte-for-byte and no
+   * `llm_cache` row is invalidated.
+   *
+   * Mirrors scripts/migrations/add-grant-report-fields.mjs.
+   */
+  sourceOfTruth: text("source_of_truth"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -479,6 +514,18 @@ export const grants = pgTable("grants", {
   category: text("category"), // optional program/theme bucket
   period: text("period").notNull(), // 'YYYY-MM'
   notes: text("notes"),
+  /**
+   * Evidence for THIS allocation — the tx that paid it, the proposal that
+   * authorised it, the explorer link. Same column and same reasoning as
+   * `milestones.sourceOfTruth`: plain TEXT because a bare tx hash is as valid
+   * an answer as a URL, NULL is normal, and it only ever adds a pointer.
+   *
+   * An outbound allocation is where a "Source of Truth" is cheapest to give
+   * and most often demanded — the money left the treasury, so a hash exists.
+   *
+   * Mirrors scripts/migrations/add-grant-report-fields.mjs.
+   */
+  sourceOfTruth: text("source_of_truth"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -626,6 +673,40 @@ export const grantAwards = pgTable(
     // reads it yet. NULL means "no date set", not "nothing due".
     nextReportDue: date("next_report_due"),
     status: text("status").notNull().default("active"), // active | completed | terminated
+    /**
+     * What the project intends to do with grant money it received and has not
+     * used. THE NUMBER IS DERIVABLE, THE INTENT IS NOT — `received − utilized`
+     * falls out of the tranche rows, but no amount of data says whether the
+     * remainder funds a second audit, gets returned, or rolls into next
+     * quarter, and the intent is the half grant programs actually mandate.
+     *
+     * Paired with `grantTranches.utilizedUsd` by the `leftover_funds` section:
+     * the figure and the plan are rendered together, and neither is a
+     * substitute for the other. NULL means the plan has not been stated, which
+     * the section reports as such rather than inventing one.
+     *
+     * Mirrors scripts/migrations/add-grant-report-fields.mjs.
+     */
+    leftoverFundsPlan: text("leftover_funds_plan"),
+    /**
+     * How the work departed from the plan the grant was awarded against.
+     *
+     * A STANDING FIELD, EXPECTED EVERY PERIOD — not an optional note. The
+     * `plan_deviation` section renders an explicit "No changes to the original
+     * plan" when this is NULL, because forcing an affirmative negative is the
+     * mechanic worth copying from the real reports: a blank optional box lets a
+     * material change go unmentioned by simply not being typed, and an empty
+     * box and an unchanged plan look identical to the reader.
+     *
+     * The default sentence lives in the SECTION, not in a column DEFAULT. A
+     * database default would write words nobody typed into a row and make a
+     * rendering decision permanent; supplying it at render time keeps it
+     * visibly the product's standing text and lets it be reworded without a
+     * migration.
+     *
+     * Mirrors scripts/migrations/add-grant-report-fields.mjs.
+     */
+    planDeviation: text("plan_deviation"),
     agreementUrl: text("agreement_url"),
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -671,7 +752,45 @@ export const grantTranches = pgTable(
     amountUsd: numeric("amount_usd", { precision: 18, scale: 2 }).notNull(),
     expectedDate: date("expected_date"),
     receivedDate: date("received_date"), // NULL = not yet disbursed
+    /**
+     * How much of THIS tranche the project has used, entered by hand.
+     *
+     * ── THIS IS NOT TREASURY SPEND AND MUST NEVER BE DERIVED FROM IT ──
+     * The ban documented on the `grant_fund_usage` section stands unchanged: a
+     * treasury is fungible, its opening balance is not recorded anywhere, and
+     * `received − spent` against it is unrepresentable. That is why this column
+     * exists. It is a founder's assertion about the money from ONE grant, on
+     * the same axis as the receipt it belongs to, and it is the only thing that
+     * makes a GRANT-SCOPED leftover figure legal. A later reader tempted to
+     * "simplify" the two into one has just re-derived the banned number.
+     *
+     * On the tranche and not on the award because "received to date" is a sum
+     * over tranches: utilisation measured on any other axis would make
+     * `received − utilized` a subtraction between two different things. It is
+     * also the unit a grantor asks about — you drew tranche 2, what went on it.
+     *
+     * NULL MEANS "NOT RECORDED", NEVER ZERO. Zero utilised and nothing recorded
+     * support opposite sentences — the first says the grant is untouched, the
+     * second says nobody has answered — and coercing NULL to 0 would print
+     * "leftover = everything you received" for every award nobody filled in.
+     *
+     * Mirrors scripts/migrations/add-grant-report-fields.mjs.
+     */
+    utilizedUsd: numeric("utilized_usd", { precision: 18, scale: 2 }),
     txHash: text("tx_hash"),
+    /**
+     * "Source of Truth" for this disbursement line — see the identical column
+     * on `milestones`.
+     *
+     * `txHash` directly above is NOT replaced and NOT repurposed: it is
+     * narrower (a transaction hash and nothing else) and deployed code writes
+     * it. This column sits beside it and the renderer prefers it, falling back
+     * to `txHash`, so no recorded evidence is lost and no existing writer has
+     * to change.
+     *
+     * Mirrors scripts/migrations/add-grant-report-fields.mjs.
+     */
+    sourceOfTruth: text("source_of_truth"),
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },

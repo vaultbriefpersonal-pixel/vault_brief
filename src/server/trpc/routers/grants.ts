@@ -8,6 +8,21 @@ import { assertTrialActive } from "@/server/lib/plan-limits";
 const PERIOD_RE = /^\d{4}-\d{2}$/;
 const STATUS = ["committed", "disbursed"] as const;
 
+/**
+ * "Source of Truth" for one allocation — Optimism's exact term, and the same
+ * schema as the copies in milestones.ts and grant-awards.ts.
+ *
+ * DELIBERATELY NOT `z.string().url()`. A bare transaction hash and a bare
+ * address are both legitimate answers and neither is a URL; a url() guard here
+ * would reject exactly the evidence a chain-native reader trusts most. 500
+ * matches the length allowed for `agreementUrl`.
+ *
+ * Repeated per router rather than shared, following the same convention as
+ * ISO_DATE and PERIOD_RE above — but the WORDING of the concept is centralised
+ * where it matters, in `SOURCE_OF_TRUTH_RULE` in report-sections.ts.
+ */
+const sourceOfTruthSchema = z.string().trim().max(500).optional().nullable();
+
 export const grantsRouter = router({
   list: protectedProcedure
     .input(z.object({ projectId: z.string().uuid() }))
@@ -29,6 +44,7 @@ export const grantsRouter = router({
         category: z.string().max(100).optional().nullable(),
         period: z.string().regex(PERIOD_RE),
         notes: z.string().max(2000).optional().nullable(),
+        sourceOfTruth: sourceOfTruthSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -54,6 +70,7 @@ export const grantsRouter = router({
         category: z.string().max(100).optional().nullable(),
         period: z.string().regex(PERIOD_RE).optional(),
         notes: z.string().max(2000).optional().nullable(),
+        sourceOfTruth: sourceOfTruthSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
