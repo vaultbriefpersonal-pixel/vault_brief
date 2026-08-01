@@ -122,6 +122,83 @@ describe("grantAwardsRouter.createAward — input validation", () => {
       })
     );
   });
+
+  it("rejects a reporting cadence outside the four allowed values", async () => {
+    const caller = createCaller(fakeCtx() as never);
+    for (const bad of ["weekly", "annual", "MONTHLY", "milestone"]) {
+      await expect(
+        caller.createAward({ ...validAward, reportingCadence: bad as never })
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+  });
+
+  it("accepts each of the four real reporting cadences", async () => {
+    for (const reportingCadence of [
+      "monthly",
+      "quarterly",
+      "milestone_based",
+      "ad_hoc",
+    ] as const) {
+      const caller = createCaller(fakeCtx() as never);
+      await expect(
+        caller.createAward({ ...validAward, reportingCadence })
+      ).resolves.toBeTruthy();
+    }
+  });
+
+  it("defaults the three new fields to null when the agreement states none", async () => {
+    const ctx = fakeCtx();
+    const caller = createCaller(ctx as never);
+    await caller.createAward(validAward);
+    expect(ctx.db.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reportingCadence: null,
+        nextReportDue: null,
+        amountUsdAtReceipt: null,
+      })
+    );
+  });
+
+  it("rejects a next_report_due that is not YYYY-MM-DD", async () => {
+    const caller = createCaller(fakeCtx() as never);
+    await expect(
+      caller.createAward({ ...validAward, nextReportDue: "2026-09" })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("rejects NaN, Infinity and negative amount_usd_at_receipt", async () => {
+    const caller = createCaller(fakeCtx() as never);
+    for (const bad of [NaN, Infinity, -Infinity, -1]) {
+      await expect(
+        caller.createAward({ ...validAward, amountUsdAtReceipt: bad })
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+  });
+
+  /**
+   * The distinction the column exists for: `awardAmountUsd` is what the
+   * agreement stated (nothing, for a token grant) and `amountUsdAtReceipt` is
+   * what the tokens were worth on arrival. They must reach the row as two
+   * independent values — one must never be derived from or overwrite the
+   * other, or a report quotes the grantor a number the grant never contained.
+   */
+  it("keeps amount_usd_at_receipt independent of award_amount_usd", async () => {
+    const ctx = fakeCtx();
+    const caller = createCaller(ctx as never);
+    await caller.createAward({
+      ...validAward,
+      awardAmountToken: 30_000_000,
+      awardTokenSymbol: "OP",
+      amountUsdAtReceipt: 48_200_000,
+    });
+    expect(ctx.db.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        awardAmountUsd: null, // the agreement stated no USD figure
+        awardAmountToken: "30000000",
+        amountUsdAtReceipt: "48200000", // numeric column takes a string
+      })
+    );
+  });
 });
 
 describe("grantAwardsRouter.createTranche — ownership comes from the award", () => {

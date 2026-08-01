@@ -585,6 +585,28 @@ export const grantAwards = pgTable(
       scale: 8,
     }),
     awardTokenSymbol: text("award_token_symbol"),
+    /**
+     * NOT A DUPLICATE OF `awardAmountUsd`, and reading it as one is how a
+     * report quotes a grantor a number their grant never contained.
+     *
+     * `awardAmountUsd` is the figure STATED IN THE AGREEMENT — nullable
+     * precisely because a token-denominated award ("30M OP") states none.
+     * This column is what those tokens were ACTUALLY WORTH WHEN THEY LANDED:
+     * an observation about a disbursement, not a term of the agreement. For
+     * that 30M OP the two differ by whatever the token did between signature
+     * and receipt, and both are true at once — "awarded 30M OP" and "received
+     * $48.2M of OP" are different sentences about different moments.
+     *
+     * So the two must never substitute for each other: printing this under
+     * "Awarded" overstates or understates the award by the token's drift, and
+     * printing `awardAmountUsd` under "Received" asserts a USD receipt that
+     * never happened. NULL here means nobody recorded a receipt value — never
+     * "same as awarded".
+     */
+    amountUsdAtReceipt: numeric("amount_usd_at_receipt", {
+      precision: 18,
+      scale: 2,
+    }),
     // Anchors "since we received the grant" — the period preset a grant
     // report defaults to. NOT NULL because an award with no date cannot
     // anchor a reporting window, which is the table's whole purpose.
@@ -593,6 +615,16 @@ export const grantAwards = pgTable(
     // defaults to awardDate when null. Some agreements are signed one month
     // and start their reporting clock the next.
     reportingStartDate: date("reporting_start_date"),
+    // How often this grantor expects to hear from us: monthly | quarterly |
+    // milestone_based | ad_hoc. Free text in the DATABASE on purpose — the
+    // constraint to a real member of that set lives in the SERVER's Zod input
+    // schema, exactly as projectBudgets.category does, so that adding a
+    // cadence later is a code change rather than a migration. NULL means the
+    // agreement did not state a cadence, which is common and not an error.
+    reportingCadence: text("reporting_cadence"),
+    // The next date a report is owed. Drives the Stage 8 reminders; nothing
+    // reads it yet. NULL means "no date set", not "nothing due".
+    nextReportDue: date("next_report_due"),
     status: text("status").notNull().default("active"), // active | completed | terminated
     agreementUrl: text("agreement_url"),
     notes: text("notes"),
