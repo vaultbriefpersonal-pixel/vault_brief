@@ -1101,6 +1101,77 @@ describe("financial_health — both runways", () => {
   });
 });
 
+// Regression coverage for the `requires()` / `userPromptFragment()` drift —
+// Stage 10 fix #2. Unlike its siblings (treasury_overview,
+// treasury_concentration), `financial_health`'s `requires()` used to check
+// only burn/inflows/outflows, while `userPromptFragment()` could
+// independently produce non-empty content from trailing-burn, liquidity or
+// net-flow-only data `requires()` never looked at. Since `buildUserPrompt`
+// filters by `requires()` before calling `userPromptFragment()`, and
+// `buildSystemPrompt` filters by `userPromptFragment()` non-emptiness
+// instead, the old split let the RULES into the system prompt while the
+// DATA silently never made it into the user prompt. `requires()` is now
+// exactly `financialHealthLines(ctx).length > 0`, so the two can never
+// disagree again — same discipline as `treasury_overview`/
+// `treasury_concentration` above.
+describe("financial_health — requires() and userPromptFragment() agree", () => {
+  const health = section("financial_health");
+
+  it("agree on every existing financial_health fixture in this file", () => {
+    const fixtures = [
+      contextWith({}),
+      ownTokenHeavyContext(),
+      ownTokenHeavyContext({ balancesDetail: null }),
+      contextWith({ burnRateUsd: "0", runwayMonths: null }),
+    ];
+    for (const ctx of fixtures) {
+      expect(health.requires(ctx)).toBe(health.userPromptFragment(ctx) !== "");
+    }
+  });
+
+  it("the exact edge case: burn/inflows/outflows all zero-or-null, net flow present — fires in BOTH prompts, not just one", () => {
+    // The DB-query edge case named in the plan: burn_rate_usd,
+    // total_inflows_usd and total_outflows_usd are all zero-or-null, but
+    // net_flow_usd is stated. The OLD `requires()` formula
+    // (`Number(burnRateUsd ?? 0) > 0 || Number(totalInflowsUsd ?? 0) > 0 ||
+    // Number(totalOutflowsUsd ?? 0) > 0`) is false here — pinned below so a
+    // future reader can see exactly what used to disagree.
+    const ctx = contextWith({
+      burnRateUsd: null,
+      totalInflowsUsd: null,
+      totalOutflowsUsd: null,
+      runwayMonths: null,
+      netFlowUsd: "-25000",
+    });
+    const oldRequires =
+      Number(ctx.snapshot.burnRateUsd ?? 0) > 0 ||
+      Number(ctx.snapshot.totalInflowsUsd ?? 0) > 0 ||
+      Number(ctx.snapshot.totalOutflowsUsd ?? 0) > 0;
+    expect(oldRequires).toBe(false);
+
+    // New behavior: requires() and the fragment agree, and both include the
+    // net flow.
+    expect(health.requires(ctx)).toBe(true);
+    const fragment = health.userPromptFragment(ctx);
+    expect(fragment).not.toBe("");
+    expect(fragment).toContain("Net flow (inflows minus outflows): -$25.0K");
+
+    // And it shows up in BOTH assembled prompts via the section pipeline,
+    // not just one of them — the failure mode this fix closes.
+    const enabled = resolveSections(null);
+    expect(buildUserPrompt(ctx, enabled)).toContain(
+      "Net flow (inflows minus outflows): -$25.0K"
+    );
+    expect(buildSystemPrompt(enabled, ctx)).toContain("### Financial Health");
+  });
+
+  it("agree on the untouched majority case: nonzero burn always fires both, unaffected by this fix", () => {
+    const ctx = contextWith({ burnRateUsd: "320000", runwayMonths: "16.3" });
+    expect(health.requires(ctx)).toBe(true);
+    expect(health.userPromptFragment(ctx)).not.toBe("");
+  });
+});
+
 describe("treasury_concentration", () => {
   const concentration = section("treasury_concentration");
 

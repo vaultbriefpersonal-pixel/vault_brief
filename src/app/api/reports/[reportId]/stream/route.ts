@@ -1,9 +1,8 @@
 import type { NextRequest } from "next/server";
-import { auth } from "@/lib/auth";
-import { db } from "@/server/db";
-import { reports } from "@/server/db/schema";
-import { eq } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { streamGenerateReport } from "@/server/services/report-generator";
+import { createContext } from "@/server/trpc/context";
+import { requireReport } from "@/server/trpc/guards";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -14,7 +13,9 @@ export const maxDuration = 60;
  * cache; client should hit reports.update mutation to also save to the
  * report row.
  *
- * Auth: standard session — same path as the rest of the app.
+ * Auth: reuses `requireReport` — the same owner-OR-project-member guard
+ * every other report-access path in the app uses, rather than a hand-rolled
+ * owner-only check that drifts from the real access model.
  * Idempotency: streamGenerateReport hits the LLM cache first, so a repeat
  * stream against the same snapshot is instant (one chunk = full cached output).
  */
@@ -22,19 +23,24 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ reportId: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user) {
+  const ctx = await createContext(req);
+  if (!ctx.session?.user) {
     return new Response("Unauthorized", { status: 401 });
   }
 
   const { reportId } = await params;
-  const report = await db.query.reports.findFirst({
-    where: eq(reports.id, reportId),
-    with: { project: true },
-  });
-  if (!report) return new Response("Report not found", { status: 404 });
-  if (report.project?.userId !== session.user.id) {
-    return new Response("Forbidden", { status: 403 });
+  let report;
+  try {
+    report = await requireReport(
+      ctx as typeof ctx & { session: NonNullable<typeof ctx.session> },
+      reportId
+    );
+  } catch (err) {
+    if (err instanceof TRPCError) {
+      const status = err.code === "NOT_FOUND" ? 404 : 403;
+      return new Response(err.message || "Forbidden", { status });
+    }
+    throw err;
   }
   if (!report.snapshotId) {
     return new Response("Report has no snapshot to regenerate from", { status: 400 });

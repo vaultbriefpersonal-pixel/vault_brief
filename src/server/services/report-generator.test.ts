@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { createHash } from "node:crypto";
 import {
+  cacheKey,
   narrowGrantDataForReport,
   resolveStoredSectionsForReport,
 } from "./report-generator";
@@ -101,5 +103,64 @@ describe("resolveStoredSectionsForReport — the untouched-opts path must be ide
     expect(
       resolveStoredSectionsForReport(projectSections, "preset-1", null)
     ).toBeNull();
+  });
+});
+
+// Stage 10 fix #3: `cacheKey` grows two optional trailing params
+// (grantId/presetId) so `llm_cache` rows stop being ambiguous across
+// differently-scoped generations. The one property that MUST hold is that
+// the untouched-opts path — every report generated before this stage, and
+// every automatic path that never populates grantId/presetId — hashes
+// IDENTICALLY to the old 3-arg formula, so no existing `llm_cache` row is
+// orphaned. This is the critical regression test the plan calls for.
+describe("cacheKey — the default (no grantId, no presetId) path is byte-identical to pre-Stage-10", () => {
+  const system = "SYSTEM PROMPT";
+  const user = "USER PROMPT";
+  const model = "google/gemini-2.5-flash";
+
+  // The exact pre-fix formula: `${model}\0${system}\0${user}`, NUL-separated
+  // — see report-generator.ts's own note on why this file uses literal NUL
+  // bytes as a separator instead of a printable one.
+  const preFixHash = createHash("sha256")
+    .update(`${model}\0${system}\0${user}`)
+    .digest("hex");
+
+  it("matches the pre-fix hash when grantId/presetId are simply omitted", () => {
+    expect(cacheKey(system, user, model)).toBe(preFixHash);
+  });
+
+  it("matches the pre-fix hash when grantId/presetId are explicitly undefined", () => {
+    expect(cacheKey(system, user, model, undefined, undefined)).toBe(preFixHash);
+  });
+
+  it("matches the pre-fix hash when grantId/presetId are explicitly null", () => {
+    expect(cacheKey(system, user, model, null, null)).toBe(preFixHash);
+  });
+});
+
+describe("cacheKey — a grantId or presetId changes the hash", () => {
+  const system = "SYSTEM PROMPT";
+  const user = "USER PROMPT";
+  const model = "google/gemini-2.5-flash";
+  const base = cacheKey(system, user, model);
+
+  it("diverges from the base hash when only grantId is set", () => {
+    expect(cacheKey(system, user, model, "grant-1")).not.toBe(base);
+  });
+
+  it("diverges from the base hash when only presetId is set", () => {
+    expect(cacheKey(system, user, model, undefined, "preset-1")).not.toBe(base);
+  });
+
+  it("diverges between two different grantIds (same everything else)", () => {
+    expect(cacheKey(system, user, model, "grant-1")).not.toBe(
+      cacheKey(system, user, model, "grant-2")
+    );
+  });
+
+  it("is deterministic for the same inputs", () => {
+    expect(cacheKey(system, user, model, "grant-1", "preset-1")).toBe(
+      cacheKey(system, user, model, "grant-1", "preset-1")
+    );
   });
 });

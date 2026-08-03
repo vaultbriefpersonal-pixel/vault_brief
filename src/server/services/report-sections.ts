@@ -1044,139 +1044,156 @@ function financialHealthRules(burnLine: string): string {
 - Do NOT echo "Not available" for missing fields. Drop the bullet.`;
 }
 
+/**
+ * Shared by `requires()` and `userPromptFragment()` so the readiness gate and
+ * the content it gates can never disagree — the same discipline
+ * `treasuryOverviewHasContent`/`concentrationOrThinCoverTriggered` already
+ * established above. Before this, `requires` checked only burn/inflows/
+ * outflows while `userPromptFragment` could independently produce non-empty
+ * content from trailing-burn/liquidity/net-flow-only data — so the system
+ * prompt's rules could be included while the user prompt's data block was
+ * dropped. Widening `requires` to match this function's real output (rather
+ * than narrowing this function to match the old `requires`) is the correct
+ * direction: narrowing would delete legitimate content for a snapshot with
+ * trailing-burn or liquidity data but zero current-period burn/flows.
+ */
+function financialHealthLines(ctx: ReportSectionContext): string[] {
+  const lines: string[] = [];
+  const { snapshot } = ctx;
+  const liq = liquidityOf(ctx);
+  const basis = burnBasis(ctx);
+  const currentBurn = Number(snapshot.burnRateUsd ?? 0);
+
+  if (snapshot.burnRateUsd) {
+    // The stored column is this period's operating outflows. Calling it a
+    // MONTHLY burn rate is true by construction while every period is a
+    // calendar month, and false the moment one is not — so a custom period
+    // gets BOTH figures, each naming its own denominator out loud. One
+    // figure alone forces the model to choose, and either choice is wrong
+    // for half the sentences it has to write: the period total is what
+    // "spent over the period" means, the normalised figure is what "per
+    // month" means, and neither substitutes for the other.
+    if (isMonthly(ctx.period)) {
+      lines.push(`- Monthly burn rate (this period): ${formatUsd(currentBurn)}`);
+    } else {
+      const periodMonths = monthsInPeriod(ctx.period);
+      lines.push(
+        `- Total operating outflows over the period (${ctx.period.days} days, ${ctx.period.start} to ${ctx.period.end}): ${formatUsd(
+          currentBurn
+        )} — this is a PERIOD TOTAL, not a monthly rate. Do not describe it as monthly burn.`,
+        `- Burn rate normalised to a calendar month: ${formatUsd(
+          currentBurn / periodMonths
+        )} — the same outflows divided by the ${periodMonths.toFixed(
+          2
+        )} calendar months this period covers. Use THIS figure for anything stated per month, and the period total above for anything stated over the period. Never present the two as separate findings; they are one number under two denominators.`
+      );
+    }
+  }
+
+  if (basis.source === "trailing") {
+    lines.push(
+      `- Trailing ${TRAILING_BURN_MONTHS}-month average burn: ${formatUsd(
+        basis.avgUsd
+      )} — averaged over the ${basis.monthsUsed} prior period${
+        basis.monthsUsed === 1 ? "" : "s"
+      } that recorded operating outflows${
+        basis.monthsUsed < TRAILING_BURN_MONTHS
+          ? ". THIN SAMPLE — say how many periods it covers whenever you quote a figure derived from it"
+          : ""
+      }${
+        isMonthly(ctx.period)
+          ? ""
+          : ". Each prior period is reduced to a calendar month before averaging, so this IS a per-month figure even though the current reporting period is not one month long"
+      }`
+    );
+    const trend = burnTrend(currentBurn, basis.avgUsd);
+    if (trend !== "unknown") {
+      lines.push(`- Burn trend vs that trailing average: ${trend}`);
+    }
+  }
+
+  // Both runway figures, always labelled with their own denominator. The
+  // stored column divides the WHOLE treasury — own token, unrecognised
+  // assets and all — by one month's burn, and is charted on the dashboard,
+  // so it is reported rather than quietly redefined. The liquid figure is
+  // the one an investor can act on.
+  const storedRunway =
+    snapshot.runwayMonths == null ? null : Number(snapshot.runwayMonths);
+  if (storedRunway != null && Number.isFinite(storedRunway) && storedRunway > 0) {
+    lines.push(
+      `- ${storedRunwayLabel(ctx.period)}: ${storedRunway.toFixed(
+        1
+      )} months — an UPPER BOUND only: it counts the project's own token and every unrecognised asset as spendable, and divides by ${
+        isMonthly(ctx.period)
+          ? "a single month"
+          : `this ${ctx.period.days}-day period's operating outflows normalised to a calendar month, so it is genuinely in months but rests on a single period's spending`
+      }`
+    );
+  } else if (currentBurn <= 0) {
+    lines.push(
+      `- ${storedRunwayLabel(
+        ctx.period
+      )}: NOT MEASURABLE this period — no operating outflows were recorded, so the ratio has no denominator. This does NOT mean the runway is zero or short; do not report it as a number, and do not imply the project is out of money.`
+    );
+  }
+
+  const reserves = liquidReservesUsd(liq);
+  if (!liq.derived) {
+    lines.push(
+      `- Runway (liquid reserves ÷ average burn): NOT COMPUTABLE — this snapshot stores no per-token balance detail, so spendable reserves cannot be separated from the project's own token. Do NOT present the total-treasury figure above as a liquid or conservative runway.`
+    );
+  } else if (basis.source === "none") {
+    lines.push(
+      `- Runway (liquid reserves ÷ average burn): NOT MEASURABLE — no period on record carries operating outflows to divide by. Spendable liquid reserves are ${formatUsd(
+        reserves
+      )}. Do not state this as a runway of zero.`
+    );
+  } else {
+    const months = liquidRunwayMonths(reserves, basis.avgUsd);
+    if (months != null) {
+      lines.push(
+        `- Runway (liquid reserves ÷ ${burnBasisLabel(
+          basis,
+          ctx.period
+        )}): ${months.toFixed(
+          1
+        )} months — the conservative figure, and the one to lead with`
+      );
+    }
+  }
+
+  if (snapshot.totalInflowsUsd) {
+    lines.push(`- Total inflows: ${formatUsd(Number(snapshot.totalInflowsUsd))}`);
+  }
+  if (snapshot.totalOutflowsUsd) {
+    lines.push(`- Total outflows: ${formatUsd(Number(snapshot.totalOutflowsUsd))}`);
+  }
+  // Presence check, not truthiness, unlike the lines above: a net flow of
+  // exactly zero is a real finding (money moved both ways and cancelled),
+  // and only null means the transaction sync produced no figure. The sign
+  // is spelled out because "$4.9M" and "-$4.9M" are opposite stories and a
+  // dropped minus turns a drawdown into a raise.
+  if (snapshot.netFlowUsd != null) {
+    lines.push(
+      `- Net flow (inflows minus outflows): ${signedUsd(Number(snapshot.netFlowUsd))}`
+    );
+  }
+
+  return lines;
+}
+
 const financialHealth: ReportSection = {
   id: "financial_health",
   title: "Financial Health",
   description:
     "Burn rate, runway in months, total inflows/outflows for the period.",
   defaultEnabled: true,
-  requires: (ctx) =>
-    Number(ctx.snapshot.burnRateUsd ?? 0) > 0 ||
-    Number(ctx.snapshot.totalInflowsUsd ?? 0) > 0 ||
-    Number(ctx.snapshot.totalOutflowsUsd ?? 0) > 0,
+  requires: (ctx) => financialHealthLines(ctx).length > 0,
   userPromptFragment: (ctx) => {
-    const lines: string[] = [];
-    const { snapshot } = ctx;
-    const liq = liquidityOf(ctx);
-    const basis = burnBasis(ctx);
-    const currentBurn = Number(snapshot.burnRateUsd ?? 0);
-
-    if (snapshot.burnRateUsd) {
-      // The stored column is this period's operating outflows. Calling it a
-      // MONTHLY burn rate is true by construction while every period is a
-      // calendar month, and false the moment one is not — so a custom period
-      // gets BOTH figures, each naming its own denominator out loud. One
-      // figure alone forces the model to choose, and either choice is wrong
-      // for half the sentences it has to write: the period total is what
-      // "spent over the period" means, the normalised figure is what "per
-      // month" means, and neither substitutes for the other.
-      if (isMonthly(ctx.period)) {
-        lines.push(`- Monthly burn rate (this period): ${formatUsd(currentBurn)}`);
-      } else {
-        const periodMonths = monthsInPeriod(ctx.period);
-        lines.push(
-          `- Total operating outflows over the period (${ctx.period.days} days, ${ctx.period.start} to ${ctx.period.end}): ${formatUsd(
-            currentBurn
-          )} — this is a PERIOD TOTAL, not a monthly rate. Do not describe it as monthly burn.`,
-          `- Burn rate normalised to a calendar month: ${formatUsd(
-            currentBurn / periodMonths
-          )} — the same outflows divided by the ${periodMonths.toFixed(
-            2
-          )} calendar months this period covers. Use THIS figure for anything stated per month, and the period total above for anything stated over the period. Never present the two as separate findings; they are one number under two denominators.`
-        );
-      }
-    }
-
-    if (basis.source === "trailing") {
-      lines.push(
-        `- Trailing ${TRAILING_BURN_MONTHS}-month average burn: ${formatUsd(
-          basis.avgUsd
-        )} — averaged over the ${basis.monthsUsed} prior period${
-          basis.monthsUsed === 1 ? "" : "s"
-        } that recorded operating outflows${
-          basis.monthsUsed < TRAILING_BURN_MONTHS
-            ? ". THIN SAMPLE — say how many periods it covers whenever you quote a figure derived from it"
-            : ""
-        }${
-          isMonthly(ctx.period)
-            ? ""
-            : ". Each prior period is reduced to a calendar month before averaging, so this IS a per-month figure even though the current reporting period is not one month long"
-        }`
-      );
-      const trend = burnTrend(currentBurn, basis.avgUsd);
-      if (trend !== "unknown") {
-        lines.push(`- Burn trend vs that trailing average: ${trend}`);
-      }
-    }
-
-    // Both runway figures, always labelled with their own denominator. The
-    // stored column divides the WHOLE treasury — own token, unrecognised
-    // assets and all — by one month's burn, and is charted on the dashboard,
-    // so it is reported rather than quietly redefined. The liquid figure is
-    // the one an investor can act on.
-    const storedRunway =
-      snapshot.runwayMonths == null ? null : Number(snapshot.runwayMonths);
-    if (storedRunway != null && Number.isFinite(storedRunway) && storedRunway > 0) {
-      lines.push(
-        `- ${storedRunwayLabel(ctx.period)}: ${storedRunway.toFixed(
-          1
-        )} months — an UPPER BOUND only: it counts the project's own token and every unrecognised asset as spendable, and divides by ${
-          isMonthly(ctx.period)
-            ? "a single month"
-            : `this ${ctx.period.days}-day period's operating outflows normalised to a calendar month, so it is genuinely in months but rests on a single period's spending`
-        }`
-      );
-    } else if (currentBurn <= 0) {
-      lines.push(
-        `- ${storedRunwayLabel(
-          ctx.period
-        )}: NOT MEASURABLE this period — no operating outflows were recorded, so the ratio has no denominator. This does NOT mean the runway is zero or short; do not report it as a number, and do not imply the project is out of money.`
-      );
-    }
-
-    const reserves = liquidReservesUsd(liq);
-    if (!liq.derived) {
-      lines.push(
-        `- Runway (liquid reserves ÷ average burn): NOT COMPUTABLE — this snapshot stores no per-token balance detail, so spendable reserves cannot be separated from the project's own token. Do NOT present the total-treasury figure above as a liquid or conservative runway.`
-      );
-    } else if (basis.source === "none") {
-      lines.push(
-        `- Runway (liquid reserves ÷ average burn): NOT MEASURABLE — no period on record carries operating outflows to divide by. Spendable liquid reserves are ${formatUsd(
-          reserves
-        )}. Do not state this as a runway of zero.`
-      );
-    } else {
-      const months = liquidRunwayMonths(reserves, basis.avgUsd);
-      if (months != null) {
-        lines.push(
-          `- Runway (liquid reserves ÷ ${burnBasisLabel(
-            basis,
-            ctx.period
-          )}): ${months.toFixed(
-            1
-          )} months — the conservative figure, and the one to lead with`
-        );
-      }
-    }
-
-    if (snapshot.totalInflowsUsd) {
-      lines.push(`- Total inflows: ${formatUsd(Number(snapshot.totalInflowsUsd))}`);
-    }
-    if (snapshot.totalOutflowsUsd) {
-      lines.push(`- Total outflows: ${formatUsd(Number(snapshot.totalOutflowsUsd))}`);
-    }
-    // Presence check, not truthiness, unlike the lines above: a net flow of
-    // exactly zero is a real finding (money moved both ways and cancelled),
-    // and only null means the transaction sync produced no figure. The sign
-    // is spelled out because "$4.9M" and "-$4.9M" are opposite stories and a
-    // dropped minus turns a drawdown into a raise.
-    if (snapshot.netFlowUsd != null) {
-      lines.push(
-        `- Net flow (inflows minus outflows): ${signedUsd(Number(snapshot.netFlowUsd))}`
-      );
-    }
+    const lines = financialHealthLines(ctx);
     if (lines.length === 0) return "";
 
+    const liq = liquidityOf(ctx);
     if (liq.derived) {
       lines.push(
         "",
