@@ -58,7 +58,7 @@ export const reportsRouter = router({
       await requireReport(ctx, input.reportId);
       return ctx.db.query.reports.findFirst({
         where: eq(reports.id, input.reportId),
-        with: { project: true, snapshot: true },
+        with: { project: true, snapshot: true, preset: true },
       });
     }),
 

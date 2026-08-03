@@ -18,6 +18,8 @@
 // where the section ends. Narrow edge case, and "verbatim, never processed"
 // is the whole point of this module — not worth a markdown parser to close.
 
+import { REPORT_DISCLAIMER } from "@/lib/report-disclaimer";
+
 const FOUNDER_NOTE_HEADING = "## Founder's note";
 
 /** Collapse runs of 3+ newlines to exactly one blank line, and normalise the
@@ -93,4 +95,52 @@ export function upsertFounderNoteSection(markdown: string, notes: string): strin
   }
 
   return normalize([...lines, "", ...section].join("\n"));
+}
+
+/**
+ * Match tag-shaped substrings so they can be escaped rather than stripped:
+ * an optional leading `/` (closing tags), then a letter, then any run of
+ * non-`<`/`>`/newline characters up to the closing `>`. The leading-letter
+ * requirement is deliberate: it is what keeps this from matching inequality
+ * prose like "burn rate <5%" or "grew >10%" — a digit or `%` right after
+ * `<`/`>` never satisfies `[a-zA-Z]`, so real financial language is never
+ * touched. It only fires on things that actually look like `<div>`,
+ * `</span>`, etc.
+ */
+const HTML_TAG_RE = /<\/?[a-zA-Z][^<>\n]*>/g;
+
+/**
+ * Normalize a report's raw `contentMd` for export off-platform (clipboard
+ * copy, `.md` file download) — a fourth surface alongside the three that
+ * already render `REPORT_DISCLAIMER` (PDF, the public `/r/[reportId]` page,
+ * the investor email footer). Without this, an exported report carrying
+ * real treasury figures would ship with no disclaimer at all, unlike every
+ * other output.
+ *
+ * In order:
+ * 1. Escape (never strip) HTML-tag-shaped substrings, turning their `<`/`>`
+ *    into `&lt;`/`&gt;`. The system prompt never forbids HTML and nothing
+ *    upstream sanitizes `contentMd`, so this is cheap defensive
+ *    neutralization, not a response to an observed problem. Escaping over
+ *    stripping means a false positive is visible-but-lossless rather than a
+ *    silent hole in a report headed for a governance forum.
+ * 2. Append `REPORT_DISCLAIMER` verbatim — no heading, no markdown emphasis
+ *    — behind a blank line, a `---` rule, and a blank line, matching how
+ *    the other three surfaces render it (unstyled small print, the `---`
+ *    standing in for the font-size cue they use instead).
+ * 3. Run the existing `normalize()` helper over the fully-assembled string
+ *    as the final step, so nothing upstream can leave stray blank lines or
+ *    a missing/duplicate trailing newline.
+ *
+ * NOT idempotent under re-application: running this on its own output would
+ * double-append the disclaimer. This is a documented property, not a bug —
+ * every real call site passes raw `contentMd`, which never contains the
+ * disclaimer to begin with.
+ */
+export function normalizeForExport(markdown: string): string {
+  const escaped = markdown.replace(HTML_TAG_RE, (tag) =>
+    tag.replace(/^</, "&lt;").replace(/>$/, "&gt;")
+  );
+  const withDisclaimer = `${escaped}\n\n---\n\n${REPORT_DISCLAIMER}`;
+  return normalize(withDisclaimer);
 }
