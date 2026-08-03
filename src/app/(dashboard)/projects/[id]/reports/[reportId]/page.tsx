@@ -5,9 +5,10 @@ import { trpc } from "@/lib/api";
 import { ReportEditor } from "@/components/report/ReportEditor";
 import { ReportWidgets } from "@/components/report/ReportWidgets";
 import { ReportEngagements } from "@/components/report/ReportEngagements";
-import { Download, Send, RefreshCw, ChevronLeft } from "lucide-react";
+import { Download, Send, RefreshCw, ChevronLeft, Copy, FileDown } from "lucide-react";
 import Link from "next/link";
 import { formatDate } from "@/lib/utils";
+import { normalizeForExport } from "@/lib/report-markdown";
 
 interface Props {
   params: Promise<{ id: string; reportId: string }>;
@@ -38,6 +39,7 @@ export default function ReportEditorPage({ params }: Props) {
 
   const [sendError, setSendError] = useState<string | null>(null);
   const [sendSuccess, setSendSuccess] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const update = trpc.reports.update.useMutation({ onSuccess: () => refetch() });
   const updateStatus = trpc.reports.updateStatus.useMutation({ onSuccess: () => refetch() });
@@ -97,6 +99,50 @@ export default function ReportEditorPage({ params }: Props) {
   const nextStatus =
     report.status === "draft" ? "review" : report.status === "review" ? "sent" : null;
 
+  // Both handlers normalize the SAME raw contentMd through the SAME
+  // function, so clipboard and downloaded-file content can never drift
+  // from each other. See report-markdown.ts's normalizeForExport for why
+  // this is needed (mainly: the disclaimer, which every other surface
+  // renders but a raw copy/paste or file download otherwise wouldn't).
+  const handleCopyMarkdown = async () => {
+    try {
+      await navigator.clipboard.writeText(
+        normalizeForExport(report.contentMd ?? "")
+      );
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      alert(`Copy failed: ${err instanceof Error ? err.message : "unknown"}`);
+    }
+  };
+
+  const handleDownloadMarkdown = () => {
+    try {
+      const text = normalizeForExport(report.contentMd ?? "");
+      const blob = new Blob([text], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      // Mirrors pdf-generator.ts's filename convention, swapping the extension.
+      const filename = `${report.project.name.replace(/\s+/g, "-").toLowerCase()}-report-${report.periodEnd}.md`;
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(
+        `Download failed: ${err instanceof Error ? err.message : "unknown"}`
+      );
+    }
+  };
+
+  // A preset's defaultExportFormat is a hint about which action a founder
+  // reaches for first, never a restriction — both actions stay reachable
+  // regardless. null/undefined/"pdf" all fall through to today's PDF-first
+  // order.
+  const markdownFirst = report.preset?.defaultExportFormat === "markdown";
+
   const btnBase: React.CSSProperties = {
     display: "inline-flex",
     alignItems: "center",
@@ -113,6 +159,31 @@ export default function ReportEditorPage({ params }: Props) {
     cursor: "pointer",
     whiteSpace: "nowrap",
   };
+
+  const pdfButton = (
+    <button
+      key="pdf"
+      onClick={() => downloadPdf.mutate({ reportId })}
+      disabled={downloadPdf.isPending}
+      style={{ ...btnBase, opacity: downloadPdf.isPending ? 0.5 : 1 }}
+    >
+      <Download size={13} />
+      PDF
+    </button>
+  );
+
+  const markdownButtons = (
+    <>
+      <button key="copy-md" onClick={handleCopyMarkdown} style={btnBase}>
+        <Copy size={13} />
+        {copied ? "Copied!" : "Copy Markdown"}
+      </button>
+      <button key="download-md" onClick={handleDownloadMarkdown} style={btnBase}>
+        <FileDown size={13} />
+        MD
+      </button>
+    </>
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100dvh" }}>
@@ -176,14 +247,17 @@ export default function ReportEditorPage({ params }: Props) {
             {regenerate.isPending ? "Regenerating..." : "Regenerate"}
           </button>
 
-          <button
-            onClick={() => downloadPdf.mutate({ reportId })}
-            disabled={downloadPdf.isPending}
-            style={{ ...btnBase, opacity: downloadPdf.isPending ? 0.5 : 1 }}
-          >
-            <Download size={13} />
-            PDF
-          </button>
+          {markdownFirst ? (
+            <>
+              {markdownButtons}
+              {pdfButton}
+            </>
+          ) : (
+            <>
+              {pdfButton}
+              {markdownButtons}
+            </>
+          )}
 
           {nextStatus && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>

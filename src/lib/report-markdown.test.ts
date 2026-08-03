@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { upsertFounderNoteSection } from "./report-markdown";
+import { upsertFounderNoteSection, normalizeForExport } from "./report-markdown";
+import { REPORT_DISCLAIMER } from "./report-disclaimer";
 
 /**
  * `reports.founder_notes` (B7) was written by ReportEditor.tsx from day one
@@ -128,5 +129,87 @@ describe("upsertFounderNoteSection — edge cases", () => {
     );
     // And normalize's 3+-newline collapse must not have fired anywhere near it.
     expect(result).not.toMatch(/First paragraph\.\n{3,}Second paragraph\./);
+  });
+});
+
+/**
+ * `normalizeForExport` is the fourth surface `REPORT_DISCLAIMER` reaches
+ * (after PDF, the public report page, and the investor email footer) — a
+ * founder copying or downloading a report shouldn't get real treasury
+ * figures with no disclaimer, unlike every other output. The negative case
+ * (inequality prose passing through untouched) is the most important test
+ * here: it's the whole justification for requiring a leading letter in the
+ * HTML-tag regex rather than matching any bare `<`/`>`.
+ */
+describe("normalizeForExport — disclaimer", () => {
+  it("appends the disclaimer exactly once, verbatim, behind exactly one '---'", () => {
+    const result = normalizeForExport("# Report\n\nSome body text.");
+
+    const disclaimerCount = result.split(REPORT_DISCLAIMER).length - 1;
+    expect(disclaimerCount).toBe(1);
+
+    const hrCount = (result.match(/^---$/gm) ?? []).length;
+    expect(hrCount).toBe(1);
+
+    expect(result).toContain(`---\n\n${REPORT_DISCLAIMER}`);
+  });
+});
+
+describe("normalizeForExport — whitespace determinism", () => {
+  it("collapses irregular whitespace and ends in exactly one trailing newline, even after the disclaimer append", () => {
+    const messy = "# Report\n\n\n\nBody line one.\n\n\n\nBody line two.   \n";
+    const result = normalizeForExport(messy);
+
+    expect(result).not.toMatch(/\n{3,}/);
+    expect(result.endsWith("\n")).toBe(true);
+    expect(result.endsWith("\n\n")).toBe(false);
+    expect(result).toContain("Body line one.\n\nBody line two.");
+  });
+});
+
+describe("normalizeForExport — HTML-tag escaping", () => {
+  it("escapes an HTML-tag-shaped fixture without stripping its content", () => {
+    const result = normalizeForExport('<div class="x">hello</div>');
+
+    expect(result).toContain('&lt;div class="x"&gt;hello&lt;/div&gt;');
+    expect(result).not.toContain("<div");
+    expect(result).not.toContain("</div>");
+  });
+
+  it("leaves realistic inequality prose completely unchanged — the negative case that justifies the leading-letter regex", () => {
+    const prose =
+      "burn rate decreased by <5% while revenue grew >10% quarter over quarter.";
+    const result = normalizeForExport(prose);
+
+    expect(result).toContain(prose);
+    expect(result).not.toContain("&lt;");
+    expect(result).not.toContain("&gt;");
+  });
+});
+
+describe("normalizeForExport — end to end", () => {
+  it("assembles a realistic multi-section report with a stray HTML-like fragment and irregular whitespace in one shot", () => {
+    const raw =
+      "# Q2 Treasury Report\n\n" +
+      "## Current Treasury\n\n" +
+      "Runway is healthy; burn rate is <5% of treasury per month.\n\n\n\n" +
+      "## Notes\n\n" +
+      "Copied from a spreadsheet: <tr><td>legacy</td></tr>   \n" +
+      "## Looking Ahead\n\n" +
+      "Growth is expected to exceed >10% next quarter.\n";
+
+    const result = normalizeForExport(raw);
+
+    expect(result).toBe(
+      "# Q2 Treasury Report\n\n" +
+        "## Current Treasury\n\n" +
+        "Runway is healthy; burn rate is <5% of treasury per month.\n\n" +
+        "## Notes\n\n" +
+        "Copied from a spreadsheet: &lt;tr&gt;&lt;td&gt;legacy&lt;/td&gt;&lt;/tr&gt;\n" +
+        "## Looking Ahead\n\n" +
+        "Growth is expected to exceed >10% next quarter.\n\n" +
+        "---\n\n" +
+        `${REPORT_DISCLAIMER}\n`
+    );
   });
 });
