@@ -115,7 +115,7 @@ console.log(
   `Generating report for project=${project.id} snapshot=${snapshot.id} period=${period}...`
 );
 const t0 = Date.now();
-const md = await generateReport(project.id, snapshot.id);
+const { markdown: md } = await generateReport(project.id, snapshot.id);
 const ms = Date.now() - t0;
 console.log(`Generated in ${ms}ms, ${md.length} chars\n`);
 console.log(md);

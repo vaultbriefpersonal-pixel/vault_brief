@@ -114,6 +114,13 @@ export interface PeriodSnapshotChoice extends SnapshotPeriodLike {
 export interface PeriodGrantAward {
   id: string;
   grantor: string;
+  /**
+   * Optional program name (e.g. "RetroPGF Round 4"), shown alongside
+   * `grantor` in the "Report about" selector so two awards from the same
+   * grantor are distinguishable. Not read by any period-resolution logic —
+   * display-only.
+   */
+  program?: string | null;
   /** 'YYYY-MM-DD'. */
   awardDate: string;
   /** Overrides `awardDate` when the reporting clock starts later. */

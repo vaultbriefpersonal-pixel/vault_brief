@@ -113,6 +113,7 @@ export default async function ReportsPage({ params }: Props) {
             grantAwards={awards.map((a) => ({
               id: a.id,
               grantor: a.grantor,
+              program: a.program,
               awardDate: a.awardDate,
               reportingStartDate: a.reportingStartDate,
             }))}

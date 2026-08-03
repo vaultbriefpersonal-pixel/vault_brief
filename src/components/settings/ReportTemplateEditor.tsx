@@ -76,6 +76,19 @@ export function ReportTemplateEditor({
     },
   });
 
+  // System presets first, then this project's own — the order `presets.list`
+  // already returns.
+  const presetsQ = trpc.presets.list.useQuery({ projectId });
+
+  function applyPreset(presetId: string) {
+    const preset = presetsQ.data?.find((p) => p.id === presetId);
+    if (!preset) return;
+    // Same function the "Reset to defaults" button already calls with
+    // `null` — a preset's blockConfig is the identical
+    // `SectionConfigEntry[]` shape, so no new state machinery is needed.
+    setItems(hydrate(preset.blockConfig as SectionConfigEntry[]));
+  }
+
   const metaById = useMemo<Record<string, ReportSectionMeta>>(
     () => Object.fromEntries(SECTION_LIBRARY_META.map((m) => [m.id, m])),
     []
@@ -155,6 +168,52 @@ export function ReportTemplateEditor({
         whose data isn&apos;t available yet still save — they just stay
         silent until the data lands.
       </p>
+
+      {presetsQ.data && presetsQ.data.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 8,
+            marginBottom: 16,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: "var(--font-inter), Inter, sans-serif",
+              fontSize: 12,
+              color: "var(--vb-dim)",
+            }}
+          >
+            Start from a preset:
+          </span>
+          {presetsQ.data.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => applyPreset(p.id)}
+              title={
+                p.projectId === null
+                  ? "System preset"
+                  : "This project's own preset"
+              }
+              style={{
+                background: "transparent",
+                border: "1px solid var(--vb-border)",
+                borderRadius: 999,
+                padding: "4px 12px",
+                fontSize: 12,
+                color: "var(--vb-muted)",
+                cursor: "pointer",
+                fontFamily: "var(--font-inter), Inter, sans-serif",
+              }}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div
         style={{

@@ -16,6 +16,7 @@ import {
   projectBudgets,
   grantAwards,
   grantTranches,
+  presets,
 } from "./schema";
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -76,6 +77,19 @@ export const reportsRelations = relations(reports, ({ one }) => ({
   snapshot: one(treasurySnapshots, {
     fields: [reports.snapshotId],
     references: [treasurySnapshots.id],
+  }),
+  // Optional — null for most reports, which aren't about one specific award.
+  // ON DELETE SET NULL, so this resolving to undefined after the award is
+  // deleted is expected, not a broken join.
+  grantAward: one(grantAwards, {
+    fields: [reports.grantId],
+    references: [grantAwards.id],
+  }),
+  // Optional — null for reports generated from the project's own template.
+  // ON DELETE SET NULL, same reasoning as grantAward above.
+  preset: one(presets, {
+    fields: [reports.presetId],
+    references: [presets.id],
   }),
 }));
 
@@ -170,6 +184,15 @@ export const grantTranchesRelations = relations(grantTranches, ({ one }) => ({
   // what the ownership guard reads. See the column comment in schema.ts.
   project: one(projects, {
     fields: [grantTranches.projectId],
+    references: [projects.id],
+  }),
+}));
+
+// Optional — null on a system preset, which belongs to no project. See the
+// header on `presets` in schema.ts for why there is no separate `isSystem`.
+export const presetsRelations = relations(presets, ({ one }) => ({
+  project: one(projects, {
+    fields: [presets.projectId],
     references: [projects.id],
   }),
 }));
