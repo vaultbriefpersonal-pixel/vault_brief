@@ -73,8 +73,26 @@ Existing scripts: `add-snapshot-space.mjs`, `add-report-sections.mjs`,
 `add-project-members.mjs`, `add-project-budgets.mjs`,
 `add-snapshot-period.mjs`, `add-grant-awards.mjs`,
 `add-snapshot-balance-basis.mjs`, `add-grant-award-fields.mjs`,
-`add-grant-report-fields.mjs`. These are one-shots kept as a record;
-each is safe to re-run (all use `IF NOT EXISTS`).
+`add-grant-report-fields.mjs`, `add-report-presets.mjs`. These are
+one-shots kept as a record; each is safe to re-run (all use
+`IF NOT EXISTS` / `ON CONFLICT ... DO NOTHING`).
+
+`add-report-presets.mjs` is **not yet applied** and, like
+`add-snapshot-balance-basis.mjs` below, **must run before the code that
+depends on it deploys**. It creates the new `presets` table (plus its
+two indexes and a seed insert for the three system presets:
+`generic_grant`, `minimal`, `forum_post`) and adds four additive columns
+to `reports` — `report_type` (`NOT NULL DEFAULT 'investor'`), `grant_id`,
+`preset_id`, `blocks` — all of which `schema.ts` now names, so every
+drizzle-generated query against `reports` fails with
+`column "..." does not exist` until it has run. It must be applied AFTER
+`add-grant-report-fields.mjs` (`reports.grant_id` references
+`grant_awards`, which that migration's predecessor,
+`add-grant-awards.mjs`, creates — already satisfied, but
+`add-grant-report-fields.mjs` is the most recent change to that table
+and the natural "run after" marker). `report_type`'s `DEFAULT 'investor'`
+is a deliberate, narrow exception to the no-default convention below —
+see the migration's own header comment for why.
 
 `add-grant-report-fields.mjs` is **not yet applied** and, like
 `add-snapshot-balance-basis.mjs` below, **must run before the code that

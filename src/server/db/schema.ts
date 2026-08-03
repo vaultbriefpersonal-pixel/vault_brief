@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -382,6 +383,63 @@ export const reports = pgTable("reports", {
   periodEnd: date("period_end").notNull(),
   status: text("status").notNull().default("draft"), // draft | review | sent
 
+  /**
+   * 'investor' | 'grant' — enforced in Zod only (derived server-side in
+   * `reports.generate`, never accepted as a client input), same anti-pattern
+   * precedent as `grant_awards.reporting_cadence`.
+   *
+   * `DEFAULT 'investor'` is a deliberate, narrow exception to this project's
+   * usual "no backfill / no default" convention: unlike `blocks` below
+   * (genuinely unknowable for old rows), every report generated before this
+   * column existed truly IS investor-shaped — grant reporting is new as of
+   * this stage, so the default states a real historical fact rather than
+   * inventing one.
+   */
+  reportType: text("report_type").notNull().default("investor"),
+  /**
+   * Narrows generation to ONE grant award instead of every award on the
+   * project. `report-generator.ts`'s `generateReport` filters
+   * `grantAwardRows`/`grantTrancheRows` down to this id (and its tranches)
+   * before building the section context — `awardsForPeriod`'s own date
+   * filter still applies on top, now over the pre-narrowed array.
+   *
+   * NULL is the normal case — most reports aren't about one specific award.
+   * `ON DELETE SET NULL`, matching `milestones.grantAwardId` exactly: a
+   * report may already be sent to a funder and outlives the award record, so
+   * deleting the award must not delete report history. Not indexed —
+   * nothing queries by it yet, same reasoning as `milestones.grantAwardId`.
+   */
+  grantId: uuid("grant_id").references(() => grantAwards.id, {
+    onDelete: "set null",
+  }),
+  /**
+   * The preset whose `blockConfig` generated this report, used IN PLACE OF
+   * the project's own `reportSections` for that one generation — the
+   * project's live template is never read or written when this is set.
+   *
+   * NULL is the normal case — most reports use the project's own template.
+   * `ON DELETE SET NULL`, same reasoning as `grantId` above: deleting a
+   * preset must not delete report history. Not indexed, same reasoning as
+   * `grantId`.
+   */
+  presetId: uuid("preset_id").references(() => presets.id, {
+    onDelete: "set null",
+  }),
+  /**
+   * The resolved `SectionConfigEntry[]` that actually produced `contentMd`,
+   * frozen at generation time for EVERY report (not only preset/grant ones)
+   * and re-frozen on regenerate alongside `contentMd` — a regenerate is
+   * itself a new generation event, exactly like the content it already
+   * unconditionally overwrites.
+   *
+   * NULL on every report generated before this column existed — genuinely
+   * unknowable, not "use defaults". `resolveSections()` runs fresh against
+   * LIVE `project.reportSections` + LIVE `SECTION_LIBRARY` on every
+   * generation, with nothing recorded about which ids actually rendered, so
+   * there is no way to reconstruct what an old report used.
+   */
+  blocks: jsonb("blocks"),
+
   // Content
   contentMd: text("content_md"),
   executiveSummary: text("executive_summary"),
@@ -403,6 +461,62 @@ export const reports = pgTable("reports", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
+// =============================================
+// PRESETS
+// Reusable report block-configs — the same shape as `projects.reportSections`
+// but named, shareable, and selected per-generation via `reports.presetId`
+// rather than baked into a project's own live template.
+//
+// `project_id IS NULL` means "system preset" (the three seeded by
+// scripts/migrations/add-report-presets.mjs — generic_grant, minimal,
+// forum_post). There is deliberately no `isSystem` boolean: this codebase
+// already rejected the identical shape once, on `milestones.grantAwardId`
+// ("There is deliberately no `is_grant_deliverable` boolean — the FK carries
+// that fact and cannot disagree with itself"). A separate boolean here could
+// disagree with `project_id` and nothing would catch it.
+// =============================================
+export const presets = pgTable(
+  "presets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // NULL = system preset, usable by every project. Non-null = owned by
+    // exactly that project, editable/deletable only by it (see
+    // `requireOwnedPreset` in trpc/guards.ts). ON DELETE CASCADE: a
+    // project-owned preset has no meaning once the project is gone.
+    projectId: uuid("project_id").references(() => projects.id, {
+      onDelete: "cascade",
+    }),
+    name: text("name").notNull(),
+    // Identical shape to `projects.reportSections`: {id: string, enabled:
+    // boolean}[]. Each system preset stores a FULL resolved list (every
+    // current section id, explicit enabled/disabled) rather than a sparse
+    // diff — `resolveSections` only auto-splices a section at ITS OWN global
+    // default when a stored config omits it entirely, so a preset that wants
+    // a globally-on section turned off must say so explicitly.
+    blockConfig: jsonb("block_config").notNull(),
+    // 'pdf' | 'markdown', enforced in Zod only — same anti-pattern precedent
+    // as `grant_awards.reportingCadence`. Unread until Stage 7's export path
+    // consumes it, same precedent as `project_budgets` sitting unread until
+    // its UI followed.
+    defaultExportFormat: text("default_export_format"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    // "List this project's own presets" is a real read path (presets.list),
+    // and plain foreign keys are not auto-indexed by Postgres.
+    index("idx_presets_project").on(table.projectId),
+    // Makes seeding the three system presets a true idempotent upsert
+    // (`INSERT ... ON CONFLICT (name) WHERE project_id IS NULL DO NOTHING`),
+    // looked up by name at runtime, never a hardcoded UUID. No uniqueness
+    // constraint on user-preset names — a rough edge, not a correctness
+    // issue, not worth a constraint for this stage.
+    uniqueIndex("idx_presets_system_name")
+      .on(table.name)
+      .where(sql`${table.projectId} IS NULL`),
+  ]
+);
 
 // =============================================
 // INVESTORS
@@ -968,6 +1082,8 @@ export type TreasurySnapshot = typeof treasurySnapshots.$inferSelect;
 export type NewTreasurySnapshot = typeof treasurySnapshots.$inferInsert;
 export type Report = typeof reports.$inferSelect;
 export type NewReport = typeof reports.$inferInsert;
+export type Preset = typeof presets.$inferSelect;
+export type NewPreset = typeof presets.$inferInsert;
 export type Investor = typeof investors.$inferSelect;
 export type NewInvestor = typeof investors.$inferInsert;
 export type Milestone = typeof milestones.$inferSelect;

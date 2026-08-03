@@ -17,6 +17,7 @@ import { projectBudgetsRouter } from "./routers/project-budgets";
 // Awards RECEIVED. `grantsRouter` above is the `grants` table — money given
 // out. Two routers on purpose; see the header on grantAwards in schema.ts.
 import { grantAwardsRouter } from "./routers/grant-awards";
+import { presetsRouter } from "./routers/presets";
 
 export const appRouter = router({
   projectMembers: projectMembersRouter,
@@ -35,6 +36,7 @@ export const appRouter = router({
   milestones: milestonesRouter,
   projectBudgets: projectBudgetsRouter,
   grantAwards: grantAwardsRouter,
+  presets: presetsRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -15,6 +15,7 @@ import {
   projectBudgets,
   grantAwards,
   grantTranches,
+  presets,
 } from "@/server/db/schema";
 import type { Context } from "./context";
 
@@ -200,6 +201,49 @@ export async function requireMilestone(ctx: GuardCtx, id: string) {
     where: eq(milestones.id, id),
   });
   if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+  await requireProject(ctx, row.projectId);
+  return row;
+}
+
+/**
+ * A preset usable for GENERATION by this project — either a system preset
+ * (`projectId === null`, usable by every project) or one this project itself
+ * owns. NOT_FOUND for both "missing" and "belongs to another project", same
+ * enumeration-safety reasoning as every other guard here.
+ */
+export async function requirePresetUsableBy(
+  ctx: GuardCtx,
+  presetId: string,
+  projectId: string
+) {
+  const row = await ctx.db.query.presets.findFirst({
+    where: eq(presets.id, presetId),
+  });
+  if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+  if (row.projectId !== null && row.projectId !== projectId) {
+    throw new TRPCError({ code: "NOT_FOUND" });
+  }
+  return row;
+}
+
+/**
+ * A preset this project OWNS — required for edit/delete. A system preset
+ * (`projectId === null`) is FORBIDDEN rather than NOT_FOUND: unlike an
+ * unrelated project's private row, a system preset is visible to everyone via
+ * `presets.list`, so its existence is not a secret — the caller just may not
+ * modify it.
+ */
+export async function requireOwnedPreset(ctx: GuardCtx, presetId: string) {
+  const row = await ctx.db.query.presets.findFirst({
+    where: eq(presets.id, presetId),
+  });
+  if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+  if (row.projectId === null) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "System presets cannot be modified.",
+    });
+  }
   await requireProject(ctx, row.projectId);
   return row;
 }

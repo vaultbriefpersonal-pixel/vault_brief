@@ -8,7 +8,12 @@ import {
   treasurySnapshots,
 } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
-import { requireProject, requireReport } from "../guards";
+import {
+  requireProject,
+  requireReport,
+  requireGrantAward,
+  requirePresetUsableBy,
+} from "../guards";
 import {
   generateReport,
   generateAndSaveReport,
@@ -201,12 +206,23 @@ export const reportsRouter = router({
           message: "No snapshot linked to this report",
         });
       }
-      const contentMd = await generateReport(report.projectId, report.snapshotId);
+      // `grantId`/`presetId` are the report's IDENTITY and are NOT touched by
+      // a regenerate — only re-asserted so the freshly generated content
+      // still reflects the same narrowing/template the report was created
+      // with. `blocks` below, by contrast, IS re-frozen: a regenerate is
+      // itself a new generation event, exactly like the `contentMd` it
+      // already unconditionally overwrites.
+      const { markdown: contentMd, blocks } = await generateReport(
+        report.projectId,
+        report.snapshotId,
+        { grantId: report.grantId, presetId: report.presetId }
+      );
 
       const [updated] = await ctx.db
         .update(reports)
         .set({
           contentMd,
+          blocks,
           status: "draft",
           pdfUrl: null, // invalidate stale blob; rerender triggered next.
           updatedAt: new Date(),
@@ -303,11 +319,34 @@ export const reportsRouter = router({
         projectId: z.string().uuid(),
         snapshotId: z.string().uuid(),
         period: z.object({ start: isoDate, end: isoDate }).optional(),
+        grantId: z.string().uuid().optional(),
+        presetId: z.string().uuid().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const project = await requireProject(ctx, input.projectId);
       await assertCanGenerateReport(project.userId, input.projectId);
+
+      // A grant award from another project must not be attachable — the
+      // existing `requireGrantAward` only proves the CALLER owns it, not that
+      // it belongs to THIS project, so the cross-project check is explicit.
+      if (input.grantId) {
+        const award = await requireGrantAward(ctx, input.grantId);
+        if (award.projectId !== input.projectId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "That grant award belongs to a different project.",
+          });
+        }
+      }
+      if (input.presetId) {
+        await requirePresetUsableBy(ctx, input.presetId, input.projectId);
+      }
+      // Derived server-side, never accepted as a separate client input —
+      // exposing it independently would allow an internally contradictory
+      // request (`reportType: "investor"` with `presetId` set) that nothing
+      // resolves.
+      const reportType = input.grantId || input.presetId ? "grant" : "investor";
 
       // Scoped to the project, not fetched by id alone. `generateReport` and
       // `createReportRecord` both look the snapshot up by primary key with no
@@ -363,7 +402,12 @@ export const reportsRouter = router({
       const report = await generateAndSaveReport(
         input.projectId,
         input.snapshotId,
-        period
+        period,
+        {
+          grantId: input.grantId ?? null,
+          presetId: input.presetId ?? null,
+          reportType,
+        }
       );
 
       // Same fix as regenerate above, same reason: this used to await

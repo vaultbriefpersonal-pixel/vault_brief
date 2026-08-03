@@ -82,6 +82,15 @@ export function ReportPeriodPicker({
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+  // Both default to unselected/None — leaving them untouched must reproduce
+  // today's single-click generate flow byte-for-byte, so `generate.mutate`
+  // below only adds `grantId`/`presetId` when one of these is non-empty.
+  const [selectedGrantId, setSelectedGrantId] = useState("");
+  const [selectedPresetId, setSelectedPresetId] = useState("");
+
+  // Fetched fresh here rather than threaded down as a prop: this is the only
+  // consumer, and `presets.list` is a cheap system+own-project query.
+  const presetsQ = trpc.presets.list.useQuery({ projectId });
 
   const options = useMemo(
     () =>
@@ -197,6 +206,11 @@ export function ReportPeriodPicker({
         // against the snapshot. A silent disagreement becomes a refusal instead
         // of a mislabelled report.
         period: { start: selected.period.start, end: selected.period.end },
+        // Both left at "" (None) by default — `undefined` here so an
+        // untouched selection sends exactly the same request body as before
+        // these selectors existed.
+        grantId: selectedGrantId || undefined,
+        presetId: selectedPresetId || undefined,
       });
       return;
     }
@@ -336,6 +350,57 @@ export function ReportPeriodPicker({
 
       {selected?.basis === "reconstructed" && (
         <ReconstructedBanner option={selected} />
+      )}
+
+      {(grantAwards.length > 0 || (presetsQ.data?.length ?? 0) > 0) && (
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          {grantAwards.length > 0 && (
+            <div>
+              <label
+                htmlFor="vb-report-grant"
+                className="mb-1 block font-[var(--font-inter),Inter,sans-serif] text-[11px] text-[var(--vb-dim)]"
+              >
+                Report about
+              </label>
+              <select
+                id="vb-report-grant"
+                value={selectedGrantId}
+                onChange={(e) => setSelectedGrantId(e.target.value)}
+                className="rounded-lg border border-[var(--vb-border)] bg-[var(--vb-alt)] px-3 py-2 font-[var(--font-inter),Inter,sans-serif] text-[13px] text-[var(--vb-text)]"
+              >
+                <option value="">None — general report</option>
+                {grantAwards.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.program ? `${a.grantor} — ${a.program}` : a.grantor}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {(presetsQ.data?.length ?? 0) > 0 && (
+            <div>
+              <label
+                htmlFor="vb-report-preset"
+                className="mb-1 block font-[var(--font-inter),Inter,sans-serif] text-[11px] text-[var(--vb-dim)]"
+              >
+                Template
+              </label>
+              <select
+                id="vb-report-preset"
+                value={selectedPresetId}
+                onChange={(e) => setSelectedPresetId(e.target.value)}
+                className="rounded-lg border border-[var(--vb-border)] bg-[var(--vb-alt)] px-3 py-2 font-[var(--font-inter),Inter,sans-serif] text-[13px] text-[var(--vb-text)]"
+              >
+                <option value="">None — this project&apos;s template</option>
+                {presetsQ.data?.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       )}
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
