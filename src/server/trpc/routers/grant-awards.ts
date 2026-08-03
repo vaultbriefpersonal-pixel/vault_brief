@@ -244,13 +244,29 @@ export const grantAwardsRouter = router({
         awardAmountUsd,
         awardAmountToken,
         amountUsdAtReceipt,
+        nextReportDue,
         ...rest
       } = input;
-      await requireGrantAward(ctx, id);
+      const existing = await requireGrantAward(ctx, id);
+
+      // Stage 8 reminder idempotency: `lastRemindedAt` records "have we
+      // already reminded for the due date that's set right now." Changing
+      // the due date to a genuinely DIFFERENT value invalidates any past
+      // reminder and re-arms the job for the new date — but a same-value
+      // resubmission (the form re-saving unrelated fields with the same
+      // `nextReportDue` it already had) must NOT clear it, or every
+      // unrelated edit would silently reset a founder's reminder cycle.
+      // `undefined` means the field is absent from this PATCH — leave both
+      // columns alone.
+      const dueDateChanged =
+        nextReportDue !== undefined && nextReportDue !== existing.nextReportDue;
+
       const [row] = await ctx.db
         .update(grantAwards)
         .set({
           ...rest,
+          ...(nextReportDue !== undefined ? { nextReportDue } : {}),
+          ...(dueDateChanged ? { lastRemindedAt: null } : {}),
           ...(awardAmountUsd !== undefined
             ? { awardAmountUsd: numOrNull(awardAmountUsd) }
             : {}),

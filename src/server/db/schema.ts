@@ -786,6 +786,25 @@ export const grantAwards = pgTable(
     // The next date a report is owed. Drives the Stage 8 reminders; nothing
     // reads it yet. NULL means "no date set", not "nothing due".
     nextReportDue: date("next_report_due"),
+    /**
+     * When the Stage 8 reminder job last sent a due-date nudge for the
+     * `nextReportDue` value that is CURRENTLY set. NULL means either "never
+     * reminded" or "the due date changed since the last reminder" — the two
+     * are indistinguishable on purpose, because both mean the same thing to
+     * the job: this award is eligible to be reminded again.
+     *
+     * `updateAward` (trpc/routers/grant-awards.ts) resets this to NULL
+     * whenever `nextReportDue` is changed to a genuinely different value in
+     * the same call — a same-value resubmission (the form re-saving
+     * unrelated fields) must NOT clear it, only an actual date change does.
+     * That is what keeps the semantics exactly "reminded for the date that's
+     * set now," not "reminded at some point, regardless of date changes."
+     *
+     * Mirrors scripts/migrations/add-grant-award-reminder-field.mjs
+     * (`ADD COLUMN IF NOT EXISTS last_reminded_at TIMESTAMPTZ`, no NOT NULL,
+     * no default — every existing award genuinely has never been reminded).
+     */
+    lastRemindedAt: timestamp("last_reminded_at", { withTimezone: true }),
     status: text("status").notNull().default("active"), // active | completed | terminated
     /**
      * What the project intends to do with grant money it received and has not

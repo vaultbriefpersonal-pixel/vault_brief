@@ -341,6 +341,68 @@ export async function sendAnomalyAlertEmail(params: SendAnomalyAlertParams) {
   return data;
 }
 
+interface SendGrantReportDueParams {
+  to: { name: string; email: string };
+  projectName: string;
+  projectUrl: string;
+  grantorName: string;
+  program?: string | null;
+  dueDate: string;
+}
+
+/**
+ * Founder-only nudge that a grant report is coming due (see
+ * src/server/jobs/grant-report-reminders.ts). Never sent to investors or the
+ * grantor — this is an internal reminder, not part of the reviewed/approved
+ * narrative that ships to a funder.
+ *
+ * Uses the DEFAULT footer, no `REPORT_DISCLAIMER` override — same reasoning
+ * as `sendAnomalyAlertEmail` and `sendReportReadyForReviewEmail` above:
+ * `renderEmailLayout`'s default footer is shared with magic-link,
+ * review-ready and anomaly-alert emails, none of which carry a financial
+ * disclaimer, and a due-date reminder with no numbers in it is in that same
+ * family, not a financial statement.
+ */
+export async function sendGrantReportDueEmail(params: SendGrantReportDueParams) {
+  const { to, projectName, projectUrl, grantorName, program, dueDate } = params;
+  const palette = paletteFor();
+  const formattedDue = formatDate(dueDate);
+  const grantLabel = program
+    ? `${escapeHtmlForEmail(grantorName)} — ${escapeHtmlForEmail(program)}`
+    : escapeHtmlForEmail(grantorName);
+
+  const body = `
+    <p style="${paragraphStyle(palette)}">Hi ${to.name},</p>
+    ${badgeHtml("Report due soon", "amber")}
+    <p style="${paragraphStyle(palette)} margin-top: 12px;">A grant report for <strong>${escapeHtmlForEmail(projectName)}</strong> is coming due:</p>
+    <ul style="${paragraphStyle(palette)} padding-left: 20px;">
+      <li style="margin-bottom: 8px;"><strong>Grant:</strong> ${grantLabel}</li>
+      <li style="margin-bottom: 8px;"><strong>Due:</strong> ${formattedDue}</li>
+    </ul>
+    ${ctaButtonHtml(projectUrl, "View reports →", palette)}
+    <p style="font-size: 12px; color: ${palette.textMuted}; margin-top: 24px; line-height: 1.5;">
+      This reminder is for you only — nothing has been sent to ${escapeHtmlForEmail(grantorName)} automatically.
+    </p>
+  `;
+
+  const html = renderEmailLayout({
+    title: projectName,
+    subtitle: "Grant report due",
+    palette,
+    bodyHtml: body,
+  });
+
+  const { data, error } = await getResend().emails.send({
+    from: FROM,
+    to: `${to.name} <${to.email}>`,
+    subject: `Grant report due for ${projectName} — ${formattedDue}`,
+    html,
+  });
+
+  if (error) throw new Error(`Email send failed: ${error.message}`);
+  return data;
+}
+
 export async function sendMagicLinkEmail(to: string, url: string) {
   // No project context for sign-in — use the default palette but render it
   // through the same layout shell so the email feels consistent with the

@@ -20,6 +20,7 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
   report_generated: <FileText size={16} color="#00e87b" />,
   report_sent: <Send size={16} color="#00e87b" />,
   sync_failed: <AlertCircle size={16} color="#f87171" />,
+  grant_report_due: <Clock size={16} color="#f59e0b" />,
 };
 
 function timeAgo(date: Date): string {

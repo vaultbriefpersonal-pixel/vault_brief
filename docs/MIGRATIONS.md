@@ -73,9 +73,20 @@ Existing scripts: `add-snapshot-space.mjs`, `add-report-sections.mjs`,
 `add-project-members.mjs`, `add-project-budgets.mjs`,
 `add-snapshot-period.mjs`, `add-grant-awards.mjs`,
 `add-snapshot-balance-basis.mjs`, `add-grant-award-fields.mjs`,
-`add-grant-report-fields.mjs`, `add-report-presets.mjs`. These are
-one-shots kept as a record; each is safe to re-run (all use
-`IF NOT EXISTS` / `ON CONFLICT ... DO NOTHING`).
+`add-grant-report-fields.mjs`, `add-report-presets.mjs`,
+`add-grant-award-reminder-field.mjs`. These are one-shots kept as a
+record; each is safe to re-run (all use `IF NOT EXISTS` /
+`ON CONFLICT ... DO NOTHING`).
+
+`add-grant-award-reminder-field.mjs` is **not yet applied** and, like
+`add-snapshot-balance-basis.mjs` below, **must run before the code that
+depends on it deploys**. It adds one additive nullable column —
+`grant_awards.last_reminded_at` (`TIMESTAMPTZ`, no NOT NULL, no
+default) — which `schema.ts` now names, so every drizzle-generated
+query against `grant_awards` fails with `column "last_reminded_at"
+does not exist` until it has run. No ordering constraint relative to
+other pending migrations — this is the only in-flight schema change
+referencing `grant_awards` at the time it was written.
 
 `add-report-presets.mjs` is **not yet applied** and, like
 `add-snapshot-balance-basis.mjs` below, **must run before the code that

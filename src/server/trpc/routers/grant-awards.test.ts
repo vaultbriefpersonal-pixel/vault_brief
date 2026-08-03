@@ -201,6 +201,100 @@ describe("grantAwardsRouter.createAward — input validation", () => {
   });
 });
 
+/** Chainable db double for update().set().where().returning(). */
+function fakeUpdateCtx({ updateResult }: { updateResult?: unknown } = {}) {
+  const returning = vi
+    .fn()
+    .mockResolvedValue(updateResult ? [updateResult] : [{ id: AWARD_ID }]);
+  const where = vi.fn().mockReturnValue({ returning });
+  const set = vi.fn().mockReturnValue({ where });
+  const update = vi.fn().mockReturnValue({ set });
+
+  return {
+    session: { user: { id: "founder-user" } },
+    db: { update, set, where, returning },
+  };
+}
+
+describe("grantAwardsRouter.updateAward — last_reminded_at reset semantics", () => {
+  /**
+   * Stage 8: `lastRemindedAt` must read "have we already reminded for the
+   * due date that's set RIGHT NOW", not "have we ever reminded". A
+   * resubmission of the SAME next_report_due (e.g. the form re-saving
+   * unrelated fields) must not clear it — only an actual value change does.
+   */
+  it("does NOT clear last_reminded_at when next_report_due is resubmitted unchanged", async () => {
+    vi.mocked(requireGrantAward).mockResolvedValue({
+      id: AWARD_ID,
+      projectId: PROJECT_ID,
+      nextReportDue: "2026-09-01",
+    } as never);
+    const ctx = fakeUpdateCtx();
+    const caller = createCaller(ctx as never);
+
+    await caller.updateAward({
+      id: AWARD_ID,
+      nextReportDue: "2026-09-01", // identical to the stored value
+      notes: "unrelated edit",
+    });
+
+    const setArg = ctx.db.set.mock.calls[0][0];
+    expect(setArg).not.toHaveProperty("lastRemindedAt");
+    expect(setArg.nextReportDue).toBe("2026-09-01");
+  });
+
+  it("clears last_reminded_at when next_report_due changes to a new value", async () => {
+    vi.mocked(requireGrantAward).mockResolvedValue({
+      id: AWARD_ID,
+      projectId: PROJECT_ID,
+      nextReportDue: "2026-09-01",
+    } as never);
+    const ctx = fakeUpdateCtx();
+    const caller = createCaller(ctx as never);
+
+    await caller.updateAward({ id: AWARD_ID, nextReportDue: "2026-10-15" });
+
+    expect(ctx.db.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nextReportDue: "2026-10-15",
+        lastRemindedAt: null,
+      })
+    );
+  });
+
+  it("clears last_reminded_at when next_report_due is explicitly cleared to null", async () => {
+    vi.mocked(requireGrantAward).mockResolvedValue({
+      id: AWARD_ID,
+      projectId: PROJECT_ID,
+      nextReportDue: "2026-09-01",
+    } as never);
+    const ctx = fakeUpdateCtx();
+    const caller = createCaller(ctx as never);
+
+    await caller.updateAward({ id: AWARD_ID, nextReportDue: null });
+
+    expect(ctx.db.set).toHaveBeenCalledWith(
+      expect.objectContaining({ nextReportDue: null, lastRemindedAt: null })
+    );
+  });
+
+  it("leaves next_report_due and last_reminded_at untouched when the field is absent from the PATCH", async () => {
+    vi.mocked(requireGrantAward).mockResolvedValue({
+      id: AWARD_ID,
+      projectId: PROJECT_ID,
+      nextReportDue: "2026-09-01",
+    } as never);
+    const ctx = fakeUpdateCtx();
+    const caller = createCaller(ctx as never);
+
+    await caller.updateAward({ id: AWARD_ID, notes: "just a note edit" });
+
+    const setArg = ctx.db.set.mock.calls[0][0];
+    expect(setArg).not.toHaveProperty("nextReportDue");
+    expect(setArg).not.toHaveProperty("lastRemindedAt");
+  });
+});
+
 describe("grantAwardsRouter.createTranche — ownership comes from the award", () => {
   it("cannot attach a tranche to an award the caller does not own", async () => {
     vi.mocked(requireGrantAward).mockRejectedValue(
