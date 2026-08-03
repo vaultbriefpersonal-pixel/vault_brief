@@ -203,7 +203,7 @@ const TOOL_STACK: Array<{ name: string; color: string }> = [
 // lets a visitor parse the product in 5 seconds without reading copy.
 const INPUT_TO_REPORT = {
   inputs: [
-    { label: "Wallets", note: "Treasury addresses across 20+ chains" },
+    { label: "Wallets", note: "Treasury addresses across 6 chains" },
     { label: "GitHub org", note: "Commits, PRs, contributors, releases" },
     { label: "Token contract", note: "Price, market cap, holder count" },
     { label: "Project context", note: "Milestones, funding, asks, governance" },
@@ -883,9 +883,9 @@ export default async function LandingPage() {
                 note: "sum of latest snapshots",
               },
               {
-                value: "20+",
+                value: "6",
                 label: "Chains supported",
-                note: "Ethereum + L2s + Solana",
+                note: "Ethereum, Polygon, Arbitrum, Base, Optimism, Solana",
               },
               {
                 // Auto-sync cron runs monthly (1st @ 06:00 UTC); on-demand
