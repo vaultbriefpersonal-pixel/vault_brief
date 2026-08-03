@@ -13,6 +13,7 @@ const PUBLIC_PATHS = [
   "/changelog",
   "/roadmap",
   "/security",
+  "/grants",
   "/status",
   "/privacy",
   "/terms",

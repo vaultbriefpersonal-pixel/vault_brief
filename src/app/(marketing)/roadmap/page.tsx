@@ -34,8 +34,8 @@ type Item = { title: string; desc: string };
 
 const SHIPPED: Item[] = [
   {
-    title: "Treasury sync across 5 chains",
-    desc: "Ethereum, Arbitrum, Polygon, Base, Solana. Wallet balances, inflows, outflows pulled on a monthly schedule.",
+    title: "Treasury sync across 6 chains",
+    desc: "Ethereum, Polygon, Arbitrum, Base, Optimism, Solana. Wallet balances, inflows, outflows pulled on a monthly schedule.",
   },
   {
     title: "AI-written investor narrative",

@@ -88,10 +88,8 @@ const SECTIONS: Section[] = [
           <code>/projects/[id]/wallets</code>.
         </p>
         <p>
-          Supported chains: Ethereum, Optimism, Arbitrum, Base, Polygon,
-          Scroll, Linea, zkSync Era, Avalanche, BNB Chain, Gnosis, Celo,
-          Fantom, Mantle, Blast, and Solana — plus L2s that share Alchemy
-          coverage.
+          Supported chains: Ethereum, Polygon, Arbitrum, Base, Optimism, and
+          Solana.
         </p>
         <p>
           <strong>Multisigs</strong> (Safe, Squads) work the same way —
