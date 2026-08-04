@@ -14,6 +14,7 @@ const PUBLIC_PATHS = [
   "/roadmap",
   "/security",
   "/grants",
+  "/investors",
   "/status",
   "/privacy",
   "/terms",

@@ -23,6 +23,10 @@ const ITEMS = [
     a: "No. You can export a PDF and send it directly. A secure investor portal is on the roadmap for teams that want to share reports without sending PDFs manually.",
   },
   {
+    q: "Do grant funders need an account?",
+    a: "No. Export a PDF, or copy the report's Markdown export and paste it directly into the funder's forum thread or reporting portal — no account or integration required on their end.",
+  },
+  {
     q: "Which chains are supported?",
     a: "Vault Brief supports major EVM chains and Solana reporting flows. New chains are added based on customer requests.",
   },
