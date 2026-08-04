@@ -14,9 +14,9 @@ test.describe("E6 - Mobile responsiveness", () => {
     await page.goto("/");
     // Logo renders "VAULT" + " BRIEF" across two spans — match the wrapper text.
     await expect(page.getByRole("navigation").getByText(/VAULT/)).toBeVisible();
-    // Hero headline (split via gradient span): "Investor reports / for Web3 teams"
+    // Hero headline (split via gradient span): "Reports that get read / for Web3 teams"
     await expect(
-      page.getByRole("heading", { name: /Investor reports/ })
+      page.getByRole("heading", { name: /Reports that get read/ })
     ).toBeVisible();
   });
 
@@ -91,20 +91,23 @@ test.describe("E6 - Mobile responsiveness", () => {
     // Closed: nav links not visible (drawer translated off-screen).
     await page.getByRole("button", { name: /open menu/i }).click();
 
-    // Drawer link visible (footer also has /docs — drawer is the first
-    // one in DOM order on mobile, before the footer).
-    const docsLink = page
-      .locator('a[href="/docs"]', { hasText: "Docs" })
+    // A real drawer link, not the footer's — "Docs" moved to footer-only in
+    // the Stage 11 nav rewrite, so `a[href="/docs"]` now resolves outside
+    // the drawer, whose click never calls the drawer's own onClick (setOpen)
+    // and so never resets the scroll lock. "For Grants" is one of the
+    // drawer's actual NAV_LINKS (Nav.tsx).
+    const grantsLink = page
+      .locator('a[href="/grants"]', { hasText: "For Grants" })
       .first();
-    await expect(docsLink).toBeVisible();
+    await expect(grantsLink).toBeVisible();
 
     // Body scroll locked while drawer is open.
     const overflow = await page.evaluate(() => document.body.style.overflow);
     expect(overflow).toBe("hidden");
 
     // Tap a nav link — drawer should auto-close and body scroll unlock.
-    await docsLink.click();
-    await page.waitForURL("**/docs");
+    await grantsLink.click();
+    await page.waitForURL("**/grants");
     const overflowAfter = await page.evaluate(() => document.body.style.overflow);
     expect(overflowAfter).toBe("");
   });
