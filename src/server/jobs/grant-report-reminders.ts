@@ -100,6 +100,7 @@ export const grantReportRemindersJob = schedules.task({
     let reminded = 0;
     let skippedNoEmail = 0;
     let skippedInactiveProject = 0;
+    let skippedAlreadyClaimed = 0;
     let failed = 0;
 
     const APP_URL =
@@ -125,25 +126,53 @@ export const grantReportRemindersJob = schedules.task({
           continue;
         }
 
+        // Atomic claim BEFORE sending, not a record-after-send. Only a run
+        // whose WHERE clause actually matches (row still NULL) gets a row
+        // back — a crash after this point can't cause a resend (the claim
+        // already committed), and two concurrent runs querying the same
+        // eligible row can't both win the claim (only one UPDATE affects the
+        // row; the loser's RETURNING is empty).
+        const [claimed] = await db
+          .update(grantAwards)
+          .set({ lastRemindedAt: new Date() })
+          .where(
+            and(
+              eq(grantAwards.id, award.id),
+              isNull(grantAwards.lastRemindedAt)
+            )
+          )
+          .returning({ id: grantAwards.id });
+        if (!claimed) {
+          // Already claimed by a concurrent/prior run.
+          skippedAlreadyClaimed++;
+          continue;
+        }
+
         // There's no specific report yet to link to (unlike
         // `report_generated`'s link to a report id) — route to the project's
         // reports list.
         const reportsPath = `/projects/${project.id}/reports`;
         const projectUrl = `${APP_URL}${reportsPath}`;
 
-        await sendGrantReportDueEmail({
-          to: { name: founder.name ?? "there", email: founder.email },
-          projectName: project.name,
-          projectUrl,
-          grantorName: award.grantor,
-          program: award.program,
-          dueDate: award.nextReportDue as string,
-        });
-
-        await db
-          .update(grantAwards)
-          .set({ lastRemindedAt: new Date() })
-          .where(eq(grantAwards.id, award.id));
+        try {
+          await sendGrantReportDueEmail({
+            to: { name: founder.name ?? "there", email: founder.email },
+            projectName: project.name,
+            projectUrl,
+            grantorName: award.grantor,
+            program: award.program,
+            dueDate: award.nextReportDue as string,
+          });
+        } catch (sendErr) {
+          // Un-claim so a transient send failure doesn't silently cost the
+          // award its reminder cycle — it becomes eligible again on
+          // tomorrow's run instead of being stuck NOT-NULL forever.
+          await db
+            .update(grantAwards)
+            .set({ lastRemindedAt: null })
+            .where(eq(grantAwards.id, award.id));
+          throw sendErr;
+        }
 
         await notify(project.userId, {
           type: "grant_report_due",
@@ -170,6 +199,7 @@ export const grantReportRemindersJob = schedules.task({
       reminded,
       skippedNoEmail,
       skippedInactiveProject,
+      skippedAlreadyClaimed,
       failed,
     };
     console.log("grant-report-reminders complete:", summary);
