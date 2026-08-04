@@ -381,7 +381,18 @@ const executiveSummary: ReportSection = {
     "3-4 sentence opening: where the treasury sits, biggest change vs. last month, one forward-looking statement.",
   defaultEnabled: true,
   requires: () => true,
-  userPromptFragment: () => "", // handled implicitly by snapshot context
+  // Real anchor figures, reusing the same `headlineLines` computation
+  // `key_takeaways` already relies on — without this the section's own
+  // system-prompt rules ("Use exact numbers") had nothing concrete to point
+  // at, and the model would echo a literal placeholder like "$X.XM" instead
+  // (a confirmed production bug: two other sections' rule text elsewhere in
+  // the same system prompt contain literal "$X"-shaped examples, and with no
+  // real figure of its own the model pattern-matched onto one of those).
+  userPromptFragment: (ctx) => {
+    const lines = headlineLines(ctx);
+    if (lines.length === 0) return "";
+    return `\n## Executive Summary Anchor Figures\n${lines.join("\n")}`;
+  },
   systemPromptFragment: executiveSummaryRules("last month"),
   systemPromptFragmentFor: (ctx) =>
     executiveSummaryRules(lastPeriodPhrase(ctx.period)),
@@ -1639,7 +1650,7 @@ const majorTransactions: ReportSection = {
 - Only render when the input contains a "## Major transactions" block.
 - Render a table with the columns Date | Direction | Amount | Asset | Category | Counterparty | Transfers, one row per listed transaction, values copied from the input. A row whose Date reads "unknown" has no usable timestamp in the stored data — leave that cell blank rather than guessing or inferring a date.
 - **One row is one transaction.** A row whose Transfers column reads 8 is ONE transaction comprising eight transfers — say it that way, or say nothing about the count. Writing "8 transactions", counting it eight times in any total, or listing the transfers as separate rows all misstate what happened. An asset shown as "multiple assets" or a counterparty shown as "N counterparties" is a transaction with several transfers, not several transactions.
-- **An amount marked with an asterisk is a floor, and must be described as one** — "at least $X". One of its transfers had no resolvable price and is excluded from the figure. Never present that number as the transaction's exact value.
+- **An amount marked with an asterisk is a floor, and must be described as one** — state it as "at least" followed by the real figure from the row, never a placeholder character in place of a number. One of its transfers had no resolvable price and is excluded from the figure. Never present that number as the transaction's exact value.
 - **Never invent a purpose for a transfer.** The input records what moved, when, and to or from whom. It does not record why. Commentary is allowed only where the category and counterparty in the row already carry it: "a $1.2M USDC transfer to Binance, classified as a token sale" is supportable because every element of it is in the input. "Sold treasury assets to fund operations", "paid down vendor obligations", "deployed capital into the ecosystem", "took profit" are NOT supportable — each asserts an intent the data cannot show.
 - A counterparty shown as a truncated address ("0x1234…abcd") is an address and nothing else. Do not name an entity, a relationship, or a category of business for it. A row marked "unclassified" or "unidentified address" gets stated plainly, with no inference attached.
 - At most two sentences of commentary in total, and only if a row genuinely supports it. A bare table with no commentary is a correct, complete answer here.
@@ -2335,11 +2346,19 @@ const milestonesCompleted: ReportSection = {
   description:
     "Milestones marked completed during the reporting period.",
   defaultEnabled: true,
+  // Excludes grant-owned milestones (grantAwardId set) — those surface only
+  // via `grant_milestone_progress`. `requires` and `userPromptFragment` share
+  // the same predicate so they can never disagree, matching the discipline
+  // Stage 10 already established for `financial_health`.
   requires: (ctx) =>
-    ctx.milestones.some((m) => m.status === "completed" && m.completedDate),
+    ctx.milestones.some(
+      (m) => m.grantAwardId == null && m.status === "completed" && m.completedDate
+    ),
   userPromptFragment: (ctx) => {
     const recently = ctx.milestones
-      .filter((m) => m.status === "completed" && m.completedDate)
+      .filter(
+        (m) => m.grantAwardId == null && m.status === "completed" && m.completedDate
+      )
       .sort((a, b) =>
         String(b.completedDate ?? "").localeCompare(
           String(a.completedDate ?? "")
@@ -2583,7 +2602,7 @@ const nextPeriodForecast: ReportSection = {
   systemPromptFragment: `### Next Period Projection (CONDITIONAL)
 - Only render when the input contains a "## Mechanical projection for the next period" block. Three sentences, maximum, plus at most two figures.
 - **Open by naming what this is: a mechanical projection, not a prediction.** The first sentence must carry both the label and the assumptions — prices flat and spending continuing at the trailing average — in the same breath as the number. A projected figure quoted before its assumptions has already misled the reader; a caveat in a later sentence does not undo that.
-- **Forbidden verbs and phrasings, without exception:** "will", "expects to", "is on track to", "is projected to reach", "should", "anticipates", "forecasts", "by year end". Use conditional framing only: "if the trailing average net flow repeats and prices hold, reserves would sit near $X". "Would", "if", and "at this rate" are the register.
+- **Forbidden verbs and phrasings, without exception:** "will", "expects to", "is on track to", "is projected to reach", "should", "anticipates", "forecasts", "by year end". Use conditional framing only, with the real computed figure — never a placeholder: "if the trailing average net flow repeats and prices hold, reserves would sit near" followed by the actual number. "Would", "if", and "at this rate" are the register.
 - **Never project, mention, or imply a future token price, market cap, or valuation** — not as a number, not as a direction, not as a range. The input contains no price projection because a price projection cannot be made honestly, and inventing one is the single worst error available in this section.
 - Do not attach a probability, a confidence level, or a word like "likely", "conservative", "comfortable" or "healthy" to the projection. It is arithmetic with no error bars.
 - If the input says the projection breaks down or the projected figure is negative, say that the trailing average cannot be extended this far — never report a negative balance, a runway of zero, or a date the project runs out of money.
@@ -2643,20 +2662,25 @@ const lookingAhead: ReportSection = {
     "Forward-looking commentary tied to active milestones or recent funding round.",
   defaultEnabled: true,
   requires: (ctx) => {
+    // Excludes grant-owned milestones (grantAwardId set) — those belong to
+    // `grant_milestone_progress` only, matching `milestones_completed`'s own
+    // filter.
     const hasActive = ctx.milestones.some(
       (m) =>
-        m.status === "in_progress" ||
-        m.status === "planned" ||
-        m.status === "delayed"
+        m.grantAwardId == null &&
+        (m.status === "in_progress" ||
+          m.status === "planned" ||
+          m.status === "delayed")
     );
     return hasActive || Boolean(ctx.project.lastFundingRound);
   },
   userPromptFragment: (ctx) => {
     const active = ctx.milestones.filter(
       (m) =>
-        m.status === "in_progress" ||
-        m.status === "planned" ||
-        m.status === "delayed"
+        m.grantAwardId == null &&
+        (m.status === "in_progress" ||
+          m.status === "planned" ||
+          m.status === "delayed")
     );
     if (active.length === 0) return "";
     return `\n## Active / Upcoming Milestones\n${active
@@ -2794,13 +2818,16 @@ const SECTION_BY_ID: Record<string, ReportSection> = Object.fromEntries(
 // Sections whose system rule must reach the model even when their own
 // userPromptFragment is empty this period — because they are designed to
 // write something regardless: a graceful "nothing material" sentence
-// (Lows/Concerns), or content assembled implicitly from the whole context
-// rather than a dedicated data block (Executive Summary). Every other
-// section must go silent — rule and all — when its own fragment produces
-// nothing, or the model can (and did, in production) reconstruct that
-// section's narrative from figures that belong to a different section,
-// obeying the letter of "use only the provided data" while violating the
-// point of it.
+// (Lows/Concerns), or — for Executive Summary — the rare case where
+// `headlineLines` itself has nothing (no total, no prior snapshot, no
+// liquidity data). Executive Summary's fragment is non-empty for virtually
+// every real snapshot now (see `headlineLines` reuse above); this entry is a
+// belt-and-suspenders guarantee for the empty case, not a claim that the
+// fragment is inherently always empty. Every other section must go silent —
+// rule and all — when its own fragment produces nothing, or the model can
+// (and did, in production) reconstruct that section's narrative from figures
+// that belong to a different section, obeying the letter of "use only the
+// provided data" while violating the point of it.
 const ALWAYS_INCLUDE_RULE = new Set(["executive_summary", "lows_concerns"]);
 
 /** Library position by id — the canonical order a stored config deviates from. */
@@ -3005,6 +3032,34 @@ ${sectionRules}
 - **The budget is shared across every section above, and it is not a target to fill.** If the input is thin, write a short report — padding is the failure mode this whole prompt is built to avoid. But the ceiling is not permission to drop a section either: when the word count is under pressure, tighten prose everywhere before removing anything the input supports. A section silently omitted because the budget ran out is indistinguishable, to the reader, from a section the data could not support.`;
 }
 
+/**
+ * The ids of `enabled` sections that produced a non-empty user-prompt
+ * fragment for this context — i.e. sections whose data block actually
+ * reached the model this generation, not merely sections toggled on.
+ *
+ * `buildUserPrompt` computes exactly this filter (`requires(ctx)` AND a
+ * non-empty `userPromptFragment(ctx)`) to build its data blocks; pulled out
+ * here so a second caller — `validateReportContent`'s post-hoc consistency
+ * checks in prompts.ts — can ask "did section X have real content this
+ * generation" without recomputing the filter itself and risking disagreement
+ * with what the user prompt actually contains. Same discipline as
+ * `financialHealthLines`/`treasuryOverviewHasContent`: one function is the
+ * single source of truth for "does this section have content," read by every
+ * caller that needs the answer.
+ */
+export function sectionIdsWithContent(
+  ctx: ReportSectionContext,
+  enabled: ReportSection[]
+): Set<string> {
+  const ids = new Set<string>();
+  for (const s of enabled) {
+    if (s.requires(ctx) && s.userPromptFragment(ctx).trim().length > 0) {
+      ids.add(s.id);
+    }
+  }
+  return ids;
+}
+
 export function buildUserPrompt(
   ctx: ReportSectionContext,
   enabled: ReportSection[]
@@ -3049,10 +3104,10 @@ export function buildUserPrompt(
     }`
   );
 
+  const contentIds = sectionIdsWithContent(ctx, enabled);
   const dataBlocks = enabled
-    .filter((s) => s.requires(ctx))
-    .map((s) => s.userPromptFragment(ctx))
-    .filter((s) => s && s.trim().length > 0);
+    .filter((s) => contentIds.has(s.id))
+    .map((s) => s.userPromptFragment(ctx));
 
   return `\n## Project Context\n${ctxLines.join("\n")}${dataBlocks.join("")}
 

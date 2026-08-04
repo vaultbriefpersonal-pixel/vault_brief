@@ -229,6 +229,12 @@ function completedMilestones(ctx: ReportSectionContext): EvidenceItem[] {
     .filter(
       (m) =>
         m != null &&
+        // A milestone attached to a grant award surfaces only via
+        // `grant_milestone_progress` (report-derived.ts's
+        // `m.grantAwardId === award.id` filter) — never here. Confirmed live
+        // production bug: a grant-owned milestone leaked into an investor
+        // report's Wins/Key Takeaways even with every grant section off.
+        m.grantAwardId == null &&
         m.status === "completed" &&
         m.completedDate != null &&
         dateInPeriod(m.completedDate, ctx.period)
@@ -365,7 +371,9 @@ function githubActivity(ctx: ReportSectionContext): EvidenceItem[] {
 
 function delayedMilestones(ctx: ReportSectionContext): EvidenceItem[] {
   return ctx.milestones
-    .filter((m) => m != null && m.status === "delayed")
+    .filter(
+      (m) => m != null && m.grantAwardId == null && m.status === "delayed"
+    )
     .slice(0, MAX_MILESTONE_ITEMS)
     .map((m, i) =>
       item(
@@ -376,6 +384,44 @@ function delayedMilestones(ctx: ReportSectionContext): EvidenceItem[] {
         }${m.description ? ` — ${m.description}` : ""}`
       )
     );
+}
+
+/**
+ * Net flow this period was materially negative — the fact "no material
+ * concerns" cannot be true alongside.
+ *
+ * `netFlowOf(ctx)` reads `ctx.snapshot.netFlowUsd` directly: the same
+ * authoritative figure `financialHealthLines` (report-sections.ts) prints as
+ * "Net flow (inflows minus outflows)", computed at sync time from the FULL
+ * unsampled transaction list — not the sampled major-transactions list. This
+ * function is the missing route from that figure into the evidence ledger,
+ * which is what `lowsConcerns` and `keyTakeaways` actually read from —
+ * `financialHealthLines` prints the number in a different section entirely,
+ * so its presence there never stopped Lows/Concerns from independently
+ * deciding there was nothing to flag. Confirmed as a real production gap: a
+ * large one-off outflow that doesn't trip the 30%-move anomaly threshold and
+ * doesn't shrink runway by the 0.5-month floor produced zero negative
+ * evidence, while the net-flow figure printed elsewhere in the same report.
+ *
+ * Gated on `ctx.minSignificant` — `changeSignificanceFloor(ctx.total)`, this
+ * codebase's standard materiality floor (0.1% of treasury, $1,000 floor) —
+ * the same bar `attributionConcerns`'s `unpricedUsd` check already uses. No
+ * `prevSnapshot` requirement, unlike `runwayShrinking`/`attributionConcerns`:
+ * this is a fact about the period's own transactions, not a comparison
+ * across snapshots, so it can fire on a project's very first snapshot.
+ */
+function materialNetOutflow(ctx: ReportSectionContext): EvidenceItem | null {
+  const netFlow = netFlowOf(ctx);
+  if (netFlow === null || netFlow >= 0) return null;
+  if (Math.abs(netFlow) <= ctx.minSignificant) return null;
+
+  return item(
+    "material-net-outflow",
+    "Net flow this period was negative and past the reporting materiality floor",
+    `${signedUsd(netFlow)} net flow this period (inflows minus outflows), against a materiality floor of ${formatUsd(
+      ctx.minSignificant
+    )}`
+  );
 }
 
 /**
@@ -719,6 +765,7 @@ export function buildEvidenceLedger(ctx: ReportSectionContext): EvidenceLedger {
 
   const negatives: EvidenceItem[] = [
     ...delayedMilestones(ctx),
+    materialNetOutflow(ctx),
     runwayShrinking(ctx),
     concentration(ctx),
     stablecoinCover(ctx),

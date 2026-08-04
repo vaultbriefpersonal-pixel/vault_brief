@@ -6,6 +6,7 @@ import {
   getSectionById,
   resolveSections,
   resolveSystemRules,
+  sectionIdsWithContent,
   SECTION_LIBRARY,
   type ReportSection,
   type ReportSectionContext,
@@ -1743,6 +1744,51 @@ describe("buildSystemPrompt gates conditional rules by data presence", () => {
   });
 });
 
+// Real production bug: `executive_summary`'s userPromptFragment was a
+// permanent no-op ("handled implicitly by snapshot context"), so its own
+// system rule ("Use exact numbers") had no real figure to point at — the
+// model echoed a literal "$X.XM"/"$XXM" placeholder instead, confirmed in
+// 3/3 live-generated reports. The fix reuses `key_takeaways`' own
+// `headlineLines` computation so the section always gets real anchor figures
+// when any exist.
+describe("executive_summary — real anchor figures, not a permanent no-op", () => {
+  it("supplies a non-empty fragment containing the real formatted treasury total", () => {
+    const ctx = contextWith({});
+    const fragment = section("executive_summary").userPromptFragment(ctx);
+    expect(fragment).not.toBe("");
+    expect(fragment).toContain("$8.5M");
+  });
+
+  it("is empty when headlineLines itself has nothing to anchor to — the ALWAYS_INCLUDE_RULE safety net still applies at the rule level", () => {
+    const ctx = contextWith({}, null, { total: 0, minSignificant: 0 });
+    const fragment = section("executive_summary").userPromptFragment(ctx);
+    expect(fragment).toBe("");
+  });
+
+  it("never contains a literal $X-shaped placeholder token", () => {
+    const fragment = section("executive_summary").userPromptFragment(
+      contextWith({})
+    );
+    expect(fragment).not.toMatch(/\$X\b/);
+  });
+});
+
+describe("no section's system-prompt rule text contains a literal $X placeholder", () => {
+  // Regression guard for the exact bug: two sections' rule text used to
+  // contain a literal "$X" fill-in-template example that the model could
+  // (and did) echo verbatim when a different section had no real number of
+  // its own to write. Both are conditional-framing sections, so the check
+  // uses `systemPromptFragment` directly rather than requiring a full ctx.
+  const ids = ["major_transactions", "next_period_forecast"];
+
+  for (const id of ids) {
+    it(`${id}'s rule text has no bare $X token`, () => {
+      const rules = section(id).systemPromptFragment as string;
+      expect(rules).not.toMatch(/\$X\b/);
+    });
+  }
+});
+
 // ─── anomalies ─────────────────────────────────────────────────────────────
 //
 // The section used to declare `requires: () => true` and an empty fragment,
@@ -2985,6 +3031,57 @@ describe("burn normalisation for custom periods", () => {
   });
 });
 
+// ─── sectionIdsWithContent ──────────────────────────────────────────────────
+//
+// Pulled out of `buildUserPrompt`'s own inline filter so a second caller
+// (`validateReportContent`'s post-hoc consistency checks in prompts.ts) can
+// ask "did section X have real content this generation" without recomputing
+// the filter and risking disagreement with what the user prompt actually
+// contains. These tests pin the contract that filter must honor.
+
+describe("sectionIdsWithContent", () => {
+  it("includes lows_concerns when the evidence ledger has negatives", () => {
+    const ctx = contextWith({}, null, {
+      milestones: [
+        {
+          id: "m1",
+          title: "Mainnet v2",
+          status: "delayed",
+          targetDate: "2026-03-01",
+        },
+      ] as never,
+    });
+    const ids = sectionIdsWithContent(ctx, resolveSections(null));
+    expect(ids.has("lows_concerns")).toBe(true);
+  });
+
+  it("excludes lows_concerns when the evidence ledger is empty", () => {
+    const ctx = contextWith({}, null, { total: 0, minSignificant: 0 });
+    const ids = sectionIdsWithContent(ctx, resolveSections(null));
+    expect(ids.has("lows_concerns")).toBe(false);
+  });
+
+  it("excludes key_takeaways when headline figures and evidence are both empty", () => {
+    const ctx = contextWith({}, null, { total: 0, minSignificant: 0 });
+    const ids = sectionIdsWithContent(ctx, resolveSections(null));
+    expect(ids.has("key_takeaways")).toBe(false);
+  });
+
+  it("excludes a conditional section whose requires() is false even though it's in `enabled`", () => {
+    // grant_fund_usage is in the library but requires an actual grant award
+    // to have content — being toggled "enabled" is not the same as having
+    // something to say.
+    const ctx = contextWith({}, null, { grantAwards: [], grantTranches: [] });
+    const enabled = SECTION_LIBRARY.map((s) => s.id).includes("grant_fund_usage")
+      ? resolveSections([
+          ...SECTION_LIBRARY.map((s) => ({ id: s.id, enabled: true })),
+        ])
+      : resolveSections(null);
+    const ids = sectionIdsWithContent(ctx, enabled);
+    expect(ids.has("grant_fund_usage")).toBe(false);
+  });
+});
+
 // ─── the byte-identity contract ────────────────────────────────────────────
 //
 // The single most important test in this file for Phase 1. Every period-aware
@@ -3570,10 +3667,44 @@ describe("grant_milestone_progress", () => {
     expect(grantDeliverables(ctx)).toHaveLength(0);
   });
 
-  it("runs alongside milestones_completed rather than replacing it", () => {
+  it("looking_ahead excludes a grant-owned active milestone the same way milestones_completed does", () => {
+    const active = milestone({
+      id: "m-active",
+      status: "in_progress",
+      completedDate: null,
+    }); // default fixture already sets grantAwardId: AWARD_ID
+    const ctx = grantContext({ milestones: [active] as never });
+    expect(section("looking_ahead").requires(ctx)).toBe(false);
+
+    const nonGrantActive = milestone({
+      id: "m-active-2",
+      status: "in_progress",
+      completedDate: null,
+      grantAwardId: null,
+    });
+    const ctxNoGrant = grantContext({
+      milestones: [nonGrantActive] as never,
+    });
+    expect(section("looking_ahead").requires(ctxNoGrant)).toBe(true);
+  });
+
+  it("is filtered OUT of milestones_completed once it belongs to a grant award — grant-owned milestones surface only via grant_milestone_progress", () => {
+    // `milestone()`'s default fixture sets grantAwardId: AWARD_ID. This used
+    // to assert the opposite (both sections satisfied at once) as correct —
+    // a confirmed production bug: a grant-owned milestone leaked into a
+    // plain investor report's Wins/Milestones Completed even with every
+    // grant section toggled off.
     const ctx = grantContext({ milestones: [milestone()] as never });
-    expect(section("milestones_completed").requires(ctx)).toBe(true);
+    expect(section("milestones_completed").requires(ctx)).toBe(false);
     expect(section("grant_milestone_progress").requires(ctx)).toBe(true);
+  });
+
+  it("a milestone with no grant award still satisfies milestones_completed, not grant_milestone_progress", () => {
+    const ctx = grantContext({
+      milestones: [milestone({ grantAwardId: null })] as never,
+    });
+    expect(section("milestones_completed").requires(ctx)).toBe(true);
+    expect(section("grant_milestone_progress").requires(ctx)).toBe(false);
   });
 });
 

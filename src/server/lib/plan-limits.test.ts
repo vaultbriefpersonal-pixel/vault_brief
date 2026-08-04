@@ -17,6 +17,7 @@ import { db } from "@/server/db";
 import {
   assertCanGenerateReport,
   reportAllowance,
+  shouldSkipAutoGenerateForFreshGrantProject,
   FREE_REPORT_LIMIT,
 } from "./plan-limits";
 
@@ -171,5 +172,44 @@ describe("every report-writing path consults the cap", () => {
       // The gate must precede the write, not merely coexist with it.
       expect(gate).toBeLessThan(write);
     });
+
+    it(`${path} consults shouldSkipAutoGenerateForFreshGrantProject before generating a report`, () => {
+      const src = readFileSync(path, "utf8");
+
+      const gate = src.indexOf("shouldSkipAutoGenerateForFreshGrantProject(");
+      const write = src.indexOf("generateAndSaveReport(");
+      expect(gate).toBeGreaterThan(-1);
+      expect(gate).toBeLessThan(write);
+    });
   }
+});
+
+// A fresh project's ONE free report must never be silently spent as a
+// generic investor report before the founder has ever chosen grant vs.
+// investor + period + preset. See the function's own comment for why this
+// is scoped to "no report ever" and to `grant_awards` existence.
+describe("shouldSkipAutoGenerateForFreshGrantProject", () => {
+  it("skips a fresh project with a grant award and no report yet — the bug case", () => {
+    expect(
+      shouldSkipAutoGenerateForFreshGrantProject(false, true)
+    ).toBe(true);
+  });
+
+  it("does not skip an ordinary fresh investor project (no grant award)", () => {
+    expect(
+      shouldSkipAutoGenerateForFreshGrantProject(false, false)
+    ).toBe(false);
+  });
+
+  it("does not skip once the project already has a report, even with a grant award", () => {
+    expect(
+      shouldSkipAutoGenerateForFreshGrantProject(true, true)
+    ).toBe(false);
+  });
+
+  it("does not skip a project with an existing report and no grant award", () => {
+    expect(
+      shouldSkipAutoGenerateForFreshGrantProject(true, false)
+    ).toBe(false);
+  });
 });

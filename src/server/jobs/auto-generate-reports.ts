@@ -2,6 +2,7 @@ import { schedules } from "@trigger.dev/sdk/v3";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/server/db";
 import {
+  grantAwards,
   projects,
   reports,
   treasurySnapshots,
@@ -14,6 +15,7 @@ import { notify } from "@/server/services/notifications";
 import {
   filterEligibleProjects,
   reportAllowance,
+  shouldSkipAutoGenerateForFreshGrantProject,
 } from "@/server/lib/plan-limits";
 import { renderAndStorePDF } from "@/server/services/pdf-storage";
 
@@ -51,6 +53,13 @@ export const autoGenerateReportsJob = schedules.task({
     // BUSINESS outcome, not a data one. A rising number here is free projects
     // hitting the cap, which is the signal that the cap is working.
     let skippedOverReportLimit = 0;
+    // A project that has never had ANY report and is actively set up for
+    // grant reporting — see `shouldSkipAutoGenerateForFreshGrantProject`.
+    // This cron's own 5-day freshness window means a grant-focused project's
+    // very first sync, if it lands just before this cron runs, would
+    // otherwise recreate the same wrongly-typed investor report a few days
+    // later through this second automatic path.
+    let skippedGrantProjectNeedsFirstChoice = 0;
     let failed = 0;
 
     for (const project of activeProjects) {
@@ -87,6 +96,26 @@ export const autoGenerateReportsJob = schedules.task({
         });
         if (existingReport) {
           skippedAlreadyHasReport++;
+          continue;
+        }
+
+        const [anyReportEver, anyGrantAward] = await Promise.all([
+          db.query.reports.findFirst({
+            where: eq(reports.projectId, project.id),
+            columns: { id: true },
+          }),
+          db.query.grantAwards.findFirst({
+            where: eq(grantAwards.projectId, project.id),
+            columns: { id: true },
+          }),
+        ]);
+        if (
+          shouldSkipAutoGenerateForFreshGrantProject(
+            !!anyReportEver,
+            !!anyGrantAward
+          )
+        ) {
+          skippedGrantProjectNeedsFirstChoice++;
           continue;
         }
 
@@ -194,6 +223,7 @@ export const autoGenerateReportsJob = schedules.task({
       skippedNoSnapshot,
       skippedAlreadyHasReport,
       skippedOverReportLimit,
+      skippedGrantProjectNeedsFirstChoice,
       failed,
     };
     console.log("auto-generate-reports complete:", summary);

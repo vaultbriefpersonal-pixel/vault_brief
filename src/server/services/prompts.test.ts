@@ -145,6 +145,159 @@ describe("validateReportContent — forbidden-phrase scan (A7)", () => {
   });
 });
 
+describe("validateReportContent — length/completeness floor", () => {
+  const clean = snapshot(null);
+
+  it("fails on the real production incident: a completion cut off mid-sentence", () => {
+    const result = validateReportContent(
+      "### Executive Summary\n\nThe treasury balance is currently $XXM.\n\n### Lows / Concerns\n\n- No material concerns this period — burn and runway tracking to plan.\n\n### Financial Health\n\nRun",
+      clean,
+      13
+    );
+    expect(result.passed).toBe(false);
+    expect(result.issues.some((i) => i.includes("implausibly short"))).toBe(
+      true
+    );
+  });
+
+  it("passes a realistic, long multi-section report at the same section count", () => {
+    const section = (title: string) =>
+      `### ${title}\n\n${"Real narrative content for this section, several sentences long, grounded in this period's actual data. ".repeat(3)}\n\n`;
+    const long = Array.from({ length: 13 }, (_, i) => section(`Section ${i}`)).join("");
+    const result = validateReportContent(long, clean, 13);
+    expect(result.passed).toBe(true);
+  });
+
+  it("does not over-trigger on a legitimate short single-section report", () => {
+    const result = validateReportContent(
+      "### Executive Summary\n\nTreasury stands at $1.2M this period, down slightly from last month, driven mainly by routine operating expenses and a scheduled vendor payment. No material changes to report this period — burn and runway both remain squarely on plan, and no forward-looking commitments changed since the last update.",
+      clean,
+      1
+    );
+    expect(result.passed).toBe(true);
+  });
+
+  it("skips the length check entirely when enabledSectionCount is omitted", () => {
+    const result = validateReportContent("Nothing here.", clean);
+    expect(result.passed).toBe(true);
+  });
+});
+
+describe("validateReportContent — Lows/Concerns contradiction guard", () => {
+  const clean = snapshot(null);
+  const contradictoryMarkdown =
+    "### Executive Summary\n\nSome narrative here.\n\n### Lows / Concerns\n\n- No material concerns this period — burn and runway tracking to plan.\n\n### Financial Health\n\nMore narrative here.";
+
+  it("fails when the section says 'no material concerns' but sectionsWithContent says it had evidence", () => {
+    const result = validateReportContent(
+      contradictoryMarkdown,
+      clean,
+      undefined,
+      new Set(["lows_concerns"])
+    );
+    expect(result.passed).toBe(false);
+    expect(result.issues.some((i) => i.includes("contradicts"))).toBe(true);
+  });
+
+  it("passes the identical markdown when sectionsWithContent omits lows_concerns", () => {
+    const result = validateReportContent(
+      contradictoryMarkdown,
+      clean,
+      undefined,
+      new Set()
+    );
+    expect(result.passed).toBe(true);
+  });
+
+  it("passes when Lows/Concerns has real content and never uses the phrase", () => {
+    const markdown =
+      "### Lows / Concerns\n\n- Net flow this period was negative and past the reporting materiality floor: -$2.0M net flow.\n\n### Financial Health\n\nMore text.";
+    const result = validateReportContent(
+      markdown,
+      clean,
+      undefined,
+      new Set(["lows_concerns"])
+    );
+    expect(result.passed).toBe(true);
+  });
+
+  it("skips the check entirely when sectionsWithContent is omitted", () => {
+    const result = validateReportContent(contradictoryMarkdown, clean);
+    expect(result.passed).toBe(true);
+  });
+});
+
+describe("validateReportContent — Key Takeaways figure guard", () => {
+  const clean = snapshot(null);
+
+  it("fails when a bullet carries no figure", () => {
+    const markdown =
+      "### Key Takeaways\n\n- Runway looks healthy\n- Burn dropped a lot\n\n### Wins this period\n\nMore text.";
+    const result = validateReportContent(
+      markdown,
+      clean,
+      undefined,
+      new Set(["key_takeaways"])
+    );
+    expect(result.passed).toBe(false);
+    expect(result.issues.some((i) => i.includes("no figure"))).toBe(true);
+  });
+
+  it("fails when the section renders with zero bullets", () => {
+    const markdown =
+      "### Key Takeaways\n\nJust a prose paragraph, no bullets at all.\n\n### Wins this period\n\nMore text.";
+    const result = validateReportContent(
+      markdown,
+      clean,
+      undefined,
+      new Set(["key_takeaways"])
+    );
+    expect(result.passed).toBe(false);
+    expect(result.issues.some((i) => i.includes("zero bullets"))).toBe(true);
+  });
+
+  it("fails when the Key Takeaways heading itself is missing", () => {
+    const markdown = "### Wins this period\n\nSome text, no takeaways heading.";
+    const result = validateReportContent(
+      markdown,
+      clean,
+      undefined,
+      new Set(["key_takeaways"])
+    );
+    expect(result.passed).toBe(false);
+  });
+
+  it("passes when every bullet carries a figure", () => {
+    const markdown =
+      "### Key Takeaways\n\n- Treasury stands at $8.5M this period\n- Runway is 14.2 months\n- Net flow was -$2.0M\n\n### Wins this period\n\nMore text.";
+    const result = validateReportContent(
+      markdown,
+      clean,
+      undefined,
+      new Set(["key_takeaways"])
+    );
+    expect(result.passed).toBe(true);
+  });
+
+  it("does not require a minimum of 3 bullets", () => {
+    const markdown =
+      "### Key Takeaways\n\n- Treasury stands at $8.5M this period\n\n### Wins this period\n\nMore text.";
+    const result = validateReportContent(
+      markdown,
+      clean,
+      undefined,
+      new Set(["key_takeaways"])
+    );
+    expect(result.passed).toBe(true);
+  });
+
+  it("skips the check when sectionsWithContent doesn't include key_takeaways", () => {
+    const markdown = "### Key Takeaways\n\n- Runway looks healthy\n- Burn dropped a lot";
+    const result = validateReportContent(markdown, clean, undefined, new Set());
+    expect(result.passed).toBe(true);
+  });
+});
+
 // ─── grant data reaching the prompt ────────────────────────────────────────
 //
 // End-to-end through `buildReportPrompts`, not through a hand-built context.
@@ -271,5 +424,33 @@ describe("buildReportPrompts — grant awards", () => {
     expect(user).toContain(
       "Not yet disbursed under the award (awarded minus received to date): $1.8M"
     );
+  });
+});
+
+describe("buildReportPrompts — sectionsWithContent", () => {
+  it("reports lows_concerns and key_takeaways when the snapshot has real evidence", () => {
+    const { sectionsWithContent, user } = buildReportPrompts({
+      snapshot: {
+        ...grantSnapshot,
+        netFlowUsd: "-2000000",
+      } as unknown as TreasurySnapshot,
+      project: grantProject,
+    });
+    expect(sectionsWithContent.has("lows_concerns")).toBe(true);
+    expect(sectionsWithContent.has("key_takeaways")).toBe(true);
+    expect(user).toContain("Net flow this period was negative");
+  });
+
+  it("omits key_takeaways when neither headline figures nor evidence exist", () => {
+    const { sectionsWithContent } = buildReportPrompts({
+      snapshot: {
+        id: "s1",
+        projectId: "p1",
+        snapshotDate: "2026-04-30",
+        totalBalanceUsd: null,
+      } as unknown as TreasurySnapshot,
+      project: grantProject,
+    });
+    expect(sectionsWithContent.has("key_takeaways")).toBe(false);
   });
 });

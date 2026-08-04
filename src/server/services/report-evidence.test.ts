@@ -538,6 +538,35 @@ describe("milestones", () => {
     expect(negatives.map((n) => n.claim).join(" ")).toContain("Mainnet v2");
   });
 
+  // Confirmed live production bug: a milestone attached to a grant award
+  // leaked into an investor report's Wins/Lows even with every grant section
+  // toggled off. Grant-owned milestones belong only to
+  // `grant_milestone_progress` (report-derived.ts), never to the generic
+  // Wins/Lows evidence ledger.
+  it("excludes a grant-owned completed milestone from positives", () => {
+    const grantOwned = { ...inPeriod, grantAwardId: "award-1" };
+    const { positives } = buildEvidenceLedger(
+      ctxOf({
+        milestones: [grantOwned] as ReportSectionContext["milestones"],
+      })
+    );
+    expect(positives.map((p) => p.claim).join(" ")).not.toContain(
+      "Audit closed"
+    );
+  });
+
+  it("excludes a grant-owned delayed milestone from negatives", () => {
+    const grantOwnedDelayed = { ...delayed, grantAwardId: "award-1" };
+    const { negatives } = buildEvidenceLedger(
+      ctxOf({
+        milestones: [grantOwnedDelayed] as ReportSectionContext["milestones"],
+      })
+    );
+    expect(negatives.map((n) => n.claim).join(" ")).not.toContain(
+      "Mainnet v2"
+    );
+  });
+
   // `milestones.completedDate` is a real `date` column, so the period match is
   // the exact one and not a 'YYYY-MM' prefix. For a month the two agree; for a
   // window starting mid-month only the exact one is right.
@@ -738,6 +767,80 @@ describe("liquidity and burn concerns", () => {
     const { positives, negatives } = buildEvidenceLedger(ctxOf({ snapshot: curr }));
     expect(ids(positives)).not.toContain("burn-decelerating");
     expect(ids(negatives)).not.toContain("burn-accelerating");
+  });
+});
+
+// ─── material net outflow ───────────────────────────────────────────────────
+//
+// Confirmed production gap: a large one-off outflow that doesn't trip the
+// anomaly threshold and doesn't shrink runway by the reporting floor produced
+// ZERO negative evidence, while the net-flow figure printed elsewhere in the
+// same report — leaving "no material concerns" legitimately true from the
+// evidence ledger's point of view despite a real, material outflow.
+
+describe("material net outflow", () => {
+  it("flags a materially negative net flow when nothing else does", () => {
+    const curr = snapshot({
+      totalBalanceUsd: "10000000",
+      netFlowUsd: "-2000000",
+    } as Partial<TreasurySnapshot>);
+    const { negatives } = buildEvidenceLedger(ctxOf({ snapshot: curr }));
+    expect(ids(negatives)).toContain("material-net-outflow");
+    expect(negatives).toHaveLength(1);
+  });
+
+  it("does not fire below the materiality floor", () => {
+    const curr = snapshot({
+      totalBalanceUsd: "10000000",
+      netFlowUsd: "-500",
+    } as Partial<TreasurySnapshot>);
+    const { negatives } = buildEvidenceLedger(ctxOf({ snapshot: curr }));
+    expect(ids(negatives)).not.toContain("material-net-outflow");
+  });
+
+  it("does not fire on a positive or zero net flow", () => {
+    const positive = snapshot({
+      totalBalanceUsd: "10000000",
+      netFlowUsd: "500000",
+    } as Partial<TreasurySnapshot>);
+    expect(
+      ids(buildEvidenceLedger(ctxOf({ snapshot: positive })).negatives)
+    ).not.toContain("material-net-outflow");
+
+    const zero = snapshot({
+      totalBalanceUsd: "10000000",
+      netFlowUsd: "0",
+    } as Partial<TreasurySnapshot>);
+    expect(
+      ids(buildEvidenceLedger(ctxOf({ snapshot: zero })).negatives)
+    ).not.toContain("material-net-outflow");
+  });
+
+  it("says nothing when netFlowUsd was never synced", () => {
+    const curr = snapshot({ totalBalanceUsd: "10000000" } as Partial<TreasurySnapshot>);
+    const { negatives } = buildEvidenceLedger(ctxOf({ snapshot: curr }));
+    expect(ids(negatives)).not.toContain("material-net-outflow");
+  });
+
+  it("keeps delayed milestones ahead of net-outflow concerns", () => {
+    const curr = snapshot({
+      totalBalanceUsd: "10000000",
+      netFlowUsd: "-2000000",
+    } as Partial<TreasurySnapshot>);
+    const delayed = {
+      id: "m1",
+      title: "Mainnet v2",
+      status: "delayed",
+      targetDate: "2026-03-01",
+    };
+    const { negatives } = buildEvidenceLedger(
+      ctxOf({
+        snapshot: curr,
+        milestones: [delayed] as ReportSectionContext["milestones"],
+      })
+    );
+    expect(negatives[0].id).toBe("milestone-delayed-0");
+    expect(negatives[1].id).toBe("material-net-outflow");
   });
 });
 

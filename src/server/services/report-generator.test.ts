@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import {
   cacheKey,
+  isOutputCacheable,
   narrowGrantDataForReport,
   resolveStoredSectionsForReport,
 } from "./report-generator";
@@ -162,5 +163,25 @@ describe("cacheKey — a grantId or presetId changes the hash", () => {
     expect(cacheKey(system, user, model, "grant-1", "preset-1")).toBe(
       cacheKey(system, user, model, "grant-1", "preset-1")
     );
+  });
+});
+
+// Real production incident: a 473-character completion, cut off mid-sentence,
+// was cached unconditionally under the old rule ("non-empty is enough") and
+// then replayed byte-for-byte on every Regenerate, since `llm_cache` has no
+// TTL or eviction. `isOutputCacheable` is the fix, pulled out as a pure
+// predicate for the same reason `cacheKey` itself is exported — `callLLM`
+// needs a DB + a real/mocked OpenRouter client to exercise directly.
+describe("isOutputCacheable", () => {
+  it("refuses to cache an empty completion regardless of validation", () => {
+    expect(isOutputCacheable("", { passed: true })).toBe(false);
+  });
+
+  it("refuses to cache a non-empty completion that failed validation", () => {
+    expect(isOutputCacheable("some text", { passed: false })).toBe(false);
+  });
+
+  it("allows caching a non-empty completion that passed validation", () => {
+    expect(isOutputCacheable("some text", { passed: true })).toBe(true);
   });
 });

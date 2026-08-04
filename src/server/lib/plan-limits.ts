@@ -156,3 +156,29 @@ export async function assertCanGenerateReport(
     message: allowance.reason ?? "Report limit reached",
   });
 }
+
+/**
+ * Should `projects.sync`'s and the monthly cron's auto-generate branches be
+ * skipped because this project has never had ANY report yet and is actively
+ * set up for grant reporting?
+ *
+ * Scoped to "no report EVER" (not "no report for this exact period"): the
+ * risk is a fresh project's ONE free report (`FREE_REPORT_LIMIT`) being spent
+ * as a generic investor report before the founder ever opens the period
+ * picker to choose grant/investor + period + preset. Once ANY report exists
+ * for the project, the founder has already engaged with report generation at
+ * least once and normal auto-generate behavior resumes for later periods —
+ * this only narrows the very-first-report path, it does not remove
+ * auto-generate as a feature.
+ *
+ * `grant_awards` existence, not a new column: same "existence over a new
+ * boolean" reasoning as `milestones.grantAwardId` and `presets.projectId`
+ * elsewhere in this codebase — a project either has a grant award on file or
+ * it doesn't, and that fact cannot disagree with itself.
+ */
+export function shouldSkipAutoGenerateForFreshGrantProject(
+  hasAnyReport: boolean,
+  hasGrantAward: boolean
+): boolean {
+  return !hasAnyReport && hasGrantAward;
+}

@@ -29,7 +29,11 @@ import {
   autofillLimiter,
 } from "@/server/lib/ratelimit";
 import { fetchTokenMetadata } from "@/server/services/project-autofill";
-import { assertTrialActive, reportAllowance } from "@/server/lib/plan-limits";
+import {
+  assertTrialActive,
+  reportAllowance,
+  shouldSkipAutoGenerateForFreshGrantProject,
+} from "@/server/lib/plan-limits";
 import {
   prepareMonthlySnapshot,
   writeSnapshot,
@@ -1014,6 +1018,40 @@ export const projectsRouter = router({
       // normal state, not a failure of it. So this returns the same shape as the
       // already-reported case — the caller sees `reportGenerated: false` and a
       // reason it can show — rather than throwing away a completed sync.
+      // Skip auto-generate for a project that has never had ANY report and
+      // is actively set up for grant reporting — the founder's ONE free
+      // report (see `reportAllowance` below) must not be silently spent as a
+      // generic investor report before they've ever opened the period picker
+      // to choose grant/investor + period + preset. See
+      // `shouldSkipAutoGenerateForFreshGrantProject`'s own comment for why
+      // this is scoped to "no report ever" and to `grant_awards` existence
+      // rather than a new column.
+      const [anyExistingReport, anyGrantAward] = await Promise.all([
+        ctx.db.query.reports.findFirst({
+          where: eq(reports.projectId, input.projectId),
+          columns: { id: true },
+        }),
+        ctx.db.query.grantAwards.findFirst({
+          where: eq(grantAwards.projectId, input.projectId),
+          columns: { id: true },
+        }),
+      ]);
+      if (
+        shouldSkipAutoGenerateForFreshGrantProject(
+          !!anyExistingReport,
+          !!anyGrantAward
+        )
+      ) {
+        return {
+          snapshotIds,
+          reportId: null,
+          reportGenerated: false,
+          reportSkippedReason:
+            "This project has grant awards on file — choose investor or grant, and a period, from the Reports tab instead of auto-generating one.",
+          errors,
+        };
+      }
+
       const allowance = await reportAllowance(project.userId, input.projectId);
       if (!allowance.allowed) {
         return {

@@ -1,11 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { Sparkles, Wallet } from "lucide-react";
-import { trpc } from "@/lib/api";
-import { formatDate } from "@/lib/utils";
+import { Wallet } from "lucide-react";
 
 /**
  * `latestSnapshotHasReport` used to be a third prop here, driving an "Up to
@@ -15,11 +11,21 @@ import { formatDate } from "@/lib/utils";
  * went out with the same idea in `GenerateReportButton` — with a period picker,
  * "the latest snapshot already has a report" is not a reason to refuse anyway,
  * because a different period is a different report.
+ *
+ * The "snapshot exists, zero reports" branch that used to live here (a bare
+ * "Generate report" button calling `reports.generate` with only
+ * `{projectId, snapshotId}`) is gone — that path always produced an investor
+ * report with no period/grant/template choice, and combined with the
+ * free-plan 1-report cap it meant a grant-focused founder's only report could
+ * be silently spent on the wrong type before they ever saw a choice. The
+ * reports page now renders `ReportPeriodPicker` (period + "Report about" +
+ * template selectors) as soon as ANY snapshot exists, so this component only
+ * ever renders for the true "nothing synced yet" case.
  */
 interface Props {
   projectId: string;
-  /** Latest snapshot for the project, or null if none has been synced yet. */
-  latestSnapshot: { id: string; snapshotDate: string } | null;
+  /** Always null today — kept as a prop so a future "no snapshot yet" variant can be told why, without changing the call site. */
+  latestSnapshot: null;
 }
 
 const cardStyle: React.CSSProperties = {
@@ -80,100 +86,20 @@ const primaryBtn: React.CSSProperties = {
   textDecoration: "none",
 };
 
-const secondaryBtn: React.CSSProperties = {
-  ...primaryBtn,
-  background: "transparent",
-  color: "var(--vb-muted)",
-  border: "1px solid rgba(255,255,255,0.12)",
-};
-
-export function ReportsEmptyState({ projectId, latestSnapshot }: Props) {
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-
-  const generate = trpc.reports.generate.useMutation({
-    onSuccess: (report) => {
-      // Refresh the SSR page so the new draft row appears in the list.
-      router.refresh();
-      // Optional: jump straight into the editor.
-      router.push(`/projects/${projectId}/reports/${report.id}`);
-    },
-    onError: (err) => {
-      setError(err.message || "Failed to generate report");
-    },
-  });
-
-  // Branch 1 — no snapshot has ever synced for this project.
-  if (!latestSnapshot) {
-    return (
-      <div style={cardStyle}>
-        <div style={iconWrap}>
-          <Wallet size={20} color="#00e87b" />
-        </div>
-        <p style={titleStyle}>No data synced yet</p>
-        <p style={bodyStyle}>
-          Add at least one wallet so Vault Brief can pull treasury data.
-          Reports also generate automatically on the 1st of each month.
-        </p>
-        <Link href={`/projects/${projectId}/wallets`} style={primaryBtn}>
-          <Wallet size={14} />
-          Add a wallet
-        </Link>
-      </div>
-    );
-  }
-
-  // Branch 2 — a snapshot exists and the project has no reports → offer manual
-  // generate. No period argument: the server defaults to the snapshot's own
-  // window, which is the only window this snapshot can honestly be reported
-  // over. Once a first report exists the page swaps this out for the full
-  // period picker.
-  const monthLabel = formatDate(latestSnapshot.snapshotDate);
-
+export function ReportsEmptyState({ projectId }: Props) {
   return (
     <div style={cardStyle}>
       <div style={iconWrap}>
-        <Sparkles size={20} color="#00e87b" />
+        <Wallet size={20} color="#00e87b" />
       </div>
-      <p style={titleStyle}>Ready to generate</p>
+      <p style={titleStyle}>No data synced yet</p>
       <p style={bodyStyle}>
-        Your {monthLabel} snapshot is ready. Generate an investor report now
-        or wait for the automatic run on the 3rd of next month.
+        Add at least one wallet so Vault Brief can pull treasury data.
+        Reports also generate automatically on the 1st of each month.
       </p>
-      <button
-        type="button"
-        onClick={() =>
-          generate.mutate({ projectId, snapshotId: latestSnapshot.id })
-        }
-        disabled={generate.isPending}
-        style={{
-          ...primaryBtn,
-          opacity: generate.isPending ? 0.7 : 1,
-          cursor: generate.isPending ? "not-allowed" : "pointer",
-        }}
-      >
-        <Sparkles size={14} />
-        {generate.isPending
-          ? "Generating report..."
-          : `Generate report from ${monthLabel} snapshot`}
-      </button>
-      {error && (
-        <p
-          style={{
-            fontFamily: "var(--font-inter), Inter, sans-serif",
-            fontSize: 12,
-            color: "#f87171",
-            margin: "12px 0 0",
-          }}
-        >
-          {error}
-        </p>
-      )}
-      <Link
-        href={`/projects/${projectId}`}
-        style={{ ...secondaryBtn, marginTop: 12 }}
-      >
-        Back to project
+      <Link href={`/projects/${projectId}/wallets`} style={primaryBtn}>
+        <Wallet size={14} />
+        Add a wallet
       </Link>
     </div>
   );

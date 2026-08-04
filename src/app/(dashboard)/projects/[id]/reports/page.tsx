@@ -96,15 +96,8 @@ export default async function ReportsPage({ params }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
-      {reportList.length === 0 ? (
-        <ReportsEmptyState
-          projectId={projectId}
-          latestSnapshot={
-            latestSnapshot
-              ? { id: latestSnapshot.id, snapshotDate: latestSnapshot.snapshotDate }
-              : null
-          }
-        />
+      {!latestSnapshot ? (
+        <ReportsEmptyState projectId={projectId} latestSnapshot={null} />
       ) : (
         <>
           <ReportPeriodPicker
@@ -119,13 +112,15 @@ export default async function ReportsPage({ params }: Props) {
             }))}
             // `reportList` is ordered by periodEnd desc, so the head is the
             // latest period already reported on — what "since last report"
-            // continues from.
+            // continues from. Empty on a project's very first visit, which is
+            // exactly right: there is no "since last report" yet.
             lastReportPeriodEnd={reportList[0]?.periodEnd ?? null}
             // Resolved server-side as a UTC day. Letting the browser supply it
             // would let a client in another timezone build a different option
             // list than the one that was server-rendered.
             today={new Date().toISOString().slice(0, 10)}
           />
+          {reportList.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {reportList.map((report) => (
             <Link
@@ -211,6 +206,7 @@ export default async function ReportsPage({ params }: Props) {
             </Link>
             ))}
           </div>
+          )}
         </>
       )}
     </div>

@@ -19,6 +19,7 @@ import {
   buildSystemPrompt,
   buildUserPrompt,
   resolveSections,
+  sectionIdsWithContent,
   type ReportSection,
   type ReportSectionContext,
   type SectionConfigEntry,
@@ -74,7 +75,13 @@ export interface BuildReportPromptsInput {
 
 export function buildReportPrompts(
   input: BuildReportPromptsInput
-): { system: string; user: string; enabled: ReportSection[] } {
+): {
+  system: string;
+  user: string;
+  enabled: ReportSection[];
+  /** Ids of `enabled` sections that had real content this generation — see `sectionIdsWithContent`. */
+  sectionsWithContent: Set<string>;
+} {
   const {
     snapshot,
     prevSnapshot = null,
@@ -133,6 +140,7 @@ export function buildReportPrompts(
     system: buildSystemPrompt(enabled, ctx),
     user: buildUserPrompt(ctx, enabled),
     enabled,
+    sectionsWithContent: sectionIdsWithContent(ctx, enabled),
   };
 }
 
@@ -179,9 +187,50 @@ const FORBIDDEN_PHRASES: readonly { pattern: RegExp; note: string }[] = [
   },
 ];
 
+/**
+ * Calibrated against a real production incident: a 473-character completion
+ * (cut off mid-sentence at "### Financial Health\n\nRun") passed every other
+ * check here and was cached forever by `callLLM` (report-generator.ts),
+ * replaying the same broken text on every subsequent Regenerate. A real
+ * report renders roughly one Markdown block per enabled section, so length
+ * scales with section count. Both constants are deliberately far below what
+ * any real section actually produces (a realistic section runs several
+ * hundred characters) to keep false positives near zero while still catching
+ * an obviously-truncated completion — same "simple, documented heuristic
+ * floor" shape as `MAX_REASONABLE_TX_USD` in transfer-fetch-policy.ts.
+ */
+const MIN_REPORT_CHARS = 250;
+const MIN_CHARS_PER_ENABLED_SECTION = 60;
+
+/**
+ * Extract one Markdown section's body by heading, from `### <heading>...` to
+ * the next `##`/`###` heading or end of document. Whitespace- and
+ * trailing-text-tolerant, so a rendered "### Key Takeaways" heading and an
+ * instruction-style "### Key Takeaways (CONDITIONAL)" both match. Returns
+ * null when the heading is absent, never an empty string, so callers can
+ * tell "section missing" from "section present but blank."
+ *
+ * No markdown parser needed for a document this codebase already generates
+ * in a fixed heading shape — same lightweight regex-based inspection style
+ * as the rest of this function.
+ */
+function extractMarkdownSection(
+  markdown: string,
+  headingPattern: string
+): string | null {
+  const re = new RegExp(
+    `###\\s*${headingPattern}[^\\n]*\\n+([\\s\\S]+?)(?=\\n##|$)`,
+    "i"
+  );
+  const match = markdown.match(re);
+  return match ? match[1].trim() : null;
+}
+
 export function validateReportContent(
   markdown: string,
-  snapshot: TreasurySnapshot
+  snapshot: TreasurySnapshot,
+  enabledSectionCount?: number,
+  sectionsWithContent?: Set<string>
 ): { passed: boolean; issues: string[] } {
   const issues: string[] = [];
 
@@ -204,6 +253,62 @@ export function validateReportContent(
     const match = markdown.match(pattern);
     if (match) {
       issues.push(`Forbidden phrase found: "${match[0]}" — ${note}`);
+    }
+  }
+
+  if (enabledSectionCount !== undefined) {
+    const floor = Math.max(
+      MIN_REPORT_CHARS,
+      enabledSectionCount * MIN_CHARS_PER_ENABLED_SECTION
+    );
+    const len = markdown.trim().length;
+    if (len < floor) {
+      issues.push(
+        `Report is implausibly short (${len} chars) for ${enabledSectionCount} enabled section(s) — expected at least ${floor}, likely a truncated completion`
+      );
+    }
+  }
+
+  // Structural guard against "no material concerns" beside a real,
+  // evidence-gated concern. Only checked when the caller tells us
+  // Lows/Concerns actually carried evidence this generation (via
+  // `sectionsWithContent` — see `sectionIdsWithContent` in report-sections.ts)
+  // — an omitted `sectionsWithContent` (every pre-existing caller/test) or a
+  // `lows_concerns` fragment that was genuinely empty both skip this
+  // entirely, because "no material concerns" is the CORRECT sentence when
+  // the evidence ledger really has nothing.
+  if (sectionsWithContent?.has("lows_concerns")) {
+    const lows = extractMarkdownSection(markdown, "Lows\\s*/\\s*Concerns");
+    if (lows && /no material concerns/i.test(lows)) {
+      issues.push(
+        `Lows/Concerns says "no material concerns" despite verified concern evidence for this period — contradicts the rest of the report`
+      );
+    }
+  }
+
+  // Key Takeaways must carry a figure on every bullet, and must not render
+  // as zero bullets, whenever the input evidence was non-empty. Does NOT
+  // enforce a bullet-count range — the section's own rule explicitly allows
+  // fewer than 3 bullets when the data is thin ("If the block supports only
+  // three bullets, write three").
+  if (sectionsWithContent?.has("key_takeaways")) {
+    const takeaways = extractMarkdownSection(markdown, "Key Takeaways");
+    const bulletLines = (takeaways ?? "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => /^[-*]\s/.test(l));
+
+    if (bulletLines.length === 0) {
+      issues.push(
+        "Key Takeaways rendered with zero bullets despite non-empty input evidence for this period"
+      );
+    } else {
+      const noFigure = bulletLines.filter((l) => !/\d/.test(l));
+      if (noFigure.length > 0) {
+        issues.push(
+          `Key Takeaways has ${noFigure.length} bullet(s) with no figure: "${noFigure[0]}"`
+        );
+      }
     }
   }
 
