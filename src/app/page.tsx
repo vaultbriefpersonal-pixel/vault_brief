@@ -20,9 +20,9 @@ const STEP_ICONS = {
 } as const;
 
 export const metadata: Metadata = {
-  title: "Vault Brief — Investor Reports for Web3 Teams",
+  title: "Vault Brief — Automated Reports for Web3 Teams",
   description:
-    "Generate monthly treasury reports from wallets, GitHub activity, and token metrics. Vault Brief turns raw on-chain data into investor-ready reports you can review, export, and send.",
+    "Generate monthly treasury reports from wallets, GitHub activity, and token metrics. Vault Brief turns raw on-chain data into reports you can review, export, and send — to investors or a grant funder.",
 };
 
 // Re-render the homepage at most every 5 minutes so the stat strip's
@@ -115,14 +115,14 @@ const STEPS = [
     iconKey: "ai" as const,
     title: "Generate the report",
     desc:
-      "Vault Brief turns the data into a structured investor report with treasury overview, runway, GitHub progress, and executive summary.",
+      "Vault Brief turns the data into a structured report with treasury overview, runway, GitHub progress, and executive summary.",
   },
   {
     num: "04",
     iconKey: "send" as const,
     title: "Review, export, send",
     desc:
-      "Review the report, edit if needed, export PDF, and share it with investors or stakeholders.",
+      "Review the report, edit if needed, export PDF, and share it with investors, funders, or stakeholders.",
   },
 ];
 
@@ -217,6 +217,22 @@ const INPUT_TO_REPORT = {
   ],
 };
 
+// Audience fork cards — the section that makes the nav's parallel
+// "For Grants" / "For Investors" structure discoverable from the
+// homepage itself.
+const AUDIENCE_FORK: { title: string; desc: string; href: string }[] = [
+  {
+    title: "For investors",
+    desc: "Turn treasury activity and GitHub progress into a monthly update investors actually open — reviewed before it sends, exportable as PDF or a shareable link.",
+    href: "/investors",
+  },
+  {
+    title: "For grant funders",
+    desc: "Account for a grant you received — fund usage, milestone progress, and leftover funds, built for the report a funder checks against.",
+    href: "/grants",
+  },
+];
+
 export default async function LandingPage() {
   const stats = await loadPublicStats();
   return (
@@ -299,7 +315,7 @@ export default async function LandingPage() {
               letterSpacing: "-0.035em",
             }}
           >
-            Investor reports
+            Reports that get read
             <br />
             <span className="gradient-text">for Web3 teams</span>
           </h1>
@@ -316,7 +332,8 @@ export default async function LandingPage() {
           >
             Generate monthly treasury reports from wallets, GitHub activity,
             token metrics, and project context. Vault Brief turns raw Web3
-            data into investor-ready reports you can review, export, and send.
+            data into a report ready for an investor update or a grant
+            funder&apos;s next check-in — reviewed, exported, and sent by you.
           </p>
 
           <div
@@ -555,9 +572,52 @@ export default async function LandingPage() {
 
             <PillarColumn
               kind="output"
-              title="Investor report"
+              title="Your report"
               items={INPUT_TO_REPORT.outputs}
             />
+          </div>
+        </div>
+      </section>
+
+      {/* Audience fork — makes the two dedicated pages discoverable from
+          the homepage itself, not just from the nav. Same card pattern
+          as the feature cards one section up: typed constant array +
+          small presentational component. */}
+      <section className="vb-section">
+        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: 40 }}>
+            <p
+              style={{
+                fontSize: 13,
+                color: "var(--accent)",
+                fontFamily: "var(--font-inter), Inter, sans-serif",
+                marginBottom: 12,
+                textTransform: "uppercase",
+                letterSpacing: "0.1em",
+                fontWeight: 600,
+              }}
+            >
+              Built for two audiences
+            </p>
+            <h2
+              style={{
+                fontFamily:
+                  "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                fontSize: "clamp(28px, 3.6vw, 40px)",
+                fontWeight: 700,
+                color: "var(--vb-text)",
+                letterSpacing: "-0.03em",
+                margin: 0,
+              }}
+            >
+              Who are you reporting to?
+            </h2>
+          </div>
+
+          <div className="vb-grid-2" style={{ gap: 20 }}>
+            {AUDIENCE_FORK.map((a) => (
+              <AudienceCard key={a.title} {...a} />
+            ))}
           </div>
         </div>
       </section>
@@ -647,7 +707,7 @@ export default async function LandingPage() {
               margin: 0,
             }}
           >
-            Production-ready investor reporting
+            Production-ready reporting for investors and grant funders
           </h2>
         </div>
 
@@ -1002,8 +1062,9 @@ export default async function LandingPage() {
               lineHeight: 1.6,
             }}
           >
-            Connect a wallet and generate your first investor report in minutes.
-            Schedule recurring monthly reports after review.
+            Connect a wallet and generate your first report in minutes — for
+            investors or a grant funder. Schedule recurring monthly reports
+            after review.
           </p>
           <Link
             href="/demo"
@@ -1033,6 +1094,66 @@ export default async function LandingPage() {
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────
+
+function AudienceCard({
+  title,
+  desc,
+  href,
+}: {
+  title: string;
+  desc: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="card-hover"
+      style={{
+        display: "block",
+        background: "var(--vb-card)",
+        borderRadius: 14,
+        border: "1px solid var(--vb-border)",
+        padding: 32,
+        textDecoration: "none",
+      }}
+    >
+      <h3
+        style={{
+          fontFamily:
+            "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+          fontSize: 20,
+          fontWeight: 600,
+          color: "var(--vb-text)",
+          margin: "0 0 10px",
+          letterSpacing: "-0.01em",
+        }}
+      >
+        {title}
+      </h3>
+      <p
+        style={{
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          fontSize: 15,
+          color: "var(--vb-muted)",
+          lineHeight: 1.6,
+          margin: "0 0 16px",
+        }}
+      >
+        {desc}
+      </p>
+      <span
+        style={{
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          fontSize: 14,
+          fontWeight: 500,
+          color: "var(--accent)",
+        }}
+      >
+        Learn more →
+      </span>
+    </Link>
+  );
+}
 
 function FeatureCard({
   icon,

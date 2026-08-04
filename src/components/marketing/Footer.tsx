@@ -3,19 +3,19 @@
 import Link from "next/link";
 import { Logo } from "./Logo";
 
+// Trimmed per the site-IA rebuild: Features/Demo now live in the nav's
+// audience fork and hero CTAs; Roadmap stays reachable from the
+// homepage's own "See the full roadmap →" link, not from here.
 const COLS = [
   {
     title: "Product",
     links: [
-      { label: "Features", href: "/#features" },
-      { label: "Demo", href: "/demo" },
-      { label: "Roadmap", href: "/roadmap" },
-      { label: "Changelog", href: "/changelog" },
       // /docs is the founder-facing product reference (wallet sync,
       // monthly cadence, plan limits). The public API is still on the
       // roadmap — it's covered inside /docs and /changelog rather than
       // shouting "Coming soon" from the footer.
       { label: "Docs", href: "/docs" },
+      { label: "Changelog", href: "/changelog" },
     ],
   },
   {
@@ -78,8 +78,8 @@ export function Footer() {
               margin: "12px 0 0",
             }}
           >
-            Automated investor reporting for crypto projects. Connect once,
-            report forever.
+            Automated reporting for crypto projects — investors and grant
+            funders. Connect once, report forever.
           </p>
 
           <div style={{ display: "flex", gap: 12, marginTop: 20 }}>

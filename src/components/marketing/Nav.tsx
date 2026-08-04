@@ -6,12 +6,16 @@ import { Menu, X } from "lucide-react";
 import { Logo } from "./Logo";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
-// Demo first (visitors need to see output before committing), then Docs.
-// Public-goods pivot removed the Pricing link — the product is free.
-// Blog/About live in the footer — discoverability, not conversion paths.
+// Explicit audience fork — "For Grants" / "For Investors" — so the nav
+// itself makes both dedicated pages discoverable instead of leaving the
+// site to default to one audience. Demo stays last, still one click
+// away. Docs moved to footer-only. Public-goods pivot removed the
+// Pricing link — the product is free. Blog/About live in the footer —
+// discoverability, not conversion paths.
 const NAV_LINKS = [
+  { label: "For Grants", href: "/grants" },
+  { label: "For Investors", href: "/investors" },
   { label: "Demo", href: "/demo" },
-  { label: "Docs", href: "/docs" },
 ];
 
 export function Nav() {
