@@ -12,6 +12,8 @@
 // product ends up showing one thing and enforcing another.
 
 import { summarizeSyncWarnings } from "./sync-warnings";
+import { judgeStoredWalletSet } from "./wallet-balances";
+import type { ProjectTokenIdentity } from "./treasury-composition";
 
 export interface ShipCheckInput {
   /**
@@ -23,6 +25,14 @@ export interface ShipCheckInput {
   validationIssues: unknown;
   /** `treasury_snapshots.sync_warnings` for the snapshot this report is built on. */
   syncWarnings: unknown;
+  /**
+   * `treasury_snapshots.balances_detail`. Optional so existing callers and
+   * tests keep working; omitting it simply skips the wallet-set check rather
+   * than passing it.
+   */
+  balancesDetail?: unknown;
+  /** Own-token identity. Barely affects the wallet-set verdict — see below. */
+  project?: ProjectTokenIdentity | null;
 }
 
 /**
@@ -39,6 +49,29 @@ export function reportShipBlockers(input: ShipCheckInput): string[] {
   if (Array.isArray(input.validationIssues) && input.validationIssues.length > 0) {
     for (const issue of input.validationIssues) {
       if (typeof issue === "string" && issue.trim()) blockers.push(issue.trim());
+    }
+  }
+
+  // Does the configured wallet set behave like a treasury at all?
+  //
+  // This is the one check that questions the INPUT rather than the output.
+  // Everything else here asks whether the report faithfully describes the
+  // wallets it was given; this asks whether those are the right wallets. A
+  // report built on a project's governance multisigs is internally perfect
+  // and externally worthless, and nothing else in the product would object,
+  // because nothing failed.
+  if (input.balancesDetail !== undefined) {
+    const verdict = judgeStoredWalletSet(input.balancesDetail, input.project);
+    if (verdict.noSpendableReserves) {
+      const wallets = `${verdict.materialCount} wallet${verdict.materialCount === 1 ? "" : "s"}`;
+      blockers.push(
+        `No wallet in this treasury holds spendable assets — across ${wallets} ` +
+          `carrying real value, essentially everything is the project's own token or ` +
+          `unrecognised holdings. Either the project genuinely cannot pay from this ` +
+          `treasury, or these are not the treasury's wallets: governance and admin ` +
+          `multisigs look exactly like this. Check the per-wallet balances on the ` +
+          `Wallets tab before sending.`
+      );
     }
   }
 

@@ -7,7 +7,10 @@ import { trpc } from "@/lib/api";
 import { Plus, Trash2, AlertTriangle } from "lucide-react";
 import { ChainIcon } from "@/components/ui/ChainIcon";
 import { formatUsd } from "@/lib/utils";
-import type { WalletBalanceView } from "@/server/services/wallet-balances";
+import {
+  profileWallet,
+  type WalletBalanceView,
+} from "@/server/services/wallet-balances";
 
 const CHAINS = [
   { value: "ethereum", label: "Ethereum" },
@@ -381,6 +384,26 @@ export default function WalletsPage({ params }: Props) {
                       }}
                     >
                       {balanceCaption(w.balance)}
+                    </div>
+                  )}
+                  {/* The shape check. Stated as an observation, never as a
+                      verdict about what this wallet IS: the product cannot
+                      tell a governance multisig from a treasury that has
+                      spent everything liquid, and pretending otherwise would
+                      be the same overreach it just spent a stage removing. */}
+                  {profileWallet(w.balance)?.holdsNothingSpendable && (
+                    <div
+                      style={{
+                        fontFamily: "var(--font-inter), Inter, sans-serif",
+                        fontSize: 11,
+                        color: "#fbbf24",
+                        marginTop: 3,
+                        maxWidth: 260,
+                        lineHeight: 1.45,
+                      }}
+                      title="Governance and admin multisigs look like this. So does a treasury with nothing liquid left."
+                    >
+                      nothing spendable here — check this is a treasury wallet
                     </div>
                   )}
                 </div>

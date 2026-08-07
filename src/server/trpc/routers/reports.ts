@@ -6,6 +6,7 @@ import {
   reports,
   reportEngagements,
   treasurySnapshots,
+  projects,
 } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import {
@@ -71,6 +72,8 @@ export const reportsRouter = router({
         shipBlockers: reportShipBlockers({
           validationIssues: row.validationIssues,
           syncWarnings: row.snapshot?.syncWarnings ?? null,
+          balancesDetail: row.snapshot?.balancesDetail ?? null,
+          project: row.project,
         }),
       };
     }),
@@ -227,9 +230,14 @@ export const reportsRouter = router({
               where: eq(treasurySnapshots.id, report.snapshotId),
             })
           : null;
+        const project = await ctx.db.query.projects.findFirst({
+          where: eq(projects.id, report.projectId),
+        });
         const blockers = reportShipBlockers({
           validationIssues: report.validationIssues,
           syncWarnings: snapshot?.syncWarnings ?? null,
+          balancesDetail: snapshot?.balancesDetail ?? null,
+          project,
         });
         if (blockers.length > 0) {
           throw new TRPCError({

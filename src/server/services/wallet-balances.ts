@@ -215,3 +215,160 @@ export function walletCoverageIsPartial(
     (v) => v.state === "failed" || v.state === "truncated" || v.state === "notInSnapshot"
   );
 }
+
+// ─── does this wallet behave like a treasury? ───────────────────────────────
+//
+// A founder can hand this product the wrong addresses and get a confident,
+// internally consistent report about 20% of their treasury. That happened:
+// six Threshold Network addresses taken from the project's own documentation
+// turned out to be its governance Committee Multisigs, and the real Treasury
+// Guild multisig — four times larger — was never configured. Nothing in the
+// product objected, because nothing failed.
+//
+// ── THE DISCRIMINATOR IS NOT OWN-TOKEN CONCENTRATION ───────────────────────
+// The obvious rule — "mostly its own token, therefore suspicious" — is wrong,
+// and checking it against real wallets is what showed that. Gitcoin's GTC
+// Timelock is roughly 72% GTC and is unambiguously a real treasury: it also
+// holds $266K of ETH and pays out of it. Concentration describes a treasury's
+// RISK, which the report already covers at length, not its IDENTITY.
+//
+// What actually separates the two is whether the wallet holds anything it
+// could spend. Measured across the six real wallets verified this session:
+//
+//   Threshold Council (the wrong one)      0.05%   <- holds $78 of $162,800
+//   Gitcoin GTC Timelock                   18.4%
+//   Threshold Treasury Guild (the right one) ~35%
+//   Gitcoin Matching Pool                  90.6%
+//   Gitcoin new Safe / Ecosystem Collective  100%
+//
+// The gap between the wrong wallet and the nearest right one is three orders
+// of magnitude, which is what makes a threshold safe to draw here at all.
+
+/**
+ * Below this a wallet's shape says nothing. Gas floats, test wallets and dust
+ * are all legitimately empty of spendable assets, and flagging them would
+ * train founders to ignore the signal — the failure mode that matters more
+ * than a missed detection here.
+ */
+export const MATERIAL_WALLET_USD = 25_000;
+
+/**
+ * Spendable share below which a material wallet is "holding nothing it could
+ * spend". Set an order of magnitude above the worst real treasury observed
+ * (18.4%) would be reckless; this sits an order of magnitude BELOW it, so a
+ * real treasury has to be extraordinarily unusual to trip it.
+ */
+export const SPENDABLE_SHARE_FLOOR = 0.02;
+
+export interface WalletProfile {
+  /** Stablecoins + liquid crypto. What this wallet could actually pay with. */
+  spendableUsd: number;
+  /** `spendableUsd / totalUsd`, 0–1. */
+  spendableShare: number;
+  /**
+   * Material balance, essentially none of it spendable. States an OBSERVATION,
+   * not a verdict about intent: a governance or admin multisig looks like
+   * this, and so does a treasury that has spent everything liquid. The product
+   * cannot tell those apart and must not pretend to.
+   */
+  holdsNothingSpendable: boolean;
+}
+
+/**
+ * Null when the wallet's shape cannot be read — never synced, read failed, or
+ * too small to characterise. Null means "no opinion", never "looks fine".
+ */
+export function profileWallet(view: WalletBalanceView): WalletProfile | null {
+  if (view.state !== "synced" && view.state !== "truncated") return null;
+  const total = view.totalUsd ?? 0;
+  if (total < MATERIAL_WALLET_USD) return null;
+
+  const spendableUsd = (view.stablecoinsUsd ?? 0) + (view.liquidCryptoUsd ?? 0);
+  const spendableShare = spendableUsd / total;
+  return {
+    spendableUsd,
+    spendableShare,
+    holdsNothingSpendable: spendableShare < SPENDABLE_SHARE_FLOOR,
+  };
+}
+
+export interface WalletSetVerdict {
+  /** Wallets big enough to characterise at all. */
+  materialCount: number;
+  /** Of those, how many hold essentially nothing spendable. */
+  nothingSpendableCount: number;
+  /** Combined value of the material wallets. */
+  materialTotalUsd: number;
+  /**
+   * EVERY material wallet holds nothing spendable — so the configured set, as
+   * a whole, has no operating capital.
+   *
+   * Deliberately all-or-nothing rather than "any". One own-token-heavy wallet
+   * beside a funded one is an ordinary treasury structure and says nothing;
+   * a set where NOTHING can be spent is either a project that cannot make
+   * payroll or, far more often, a set of addresses that are not the treasury.
+   * Both deserve the same sentence, because the product cannot distinguish
+   * them and the founder can.
+   */
+  noSpendableReserves: boolean;
+}
+
+/**
+ * The same verdict, straight from a stored snapshot.
+ *
+ * Reads the wallet list out of `balances_detail` itself rather than taking the
+ * configured `wallets` rows, so a caller holding only a snapshot — the report
+ * page, the send gate — can ask the question without a second query. A wallet
+ * that failed to sync is absent from that payload and therefore silently
+ * excluded, which is correct here: an unread wallet has no shape to judge, and
+ * its absence is already disclosed through `sync_warnings`.
+ *
+ * `project` is optional and barely matters: the verdict is built from the
+ * stablecoin and liquid-crypto buckets, and a project token that goes
+ * unrecognised lands in `otherUsd`, which is not spendable either way.
+ */
+export function judgeStoredWalletSet(
+  balancesDetail: unknown,
+  project?: ProjectTokenIdentity | null
+): WalletSetVerdict {
+  const entries = Array.isArray(balancesDetail)
+    ? (balancesDetail as StoredWalletEntry[]).filter(
+        (e) => e && typeof e === "object"
+      )
+    : [];
+
+  const views = viewWalletBalances({
+    wallets: entries.map((e) => ({
+      address: str(e.walletAddress),
+      chain: str(e.chain),
+    })),
+    balancesDetail,
+    syncWarnings: null,
+    project: project ?? null,
+    hasSnapshot: true,
+  });
+
+  return judgeWalletSet(views);
+}
+
+export function judgeWalletSet(
+  views: readonly WalletBalanceView[]
+): WalletSetVerdict {
+  const profiles = views
+    .map((v) => ({ view: v, profile: profileWallet(v) }))
+    .filter((p): p is { view: WalletBalanceView; profile: WalletProfile } =>
+      p.profile !== null
+    );
+
+  const nothingSpendableCount = profiles.filter(
+    (p) => p.profile.holdsNothingSpendable
+  ).length;
+
+  return {
+    materialCount: profiles.length,
+    nothingSpendableCount,
+    materialTotalUsd: profiles.reduce((sum, p) => sum + (p.view.totalUsd ?? 0), 0),
+    noSpendableReserves:
+      profiles.length > 0 && nothingSpendableCount === profiles.length,
+  };
+}
