@@ -93,16 +93,40 @@ async function checkOpenRouter(): Promise<ServiceCheck> {
   );
 }
 
-async function checkDuneSim(): Promise<ServiceCheck> {
-  const key = process.env.DUNE_API_KEY;
+/**
+ * The BALANCE provider — distinct from "EVM RPC" below, which only proves the
+ * node is reachable.
+ *
+ * This check used to ping Dune Sim. When that API was sunset on 2026-08-01 it
+ * began returning HTTP 410 to every balance request, and every EVM treasury
+ * silently synced as $0.00 for five days. The check itself did fire — but it
+ * was pointed at the provider, not at the product's actual dependency, and
+ * nothing downstream treated its failure as urgent. It now exercises the exact
+ * endpoint `fetchAlchemyBalances` uses, so "On-chain Data (EVM) is green"
+ * means balances can genuinely be read.
+ */
+async function checkBalanceProvider(): Promise<ServiceCheck> {
+  const key = process.env.ALCHEMY_API_KEY;
   if (!key || key.includes("placeholder")) {
     return { name: "On-chain Data (EVM)", status: "operational", latencyMs: null, detail: "not configured" };
   }
   return timed("On-chain Data (EVM)", () =>
-    // Vitalik's address — guaranteed to exist, returns small payload
+    // Vitalik's address — guaranteed to exist, returns a small first page.
     pingFetch(
-      "https://api.sim.dune.com/v1/evm/balances/0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045?chain_ids=1",
-      { headers: { "X-Sim-Api-Key": key } }
+      `https://api.g.alchemy.com/data/v1/${key}/assets/tokens/by-address`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          addresses: [
+            {
+              address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+              networks: ["eth-mainnet"],
+            },
+          ],
+          withPrices: false,
+        }),
+      }
     )
   );
 }
@@ -143,7 +167,7 @@ export async function runHealthChecks(): Promise<SystemHealth> {
     checkDatabase(),
     checkResend(),
     checkOpenRouter(),
-    checkDuneSim(),
+    checkBalanceProvider(),
     checkAlchemy(),
   ]);
 

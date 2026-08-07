@@ -7,45 +7,130 @@ import {
   type LegacySnapshotColumns,
 } from "./treasury-composition";
 
-const DUNE_API_BASE = "https://api.sim.dune.com/v1/evm";
-const DUNE_API_KEY = process.env.DUNE_API_KEY!;
+const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY!;
+const ALCHEMY_PORTFOLIO_URL = `https://api.g.alchemy.com/data/v1/${ALCHEMY_API_KEY}/assets/tokens/by-address`;
 
-function evmChainId(chain: string): number | null {
+/**
+ * How many Portfolio API pages one wallet may consume before we stop and
+ * disclose the truncation.
+ *
+ * PAGINATION IS NOT OPTIONAL HERE, and the cap is not cosmetic. Alchemy does
+ * NOT order this response by value — verified against a real treasury
+ * (0xFafd…71C1), whose entire $240K USDC position sat on page 2 behind 91
+ * rows of dust and spam on page 1. Reading only the first page would have
+ * reported that treasury as ~$95. Pages hold 100 rows, so 20 pages is 2,000
+ * token positions — far past any real treasury, while still bounding a wallet
+ * airdropped tens of thousands of spam contracts.
+ *
+ * Hitting the cap does NOT throw: the pages already read are real balances and
+ * are kept. It raises a `BalanceWarning` instead, which `data-sync.ts` persists
+ * into `treasury_snapshots.sync_warnings` — same "warn, never silently drop"
+ * contract the transfer page cap in transfer-fetch-policy.ts follows.
+ */
+const MAX_BALANCE_PAGES = 20;
+
+function alchemyNetworkFor(chain: string): string | null {
   const cfg = CHAINS[chain as keyof typeof CHAINS];
-  return cfg?.id ?? null;
+  return cfg?.alchemyNetwork ?? null;
 }
 
 // In-memory cache: key → { data, expiresAt }
-const cache = new Map<string, { data: DuneBalanceResponse; expiresAt: number }>();
+const cache = new Map<string, { data: WalletTokenPage; expiresAt: number }>();
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
-// Field names are Dune Sim's, verified against a live
-// GET /v1/evm/balances/{address}?chain_ids=1 response. The contract address
-// comes back as `address` — NOT `contract_address`, which this interface used
-// to declare. Nothing failed loudly: `b.contract_address` read as `undefined`,
-// JSON.stringify dropped the key, and every stored token silently lost its
-// contract. That disabled contract-first own-token matching
-// (treasury-liquidity.ts), LSD address matching (defi-positions.ts) and token
-// identity in treasury-attribution.ts. Do not "tidy" this name.
-//
-// `pool_size` is also present on real responses and is deliberately NOT
-// captured: it is absent for USDC and USDT while present for spam tokens, so
-// as a spam signal it is worse than useless.
-interface DuneTokenBalance {
-  symbol: string;
-  name: string;
-  amount: string;
-  decimals: number;
-  price_usd: number | null;
-  value_usd: number | null;
-  address: string | null;
-  chain?: string;
-  chain_id?: number;
+/**
+ * One row of Alchemy's Portfolio API `data.tokens[]`, as verified against a
+ * live POST /data/v1/{key}/assets/tokens/by-address response.
+ *
+ * Shapes worth knowing, because each one silently corrupts a balance if
+ * mishandled:
+ *   • `tokenBalance` is a HEX string in base units, not a decimal string.
+ *   • The NATIVE token (ETH/MATIC) arrives with `tokenAddress: null` AND an
+ *     all-null `tokenMetadata` — no symbol, no decimals. Its identity has to
+ *     be filled in from `CHAINS[chain]`, or every treasury's gas reserve reads
+ *     as an unnamed 18-decimal unknown.
+ *   • `tokenPrices` is an ARRAY (empty when unpriced), not a scalar field.
+ *   • Zero-balance rows ARE returned, in bulk — one real wallet came back with
+ *     151 rows of which exactly one had value. They are filtered out rather
+ *     than stored, so `balances_detail` stays a treasury and not a spam log.
+ */
+export interface AlchemyTokenRow {
+  address?: string;
+  network?: string;
+  tokenAddress: string | null;
+  tokenBalance: string;
+  tokenMetadata?: {
+    symbol?: string | null;
+    decimals?: number | null;
+    name?: string | null;
+  } | null;
+  tokenPrices?: Array<{ currency?: string; value?: string }> | null;
 }
 
-interface DuneBalanceResponse {
-  wallet_address: string;
-  balances: DuneTokenBalance[];
+interface WalletTokenPage {
+  walletAddress: string;
+  tokens: AlchemyTokenRow[];
+  /** True when MAX_BALANCE_PAGES stopped the read before Alchemy ran out of pages. */
+  truncated: boolean;
+}
+
+/** Every EVM native token this product supports is 18-decimal (ETH, MATIC). */
+const NATIVE_TOKEN_DECIMALS = 18;
+
+/**
+ * Alchemy rows → the `TokenBalance[]` the rest of the pipeline already speaks.
+ *
+ * Pure and exported so the provider swap is testable without a network call —
+ * same reasoning as `transaction-sample.ts` and `transfer-fetch-policy.ts`:
+ * the HTTP plumbing is integration-verified, the value-mangling arithmetic is
+ * unit-tested.
+ */
+export function mapAlchemyTokens(
+  rows: AlchemyTokenRow[],
+  chain: string
+): TokenBalance[] {
+  const nativeSymbol = CHAINS[chain as keyof typeof CHAINS]?.nativeToken ?? "";
+  const out: TokenBalance[] = [];
+
+  for (const row of rows) {
+    const isNative = row.tokenAddress == null;
+    const decimals = isNative
+      ? NATIVE_TOKEN_DECIMALS
+      : (row.tokenMetadata?.decimals ?? NATIVE_TOKEN_DECIMALS);
+
+    let amount: number;
+    try {
+      amount = Number(BigInt(row.tokenBalance)) / Math.pow(10, decimals);
+    } catch {
+      // A malformed hex string is one token's problem, never the wallet's.
+      continue;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+
+    const usd = row.tokenPrices?.find(
+      (p) => (p.currency ?? "usd").toLowerCase() === "usd"
+    );
+    const priceUsd = usd?.value ? Number(usd.value) : 0;
+    const safePrice = Number.isFinite(priceUsd) && priceUsd > 0 ? priceUsd : 0;
+
+    out.push({
+      symbol: isNative ? nativeSymbol : (row.tokenMetadata?.symbol ?? ""),
+      name: isNative ? nativeSymbol : (row.tokenMetadata?.name ?? ""),
+      amount,
+      priceUsd: safePrice,
+      // Computed, not read back from the provider: Alchemy returns no
+      // value_usd, and deriving it here keeps amount × price consistent with
+      // the figures every downstream section quotes.
+      valueUsd: amount * safePrice,
+      // `?? null` rather than a bare read: an absent key must persist as an
+      // explicit null, not vanish from the stored JSON the way `undefined` does.
+      // Contract-first identity matching (treasury-liquidity.ts,
+      // defi-positions.ts, treasury-attribution.ts) depends on this surviving.
+      contractAddress: row.tokenAddress ?? null,
+    });
+  }
+
+  return out;
 }
 
 export interface TokenBalance {
@@ -66,6 +151,13 @@ export interface WalletBalanceSummary {
   ethUsd: number;
   nativeTokenUsd: number;
   otherAssetsUsd: number;
+  /**
+   * Set only when the balance read stopped at `MAX_BALANCE_PAGES` with pages
+   * still outstanding — the figures above are then a floor, not a total.
+   * `fetchAllBalances` turns this into a `BalanceWarning`; absent on every
+   * normal read and on the Solana path, which does not paginate.
+   */
+  truncated?: boolean;
 }
 
 export interface BalanceWarning {
@@ -84,13 +176,29 @@ export interface ProjectBalanceSummary {
   warnings: BalanceWarning[];
 }
 
-async function fetchDuneBalances(
+/**
+ * Every token page for one wallet on one chain, from Alchemy's Portfolio API.
+ *
+ * REPLACES DUNE SIM, which was sunset on 2026-08-01 and answers every request
+ * with HTTP 410. Because `fetchAllBalances` turns a thrown wallet into a
+ * warning and keeps going, that failure was survivable-by-design and therefore
+ * invisible: snapshots kept being written with `total_balance_usd = 0.00` and
+ * an empty `balances_detail`, and the report — correctly, given its inputs —
+ * said the runway was NOT COMPUTABLE. Confirmed on a live project whose real
+ * treasury was ~$835K.
+ */
+async function fetchAlchemyBalances(
   address: string,
   chain: string
-): Promise<DuneBalanceResponse> {
-  // Solana balances must go through solana-sync (Helius) — Dune Sim is EVM-only here.
+): Promise<WalletTokenPage> {
+  // Solana balances go through solana-sync (Helius); this path is EVM-only.
   if (chain === "solana") {
     throw new Error("solana balances must go through solana-sync");
+  }
+
+  const network = alchemyNetworkFor(chain);
+  if (!network) {
+    throw new Error(`No Alchemy network configured for chain '${chain}'`);
   }
 
   const cacheKey = `${address}:${chain}`;
@@ -99,25 +207,46 @@ async function fetchDuneBalances(
     return cached.data;
   }
 
-  // Sim API expects chain_ids as a numeric chain ID. Without it the endpoint
-  // returns balances across "default-tagged" chains, which is not what we want.
-  const chainId = evmChainId(chain);
-  const chainParam = chainId ? `?chain_ids=${chainId}` : "";
-  const url = `${DUNE_API_BASE}/balances/${address}${chainParam}`;
-  const res = await fetch(url, {
-    headers: { "X-Sim-Api-Key": DUNE_API_KEY },
-  });
+  const tokens: AlchemyTokenRow[] = [];
+  let pageKey: string | undefined;
+  let pages = 0;
+  let truncated = false;
 
-  if (!res.ok) {
-    if (res.status === 404) {
-      return { wallet_address: address, balances: [] };
+  do {
+    const res = await fetch(ALCHEMY_PORTFOLIO_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        addresses: [{ address, networks: [network] }],
+        withMetadata: true,
+        withPrices: true,
+        includeNativeTokens: true,
+        ...(pageKey ? { pageKey } : {}),
+      }),
+    });
+
+    if (!res.ok) {
+      // A wallet Alchemy has never seen is an empty treasury, not an outage.
+      if (res.status === 404) break;
+      throw new Error(`Alchemy balances error: ${res.status} ${await res.text()}`);
     }
-    throw new Error(`Dune API error: ${res.status} ${await res.text()}`);
-  }
 
-  const data: DuneBalanceResponse = await res.json();
-  cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS });
-  return data;
+    const payload = (await res.json()) as {
+      data?: { tokens?: AlchemyTokenRow[]; pageKey?: string | null };
+    };
+    tokens.push(...(payload.data?.tokens ?? []));
+    pageKey = payload.data?.pageKey ?? undefined;
+    pages++;
+
+    if (pageKey && pages >= MAX_BALANCE_PAGES) {
+      truncated = true;
+      break;
+    }
+  } while (pageKey);
+
+  const page: WalletTokenPage = { walletAddress: address, tokens, truncated };
+  cache.set(cacheKey, { data: page, expiresAt: Date.now() + CACHE_TTL_MS });
+  return page;
 }
 
 /**
@@ -159,18 +288,8 @@ export async function fetchWalletBalance(
   wallet: Wallet,
   projectTokenSymbol?: string | null
 ): Promise<WalletBalanceSummary> {
-  const duneData = await fetchDuneBalances(wallet.address, wallet.chain);
-
-  const tokens: TokenBalance[] = duneData.balances.map((b) => ({
-    symbol: b.symbol,
-    name: b.name,
-    amount: Number(b.amount) / Math.pow(10, b.decimals),
-    priceUsd: b.price_usd ?? 0,
-    valueUsd: b.value_usd ?? 0,
-    // `?? null` rather than a bare read: an absent key must persist as an
-    // explicit null, not vanish from the stored JSON the way `undefined` does.
-    contractAddress: b.address ?? null,
-  }));
+  const page = await fetchAlchemyBalances(wallet.address, wallet.chain);
+  const tokens = mapAlchemyTokens(page.tokens, wallet.chain);
 
   const totalUsd = tokens.reduce((sum, t) => sum + t.valueUsd, 0);
   // fetchWalletBalance is only ever called for EVM wallets — Solana routes
@@ -191,6 +310,7 @@ export async function fetchWalletBalance(
     tokens,
     totalUsd,
     ...classified,
+    ...(page.truncated ? { truncated: true } : {}),
   };
 }
 
@@ -198,9 +318,16 @@ export async function fetchAllBalances(
   wallets: Wallet[],
   projectTokenSymbol?: string | null
 ): Promise<ProjectBalanceSummary> {
-  // allSettled: Solana (Helius) and EVM (Dune Sim) both can timeout or 5xx
+  // allSettled: Solana (Helius) and EVM (Alchemy) both can timeout or 5xx
   // independently. Failed wallet → warning, snapshot still has partial data
   // from the others.
+  //
+  // NOTE the failure mode this politeness enabled once already: when the old
+  // EVM provider was sunset and started 410-ing every request, ALL wallets
+  // landed here as warnings and the snapshot was written with a $0 treasury
+  // rather than failing. The warnings were recorded faithfully in
+  // `sync_warnings` — and nothing read them. Anything triaging balance health
+  // should start from that column.
   const settled = await Promise.allSettled(
     wallets.map((w) =>
       w.chain === "solana"
@@ -214,6 +341,16 @@ export async function fetchAllBalances(
   settled.forEach((res, i) => {
     if (res.status === "fulfilled") {
       results.push(res.value);
+      // Succeeded, but only partly. Kept in `results` (the balances read are
+      // real) AND warned about, so the figure is never presented as a total.
+      if (res.value.truncated) {
+        const w = wallets[i];
+        warnings.push({
+          walletAddress: w.address,
+          chain: w.chain,
+          error: `Balance read stopped at the ${MAX_BALANCE_PAGES}-page cap — this wallet's holdings are a floor, not a complete total.`,
+        });
+      }
     } else {
       const w = wallets[i];
       warnings.push({
@@ -260,57 +397,111 @@ const EMPTY_METRICS: TokenMetrics = {
   tokenCirculatingSupply: null,
 };
 
+/** `totalSupply()` and `decimals()` — ERC-20 selectors, for `eth_call`. */
+const SELECTOR_TOTAL_SUPPLY = "0x18160ddd";
+const SELECTOR_DECIMALS = "0x313ce567";
+
+async function ethCallUint(
+  rpcUrl: string,
+  to: string,
+  data: string
+): Promise<bigint | null> {
+  const res = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_call",
+      params: [{ to, data }, "latest"],
+    }),
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as { result?: string };
+  if (!json.result || json.result === "0x") return null;
+  try {
+    return BigInt(json.result);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Price, supply and FDV for the project's OWN token.
+ *
+ * Also migrated off the sunset Dune Sim `token-info` endpoint, which returned
+ * all three in one call. Alchemy has no equivalent single endpoint, so this
+ * composes two sources it does have: the Prices API for USD price, and two
+ * plain `eth_call`s (`totalSupply()`, `decimals()`) against the chain's own
+ * RPC — which is authoritative for supply in a way a provider index is not.
+ *
+ * FDV is then computed here rather than read from a provider. That is a real
+ * definitional change worth stating: Dune returned its own
+ * `fully_diluted_value`, this returns `price × totalSupply`. For a token whose
+ * circulating supply is below total supply the two can differ, so the column
+ * keeps its documented meaning — fully diluted, not circulating market cap.
+ *
+ * Still returns EMPTY_METRICS on any failure: token metrics are a nice-to-have
+ * section, and a missing price must never take down a treasury sync.
+ */
 export async function fetchTokenMetrics(
   tokenContract: string,
   chain: string
 ): Promise<TokenMetrics> {
-  const chainId = evmChainId(chain);
-  if (!chainId) return EMPTY_METRICS; // SVM/unknown chains handled elsewhere.
+  const cfg = CHAINS[chain as keyof typeof CHAINS];
+  const network = alchemyNetworkFor(chain);
+  if (!network || !cfg?.rpcUrl) return EMPTY_METRICS; // SVM/unknown chains handled elsewhere.
 
-  // Real Sim endpoint — the previous /token/{c}/holders/count path doesn't
-  // exist. token-info covers price + supply + FDV in one shot.
-  const url = `${DUNE_API_BASE}/token-info/${tokenContract}?chain_ids=${chainId}`;
   try {
-    const res = await fetch(url, {
-      headers: { "X-Sim-Api-Key": DUNE_API_KEY },
-    });
-    if (!res.ok) return EMPTY_METRICS;
-    // Sim wraps data in `tokens[]` (one entry per chain queried). For our
-    // single-chain query we always read tokens[0].
-    const payload = (await res.json()) as {
-      tokens?: Array<{
-        price_usd?: number;
-        total_supply?: string | number;
-        fully_diluted_value?: number;
-        decimals?: number;
-      }>;
-    };
-    const data = payload.tokens?.[0];
-    if (!data) return EMPTY_METRICS;
+    const [priceRes, rawSupply, rawDecimals] = await Promise.all([
+      fetch(
+        `https://api.g.alchemy.com/prices/v1/${ALCHEMY_API_KEY}/tokens/by-address`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            addresses: [{ network, address: tokenContract }],
+          }),
+        }
+      ),
+      ethCallUint(cfg.rpcUrl, tokenContract, SELECTOR_TOTAL_SUPPLY),
+      ethCallUint(cfg.rpcUrl, tokenContract, SELECTOR_DECIMALS),
+    ]);
 
-    // total_supply comes back as a raw integer string in base units; divide
-    // by 10^decimals to get the human-readable circulating figure.
-    const rawSupply =
-      typeof data.total_supply === "string"
-        ? parseFloat(data.total_supply)
-        : typeof data.total_supply === "number"
-          ? data.total_supply
-          : null;
-    const decimals = typeof data.decimals === "number" ? data.decimals : 0;
-    const adjustedSupply =
-      rawSupply !== null && Number.isFinite(rawSupply)
-        ? rawSupply / Math.pow(10, decimals)
+    let tokenPriceUsd: number | null = null;
+    if (priceRes.ok) {
+      const payload = (await priceRes.json()) as {
+        data?: Array<{ prices?: Array<{ currency?: string; value?: string }> }>;
+      };
+      const usd = payload.data?.[0]?.prices?.find(
+        (p) => (p.currency ?? "usd").toLowerCase() === "usd"
+      );
+      const parsed = usd?.value ? Number(usd.value) : NaN;
+      if (Number.isFinite(parsed) && parsed > 0) tokenPriceUsd = parsed;
+    }
+
+    // A token reporting absurd decimals is malformed, not a 10^255 supply.
+    const decimalsNum = rawDecimals !== null ? Number(rawDecimals) : null;
+    const decimals =
+      decimalsNum !== null && decimalsNum >= 0 && decimalsNum <= 36
+        ? decimalsNum
         : null;
+    const supply =
+      rawSupply !== null && decimals !== null
+        ? Number(rawSupply) / Math.pow(10, decimals)
+        : null;
+    const tokenCirculatingSupply =
+      supply !== null && Number.isFinite(supply) ? supply : null;
 
     return {
-      tokenPriceUsd: typeof data.price_usd === "number" ? data.price_usd : null,
+      tokenPriceUsd,
       tokenMarketCapUsd:
-        typeof data.fully_diluted_value === "number"
-          ? data.fully_diluted_value
+        tokenPriceUsd !== null && tokenCirculatingSupply !== null
+          ? tokenPriceUsd * tokenCirculatingSupply
           : null,
-      tokenCirculatingSupply: adjustedSupply,
-      // Holders count requires paginating /token-holders — too expensive for
-      // a monthly sync. Left null until we add a dedicated holder-count job.
+      tokenCirculatingSupply,
+      // Holders count needs a dedicated indexed source; no cheap Alchemy
+      // equivalent. Left null exactly as before, so nothing regressed here.
       tokenHoldersCount: null,
     };
   } catch {

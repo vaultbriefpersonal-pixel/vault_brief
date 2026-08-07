@@ -1,15 +1,34 @@
+// `alchemyNetwork` is the network slug Alchemy's Portfolio API expects in its
+// `addresses[].networks` array — the same slug already embedded in each
+// `rpcUrl` below, lifted out so balance fetching can name it directly instead
+// of string-parsing a URL. NULL for Solana, which goes through Helius
+// (solana-sync.ts) and never touches the EVM balance path.
+//
+// `duneChainId` is retained but DEAD for balances: the Dune Sim API it named
+// was sunset on 2026-08-01 and now answers every request with HTTP 410, which
+// is what silently wrote $0.00 treasuries for five days. See
+// `fetchAlchemyBalances` in wallet-sync.ts.
 export const CHAINS = {
   ethereum: {
     id: 1,
     name: "Ethereum",
     duneChainId: "ethereum",
+    alchemyNetwork: "eth-mainnet",
     nativeToken: "ETH",
-    rpcUrl: `https://eth-mainnet.alchemyapi.io/v2/${process.env.ALCHEMY_API_KEY}`,
+    // `g.alchemy.com`, NOT the legacy `eth-mainnet.alchemyapi.io`. That
+    // deprecated host answers with a network-level `fetch failed`, and because
+    // it was the only entry here still using it, anything reading this field
+    // for Ethereum silently got nothing back while the other four chains
+    // worked. safe-info.ts documents having duplicated this whole map rather
+    // than depend on the broken entry; transaction-sync.ts likewise keeps its
+    // own. Fixed at the source so the next reader does not need a workaround.
+    rpcUrl: `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
   },
   polygon: {
     id: 137,
     name: "Polygon",
     duneChainId: "polygon",
+    alchemyNetwork: "polygon-mainnet",
     nativeToken: "MATIC",
     rpcUrl: `https://polygon-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
   },
@@ -17,6 +36,7 @@ export const CHAINS = {
     id: 42161,
     name: "Arbitrum",
     duneChainId: "arbitrum",
+    alchemyNetwork: "arb-mainnet",
     nativeToken: "ETH",
     rpcUrl: `https://arb-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
   },
@@ -24,6 +44,7 @@ export const CHAINS = {
     id: 8453,
     name: "Base",
     duneChainId: "base",
+    alchemyNetwork: "base-mainnet",
     nativeToken: "ETH",
     rpcUrl: `https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
   },
@@ -31,6 +52,7 @@ export const CHAINS = {
     id: 10,
     name: "Optimism",
     duneChainId: "optimism",
+    alchemyNetwork: "opt-mainnet",
     nativeToken: "ETH",
     rpcUrl: `https://opt-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
   },
@@ -38,6 +60,7 @@ export const CHAINS = {
     id: null,
     name: "Solana",
     duneChainId: "solana",
+    alchemyNetwork: null,
     nativeToken: "SOL",
     rpcUrl: "https://api.mainnet-beta.solana.com",
   },
