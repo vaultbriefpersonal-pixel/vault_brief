@@ -100,6 +100,21 @@ export interface ClassifiedTransaction extends RawTransaction {
   confidence: number;
   /** True when a rule identified this as likely spam rather than genuine income. Absent (not false) everywhere else. */
   spamSuspect?: boolean;
+  /**
+   * True when NO classifier produced a verdict and `category` is merely the
+   * fallback — the model returned nothing for this transaction, or its
+   * response could not be parsed after a retry.
+   *
+   * This is the difference between "we judged this miscellaneous" and "we
+   * could not tell what this was", which `category: "other"` alone cannot
+   * express: `other` is also a legitimate, founder-budgetable category. Read
+   * by `transaction-sync.ts` to route the amount into
+   * `ExpenseSummary.unclassified` instead of `other`, which is what lets the
+   * report disclose the gap rather than present it as a spending decision.
+   *
+   * Absent (not false) on every classified transaction.
+   */
+  unclassified?: true;
 }
 
 // The known-address sets live in ./counterparty-labels — a deliberately
@@ -277,7 +292,56 @@ async function classifyByDirection(
   return results;
 }
 
+/**
+ * How many transactions go into one classification prompt.
+ *
+ * THIS EXISTS BECAUSE OF A REAL INCIDENT. `classifyWithAI` used to send every
+ * transaction in a single prompt under a flat `max_tokens: 1000`. Each
+ * returned entry costs ~35-45 tokens, so a period with ~25 transactions
+ * overran the budget, the JSON array came back truncated, `JSON.parse` threw,
+ * and EVERY transaction silently took the fallback category. Observed in
+ * production: 21 of 22 outgoing transactions became `other` at confidence
+ * 0.5, which swept a $567,447.64 token sale into operating burn and
+ * understated runway roughly fourfold.
+ *
+ * Twelve keeps a batch's worst-case response far inside its budget while
+ * keeping the request count small.
+ */
+export const CLASSIFY_BATCH_SIZE = 12;
+
+/** Split into fixed-size batches, preserving order. Exported for tests. */
+export function chunkForClassification<T>(items: T[], size: number): T[][] {
+  if (size <= 0) return items.length > 0 ? [items] : [];
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/**
+ * Output budget for one batch, sized from the batch rather than fixed.
+ *
+ * 80 tokens per entry is roughly double the observed ~35-45 an entry costs,
+ * so a batch cannot truncate the way the old flat ceiling did. The 400 floor
+ * covers a one- or two-item batch, where per-item scaling alone would be
+ * tighter than the model's own preamble.
+ */
+export function maxTokensForBatch(count: number): number {
+  return Math.max(400, count * 80);
+}
+
 async function classifyWithAI(
+  transactions: RawTransaction[],
+  direction: "in" | "out"
+): Promise<ClassifiedTransaction[]> {
+  if (transactions.length === 0) return [];
+  const batches = chunkForClassification(transactions, CLASSIFY_BATCH_SIZE);
+  const results = await Promise.all(
+    batches.map((batch) => classifyBatch(batch, direction))
+  );
+  return results.flat();
+}
+
+async function classifyBatch(
   transactions: RawTransaction[],
   direction: "in" | "out"
 ): Promise<ClassifiedTransaction[]> {
@@ -311,42 +375,66 @@ ${txList}
 Return ONLY a JSON array (no markdown, no explanation):
 [{"index": 1, "category": "...", "confidence": 0.85}, ...]`;
 
-  let text = "[]";
-  try {
-    const response = await getOpenrouter().chat.completions.create({
-      model: "google/gemini-2.5-flash",
-      max_tokens: 1000,
-      messages: [{ role: "user", content: prompt }],
-    });
-    text = response.choices[0]?.message?.content ?? "[]";
-  } catch {
-    // LLM unreachable — fall through to fallback.
-  }
-
-  let classifications: Array<{
+  type Classification = {
     index: number;
     category: AnyCategory;
     confidence: number;
-  }> = [];
+  };
 
-  try {
-    // Strip code fences if the model wrapped them despite instructions.
-    const cleaned = text.replace(/^```(?:json)?|```$/g, "").trim();
-    classifications = JSON.parse(cleaned);
-  } catch {
-    return transactions.map((tx) => ({
-      ...tx,
-      category: fallbackCategory,
-      confidence: 0.5,
-    }));
+  // Two attempts, then give up and mark the batch unclassified. A parse
+  // failure is usually a one-off formatting wobble, and re-asking is far
+  // cheaper than mislabelling a whole period's spending — the failure this
+  // whole function was rewritten to stop hiding.
+  let classifications: Classification[] = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let text = "";
+    try {
+      const response = await getOpenrouter().chat.completions.create({
+        model: "google/gemini-2.5-flash",
+        // Sized from the batch, never flat — see `maxTokensForBatch`.
+        max_tokens: maxTokensForBatch(transactions.length),
+        // Labelling, not writing. The same transactions classified correctly
+        // on one sync and not the next; pinning this removes that coin flip.
+        temperature: 0,
+        messages: [{ role: "user", content: prompt }],
+      });
+      text = response.choices[0]?.message?.content ?? "";
+    } catch {
+      // LLM unreachable — retry once, then fall through to the marker below.
+      continue;
+    }
+
+    try {
+      // Strip code fences if the model wrapped them despite instructions.
+      const cleaned = text.replace(/^```(?:json)?|```$/g, "").trim();
+      const parsed: unknown = JSON.parse(cleaned);
+      if (Array.isArray(parsed)) {
+        classifications = parsed as Classification[];
+        break;
+      }
+    } catch {
+      // Malformed or truncated JSON — retry once, then fall through.
+    }
   }
 
   return transactions.map((tx, i) => {
     const classification = classifications.find((c) => c.index === i + 1);
+    if (!classification) {
+      // NOT a category — the absence of one. `unclassified` is what stops
+      // this from being indistinguishable downstream from a transaction the
+      // model genuinely judged to be miscellaneous spend. See
+      // `ExpenseSummary.unclassified` in transaction-sync.ts.
+      return {
+        ...tx,
+        category: fallbackCategory,
+        confidence: 0.5,
+        unclassified: true as const,
+      };
+    }
     return {
       ...tx,
-      category: classification?.category ?? fallbackCategory,
-      confidence: classification?.confidence ?? 0.5,
+      category: classification.category,
+      confidence: classification.confidence,
     };
   });
 }

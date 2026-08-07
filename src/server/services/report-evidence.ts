@@ -50,8 +50,10 @@ import {
   netFlowOf,
   signedUsd,
   splitIncome,
+  unclassifiedOutflows,
   CONCENTRATION_PCT_FLOOR,
   STABLE_COVER_FLOOR_MONTHS,
+  UNCLASSIFIED_DISCLOSURE_PCT,
   type BudgetLine,
   type ReportSectionContext,
 } from "./report-derived";
@@ -112,6 +114,14 @@ const RUNWAY_DROP_FLOOR_MONTHS = 0.5;
 
 /** Holder-count and recurring-income moves below this are noise, not signal. */
 const MATERIAL_MOVE_PCT = 5;
+
+/**
+ * Unpriced holdings below this count are dust, not a coverage problem — a
+ * treasury of any age accumulates a few airdropped tokens no feed prices.
+ * Above it, the reported total is understated by enough that the reader
+ * should be told the number is a floor.
+ */
+const UNPRICED_DISCLOSURE_FLOOR = 10;
 const INCOME_MOVE_PCT = 10;
 
 // ─── small readers ─────────────────────────────────────────────────────────
@@ -598,6 +608,56 @@ function recurringIncomeDirection(ctx: ReportSectionContext): {
   };
 }
 
+/**
+ * Outflows no classifier could label — a measurement gap, not a spending
+ * decision.
+ *
+ * Distinct from `other`, which is a real category a founder can budget
+ * against. This fires on the `unclassified` bucket transaction-sync writes
+ * when the model returned no verdict, and it matters because `burnRateUsd`
+ * excludes only `token_sale`: an unrecognised token sale lands inside burn
+ * and drags runway down with it.
+ */
+function unclassifiedOutflowConcern(
+  ctx: ReportSectionContext
+): EvidenceItem | null {
+  const { usd, shareOfOutflows } = unclassifiedOutflows(ctx);
+  if (usd <= 0 || shareOfOutflows <= UNCLASSIFIED_DISCLOSURE_PCT) return null;
+
+  return item(
+    "unclassified-outflows",
+    "Part of this period's spending could not be attributed to any category",
+    `${formatUsd(usd)} of ${formatUsd(
+      Number(ctx.snapshot.totalOutflowsUsd ?? 0)
+    )} in outflows (${shareOfOutflows.toFixed(
+      0
+    )}%) went unclassified, so burn is an upper bound and runway a lower one. Unclassified means unlabelled, NOT wasted or misspent — the transfers may include a treasury rebalance or a token sale, which are not operating costs. This is a data-quality caveat, not a finding about how the money was used.`
+  );
+}
+
+/**
+ * Holdings with no price feed, excluded from every valuation.
+ *
+ * THE LEDGER'S ONLY COUNT-ONLY NEGATIVE, and unavoidably so: an unpriced
+ * holding has no USD figure by construction (see `isUnpricedHolding` in
+ * treasury-composition.ts), which is precisely why it deserves saying out
+ * loud. The treasury total is understated by an unknown amount, and an
+ * unknown is not the same as a zero — the distinction `holderGrowth` makes
+ * for counts is the shape copied here.
+ */
+function unpricedHoldingsConcern(
+  ctx: ReportSectionContext
+): EvidenceItem | null {
+  const count = compositionOf(ctx).unpriced.count;
+  if (count <= UNPRICED_DISCLOSURE_FLOOR) return null;
+
+  return item(
+    "unpriced-holdings",
+    "Part of the treasury carries no price feed and is excluded from every total",
+    `${formatCount(count)} holdings have no price and are left out of the treasury value and every percentage derived from it. Their worth is UNKNOWN, not zero, so the reported total is a floor. This is a data-quality caveat about coverage, never a statement that the assets are worthless.`
+  );
+}
+
 /** Data-quality findings from the attribution. Each is a real caveat, not a metric. */
 function attributionConcerns(ctx: ReportSectionContext): EvidenceItem[] {
   if (!ctx.prevSnapshot) return [];
@@ -772,6 +832,10 @@ export function buildEvidenceLedger(ctx: ReportSectionContext): EvidenceLedger {
     burn.negative,
     income.negative,
     ...attributionConcerns(ctx),
+    // Both are data-quality caveats, so they sit with `attributionConcerns`
+    // rather than among the findings about the business.
+    unclassifiedOutflowConcern(ctx),
+    unpricedHoldingsConcern(ctx),
     ...negativeAnomalies(ctx),
   ].filter((i): i is EvidenceItem => i !== null);
 

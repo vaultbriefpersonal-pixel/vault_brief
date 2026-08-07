@@ -4267,3 +4267,69 @@ describe("source of truth", () => {
     );
   });
 });
+
+// ─── unclassified outflows on the financial-health block ───────────────────
+//
+// A production report printed "Monthly burn rate: $729.1K" and a 0.6-month
+// runway as measured facts. Both were built from outflows that were 99.8%
+// unclassified — a $567,447.64 token sale among them, which burn is supposed
+// to exclude. The figures are not adjusted (that would invent a number); they
+// are qualified.
+
+describe("financial_health — unclassified-outflow caveat", () => {
+  function ctxWithUnclassified(unclassified: number, outflows: number) {
+    return contextWith({
+      burnRateUsd: String(outflows),
+      totalOutflowsUsd: String(outflows),
+      expensesByCategory: { other: 0, unclassified },
+    });
+  }
+
+  it("qualifies burn and runway when a material share went unclassified", () => {
+    const fragment = section("financial_health").userPromptFragment(
+      ctxWithUnclassified(727_498, 729_058)
+    );
+    expect(fragment).toContain("FIGURES ABOVE ARE UNRELIABLE");
+    expect(fragment).toMatch(/UPPER BOUND/);
+    expect(fragment).toMatch(/LOWER BOUND/);
+  });
+
+  it("names the amount and the share so the reader can judge the size of the gap", () => {
+    const fragment = section("financial_health").userPromptFragment(
+      ctxWithUnclassified(727_498, 729_058)
+    );
+    expect(fragment).toContain("$727.5K");
+    expect(fragment).toContain("100%");
+  });
+
+  it("says nothing when the share is immaterial", () => {
+    const fragment = section("financial_health").userPromptFragment(
+      ctxWithUnclassified(5_000, 100_000)
+    );
+    expect(fragment).not.toContain("FIGURES ABOVE ARE UNRELIABLE");
+  });
+
+  it("says nothing when everything classified cleanly — the healthy path is untouched", () => {
+    const fragment = section("financial_health").userPromptFragment(
+      ctxWithUnclassified(0, 100_000)
+    );
+    expect(fragment).not.toContain("FIGURES ABOVE ARE UNRELIABLE");
+  });
+});
+
+describe("expense_breakdown — unclassified is not a spending category", () => {
+  it("renders the unclassified bucket as its own row", () => {
+    const ctx = contextWith({
+      expensesByCategory: { payroll: 1000, unclassified: 727_498 },
+    });
+    const fragment = section("expense_breakdown").userPromptFragment(ctx);
+    expect(fragment).toContain("unclassified");
+    expect(fragment).toContain("$727.5K");
+  });
+
+  it("instructs the model never to call it spending or fold it into other", () => {
+    const rules = section("expense_breakdown").systemPromptFragment as string;
+    expect(rules).toMatch(/measurement gap, not a category of spending/i);
+    expect(rules).toMatch(/never describe it as money spent/i);
+  });
+});

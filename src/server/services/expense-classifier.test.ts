@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   buildRecurrenceSnapshot,
+  chunkForClassification,
   classifyTransactions,
+  CLASSIFY_BATCH_SIZE,
   detectRecurringPayroll,
+  maxTokensForBatch,
   type RawTransaction,
 } from "./expense-classifier";
 
@@ -165,5 +168,78 @@ describe("classifyTransactions — spam short-circuit", () => {
     // it would ever reach the LLM.
     expect(result.category).toBe("operational");
     expect(result.confidence).toBe(0.9);
+  });
+});
+
+// ─── batching ──────────────────────────────────────────────────────────────
+//
+// The arithmetic is extracted and tested directly because the incident it
+// prevents was arithmetic: one prompt carrying every transaction under a flat
+// max_tokens: 1000 truncated its own JSON reply, which failed to parse, which
+// silently turned 21 of 22 real outflows into "other" and swept a $567,447.64
+// token sale into operating burn. Same reasoning as transfer-fetch-policy.ts —
+// the network call is integration-verified, the sizing is unit-tested.
+
+describe("chunkForClassification", () => {
+  it("splits into fixed-size batches, preserving order", () => {
+    expect(chunkForClassification([1, 2, 3, 4, 5], 2)).toEqual([
+      [1, 2],
+      [3, 4],
+      [5],
+    ]);
+  });
+
+  it("returns nothing for an empty list", () => {
+    expect(chunkForClassification([], 12)).toEqual([]);
+  });
+
+  it("keeps a list smaller than the batch size in a single batch", () => {
+    expect(chunkForClassification([1, 2], 12)).toEqual([[1, 2]]);
+  });
+
+  it("splits the incident's real volume into more than one request", () => {
+    // 22 outgoing transactions is what the production failure carried.
+    const txs = Array.from({ length: 22 }, (_, i) => i);
+    const batches = chunkForClassification(txs, CLASSIFY_BATCH_SIZE);
+    expect(batches.length).toBeGreaterThan(1);
+    expect(batches.flat()).toEqual(txs);
+  });
+});
+
+describe("maxTokensForBatch", () => {
+  it("scales with the batch instead of staying flat", () => {
+    expect(maxTokensForBatch(12)).toBeGreaterThan(maxTokensForBatch(4));
+  });
+
+  it("floors small batches so a one-item request still has room to answer", () => {
+    expect(maxTokensForBatch(1)).toBe(400);
+  });
+
+  it("leaves real headroom over the ~45 tokens an entry costs", () => {
+    // The old flat 1000 could not fit 22 entries; a full batch must.
+    expect(maxTokensForBatch(CLASSIFY_BATCH_SIZE)).toBeGreaterThan(
+      CLASSIFY_BATCH_SIZE * 45
+    );
+  });
+});
+
+describe("the unclassified marker", () => {
+  it("marks a transaction the model never labelled, so it cannot pass as a category", async () => {
+    // Reaches the LLM path, which resolves to its documented fallback with no
+    // API key configured — the same path the production failure took.
+    const [result] = await classifyTransactions([
+      rawTx({ direction: "in", valueUsd: 0, priceUnknown: undefined }),
+    ]);
+    expect(result.unclassified).toBe(true);
+    expect(result.confidence).toBe(0.5);
+  });
+
+  it("leaves a rule-classified transaction unmarked", async () => {
+    // Resolved by ruleBasedClassifyOutgoing (valueUsd < 500) before the LLM.
+    const [result] = await classifyTransactions([
+      rawTx({ direction: "out", valueUsd: 100, to: "0xsomewhere" }),
+    ]);
+    expect(result.category).toBe("operational");
+    expect(result.unclassified).toBeUndefined();
   });
 });

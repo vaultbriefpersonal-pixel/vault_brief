@@ -267,6 +267,40 @@ export function validateReportContent(
         `Report is implausibly short (${len} chars) for ${enabledSectionCount} enabled section(s) — expected at least ${floor}, likely a truncated completion`
       );
     }
+
+    // The floor above only catches a completion that stopped EARLY. It cannot
+    // catch one that stopped LATE — a real report ended
+    // `"### Protocol Revenue\n\nRecurring"`, mid-word, at 2,734 chars against
+    // a floor of 1,200, and passed. These two rules look at the last line
+    // instead of the total, and are deliberately narrow: a false positive
+    // costs a needless regeneration, so each condition is chosen to spare
+    // legitimate endings.
+    const lastLine = markdown.trimEnd().split("\n").pop()?.trim() ?? "";
+    const isHeading = /^#{1,6}\s/.test(lastLine);
+    const isTableRow = lastLine.startsWith("|");
+    const isListItem = /^[-*]\s/.test(lastLine);
+
+    if (isHeading) {
+      // A section was announced and nothing was written under it.
+      issues.push(
+        `Report ends on the heading "${lastLine}" with no content beneath it — the completion stopped mid-section`
+      );
+    } else if (
+      !isTableRow &&
+      !isListItem &&
+      lastLine.length > 0 &&
+      // Short, digit-free prose with no terminal punctuation is the signature
+      // of a sentence cut mid-flight. The digit test is what spares a real
+      // closing line like "Total treasury value: $835.2K", and the table/list
+      // tests spare "| operational | $1.6K |" and "- Total inflows: $33.6K".
+      lastLine.length < 60 &&
+      !/\d/.test(lastLine) &&
+      !/[.!?:;)"'`]$/.test(lastLine)
+    ) {
+      issues.push(
+        `Report ends mid-sentence on "${lastLine}" — the completion was cut off`
+      );
+    }
   }
 
   // Structural guard against "no material concerns" beside a real,

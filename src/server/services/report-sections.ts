@@ -38,7 +38,9 @@ import {
   netFlowOf,
   signedUsd,
   splitIncome,
+  unclassifiedOutflows,
   CONCENTRATION_PCT_FLOOR,
+  UNCLASSIFIED_DISCLOSURE_PCT,
   DUST_FLOOR_USD,
   RECURRING_INCOME_FLOOR_USD,
   STABLE_COVER_FLOOR_MONTHS,
@@ -1173,6 +1175,23 @@ function financialHealthLines(ctx: ReportSectionContext): string[] {
     }
   }
 
+  // Placed after BOTH runway figures and before the flow totals on purpose:
+  // it qualifies every number above it at once. Burn is every outflow bar
+  // `token_sale`, so an unclassified transfer sits inside burn by default —
+  // a token sale the classifier missed inflates burn and deflates runway.
+  // Observed in production: $567,447.64 of a $729,058.03 period, putting
+  // runway out roughly fourfold. Disclosed, never silently netted out.
+  const unclassified = unclassifiedOutflows(ctx);
+  if (unclassified.shareOfOutflows > UNCLASSIFIED_DISCLOSURE_PCT) {
+    lines.push(
+      `- FIGURES ABOVE ARE UNRELIABLE: ${formatUsd(
+        unclassified.usd
+      )} of this period's outflows (${unclassified.shareOfOutflows.toFixed(
+        0
+      )}%) could not be classified, so they may include non-operating movements such as a treasury rebalance or a token sale. Burn is therefore an UPPER BOUND and every runway figure above a LOWER BOUND. Say so wherever either is quoted; do not present them as measured.`
+    );
+  }
+
   if (snapshot.totalInflowsUsd) {
     lines.push(`- Total inflows: ${formatUsd(Number(snapshot.totalInflowsUsd))}`);
   }
@@ -1232,7 +1251,8 @@ function expenseBreakdownRules(
 ): string {
   return `### Operating Expenses (CONDITIONAL)
 - Render as a category table only when the input lists at least one operating expense category.
-- Notable changes vs ${previousPeriod} — only if ${aPreviousPeriod} was provided AND there's a real delta to discuss. Otherwise skip.`;
+- Notable changes vs ${previousPeriod} — only if ${aPreviousPeriod} was provided AND there's a real delta to discuss. Otherwise skip.
+- **An \`unclassified\` line is a measurement gap, not a category of spending.** It means no classifier could tell what those transfers were, so they may include non-operating movements such as a treasury rebalance or a token sale. Keep it in the table under that exact name, and never describe it as money spent on anything, fold it into a spending total, or call it "other" — "other" on this table means a real, deliberate miscellaneous expense, which is the opposite of an unknown.`;
 }
 
 const expenseBreakdown: ReportSection = {

@@ -389,6 +389,42 @@ export function burnBasis(ctx: ReportSectionContext): BurnBasis {
 }
 
 /**
+ * Share of this period's outflows that no classifier could label.
+ *
+ * Reads the `unclassified` bucket written by transaction-sync.ts — a key kept
+ * deliberately separate from `other` so this question is answerable at all.
+ * Returns zeros for snapshots written before that split existed, which is the
+ * correct reading: nothing is known to be unclassified on them.
+ *
+ * WHY ANY OF THIS MATTERS TO BURN. `burnRateUsd` is every outflow except
+ * `token_sale`. An unclassified transfer is therefore inside burn by default,
+ * so a token sale the model failed to recognise inflates burn and deflates
+ * runway — observed in production at $567,447.64 on a $729,058.03 period,
+ * which put runway out by roughly fourfold. The figures are NOT adjusted for
+ * this: subtracting unclassified outflows would invent a burn number no data
+ * supports, the same reasoning that forbids `received − spent` in the grant
+ * blocks. They are disclosed instead.
+ */
+export const UNCLASSIFIED_DISCLOSURE_PCT = 10;
+
+export function unclassifiedOutflows(ctx: ReportSectionContext): {
+  usd: number;
+  shareOfOutflows: number;
+} {
+  const raw = ctx.snapshot.expensesByCategory as
+    | Record<string, number>
+    | null
+    | undefined;
+  const usd = Number(raw?.unclassified ?? 0);
+  const outflows = Number(ctx.snapshot.totalOutflowsUsd ?? 0);
+  if (!Number.isFinite(usd) || usd <= 0) return { usd: 0, shareOfOutflows: 0 };
+  if (!Number.isFinite(outflows) || outflows <= 0) {
+    return { usd, shareOfOutflows: 0 };
+  }
+  return { usd, shareOfOutflows: (usd / outflows) * 100 };
+}
+
+/**
  * Human label for the denominator, used inside the runway bullet itself.
  *
  * `period` is optional so the signature stays additive, and OMITTING IT YIELDS

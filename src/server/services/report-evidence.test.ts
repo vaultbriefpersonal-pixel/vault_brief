@@ -1206,3 +1206,89 @@ describe("every item carries a figure", () => {
     }
   });
 });
+
+// ─── data-quality caveats ──────────────────────────────────────────────────
+//
+// Both items below describe what could NOT be measured, not how the business
+// performed — the distinction lows_concerns' own system rule enforces. They
+// exist because a real report presented a failed classification as the
+// category "other" and silently dropped 119 unpriced holdings from every
+// total, with nothing anywhere saying either had happened.
+
+describe("unclassified outflows as a data-quality caveat", () => {
+  function ctxWithUnclassified(unclassified: number, outflows: number) {
+    return ctxOf({
+      snapshot: snapshot({
+        totalOutflowsUsd: String(outflows),
+        expensesByCategory: { other: 0, unclassified },
+      } as Partial<TreasurySnapshot>),
+    });
+  }
+
+  it("fires when a material share of outflows could not be classified", () => {
+    // The production shape: $727,498 of $729,058 (99.8%) unlabelled.
+    const { negatives } = buildEvidenceLedger(
+      ctxWithUnclassified(727_498, 729_058)
+    );
+    expect(ids(negatives)).toContain("unclassified-outflows");
+  });
+
+  it("states plainly that this is a measurement gap, not misspending", () => {
+    const { negatives } = buildEvidenceLedger(
+      ctxWithUnclassified(727_498, 729_058)
+    );
+    const item = negatives.find((n) => n.id === "unclassified-outflows")!;
+    expect(item.figure).toMatch(/NOT wasted or misspent/i);
+    expect(item.figure).toMatch(/data-quality caveat/i);
+  });
+
+  it("stays silent below the disclosure threshold", () => {
+    // 5% — real, but not enough to call the burn figure into question.
+    const { negatives } = buildEvidenceLedger(
+      ctxWithUnclassified(5_000, 100_000)
+    );
+    expect(ids(negatives)).not.toContain("unclassified-outflows");
+  });
+
+  it("stays silent when everything classified cleanly", () => {
+    const { negatives } = buildEvidenceLedger(ctxWithUnclassified(0, 100_000));
+    expect(ids(negatives)).not.toContain("unclassified-outflows");
+  });
+});
+
+describe("unpriced holdings as a data-quality caveat", () => {
+  function ctxWithUnpriced(count: number) {
+    // `isUnpricedHolding` = positive amount, no usable price. Build exactly
+    // that many, plus one priced holding so the composition is derived.
+    const tokens = [
+      { symbol: "USDC", amount: 1000, priceUsd: 1 },
+      ...Array.from({ length: count }, (_, i) => ({
+        symbol: `SPAM${i}`,
+        amount: 1,
+        priceUsd: 0,
+      })),
+    ];
+    return ctxOf({
+      snapshot: snapshot({
+        balancesDetail: detail(tokens),
+      } as Partial<TreasurySnapshot>),
+    });
+  }
+
+  it("fires once unpriced holdings pass the dust floor", () => {
+    const { negatives } = buildEvidenceLedger(ctxWithUnpriced(119));
+    expect(ids(negatives)).toContain("unpriced-holdings");
+  });
+
+  it("says the excluded value is unknown, never zero", () => {
+    const { negatives } = buildEvidenceLedger(ctxWithUnpriced(119));
+    const item = negatives.find((n) => n.id === "unpriced-holdings")!;
+    expect(item.figure).toMatch(/UNKNOWN, not zero/i);
+    expect(item.figure).toMatch(/never a statement that the assets are worthless/i);
+  });
+
+  it("ignores a handful of dust tokens", () => {
+    const { negatives } = buildEvidenceLedger(ctxWithUnpriced(3));
+    expect(ids(negatives)).not.toContain("unpriced-holdings");
+  });
+});

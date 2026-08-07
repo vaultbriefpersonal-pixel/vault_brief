@@ -454,3 +454,55 @@ describe("buildReportPrompts — sectionsWithContent", () => {
     expect(sectionsWithContent.has("key_takeaways")).toBe(false);
   });
 });
+
+describe("validateReportContent — mid-sentence truncation", () => {
+  const clean = snapshot(null);
+  // 20 sections → length floor of 1200, which the real failure cleared.
+  const SECTIONS = 20;
+  const filler =
+    "### Executive Summary\n\n" +
+    "Real narrative content grounded in this period's data. ".repeat(30) +
+    "\n\n";
+
+  it("fails on the real production ending — a section cut off mid-word", () => {
+    const markdown = filler + "### Protocol Revenue\n\nRecurring";
+    const result = validateReportContent(markdown, clean, SECTIONS);
+    expect(result.passed).toBe(false);
+    expect(result.issues.some((i) => i.includes("mid-sentence"))).toBe(true);
+  });
+
+  it("fails when the document ends on a bare heading", () => {
+    const markdown = filler + "### Protocol Revenue";
+    const result = validateReportContent(markdown, clean, SECTIONS);
+    expect(result.passed).toBe(false);
+    expect(result.issues.some((i) => i.includes("no content beneath"))).toBe(
+      true
+    );
+  });
+
+  it("passes a legitimate closing line that carries a figure", () => {
+    // The exact shape that made a naive 'ends with a period' rule unusable.
+    const markdown = filler + "Total treasury value: $835.2K";
+    expect(validateReportContent(markdown, clean, SECTIONS).passed).toBe(true);
+  });
+
+  it("passes a document ending on a table row", () => {
+    const markdown = filler + "| operational | $1.6K |";
+    expect(validateReportContent(markdown, clean, SECTIONS).passed).toBe(true);
+  });
+
+  it("passes a document ending on a list item", () => {
+    const markdown = filler + "- Total inflows: $33.6K";
+    expect(validateReportContent(markdown, clean, SECTIONS).passed).toBe(true);
+  });
+
+  it("passes ordinary prose that ends in a full stop", () => {
+    const markdown = filler + "No material changes to the plan this period.";
+    expect(validateReportContent(markdown, clean, SECTIONS).passed).toBe(true);
+  });
+
+  it("skips the check when enabledSectionCount is omitted", () => {
+    const markdown = filler + "### Protocol Revenue\n\nRecurring";
+    expect(validateReportContent(markdown, clean).passed).toBe(true);
+  });
+});

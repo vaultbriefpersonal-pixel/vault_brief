@@ -164,6 +164,22 @@ export interface ExpenseSummary {
   token_sale: number;
   operational: number;
   other: number;
+  /**
+   * Outflows NO classifier could label — deliberately NOT a member of
+   * `EXPENSE_CATEGORIES`.
+   *
+   * `other` is a real, founder-budgetable category, so using it as the
+   * failure sink made "we spent this on miscellaneous" and "we could not tell
+   * what this was" the same number. That is how a $567,447.64 token sale was
+   * counted as operating burn: unclassified, therefore not `token_sale`,
+   * therefore inside the burn filter at `burnRateUsd` below.
+   *
+   * Kept out of `EXPENSE_CATEGORIES` on purpose: that list drives the
+   * founder-facing budget picker and `EXPENSE_CATEGORY_NAMES`, and a
+   * measurement gap is not something anyone should be able to budget against.
+   * Adding the key needs no migration — `expenses_by_category` is JSONB.
+   */
+  unclassified: number;
 }
 
 export type IncomeSummary = Record<IncomeCategory, number>;
@@ -651,9 +667,16 @@ export async function fetchAndClassify(
     token_sale: 0,
     operational: 0,
     other: 0,
+    unclassified: 0,
   };
   for (const t of classifiedOutgoing) {
-    if (t.category in expensesByCategory) {
+    // The marker wins over the fallback category it rides with: an
+    // unclassified transaction carries `category: "other"` only because
+    // something had to go there, and letting it land in `other` is exactly
+    // the conflation this key exists to end.
+    if (t.unclassified) {
+      expensesByCategory.unclassified += t.valueUsd;
+    } else if (t.category in expensesByCategory) {
       expensesByCategory[t.category as keyof ExpenseSummary] += t.valueUsd;
     }
   }
