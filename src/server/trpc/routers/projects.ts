@@ -48,7 +48,10 @@ import {
 } from "@/server/services/balance-reconstruction";
 import { getHistoricalPrice } from "@/server/services/price-resolver";
 import { generateAndSaveReport } from "@/server/services/report-generator";
-import { evaluateReadiness } from "@/server/services/report-sections";
+import {
+  evaluateReadiness,
+  resolveSections,
+} from "@/server/services/report-sections";
 import { changeSignificanceFloor } from "@/server/services/report-derived";
 import {
   assertCustomSyncWindow,
@@ -521,10 +524,21 @@ export const projectsRouter = router({
         }),
       ]);
 
+      // The ids this project's OWN template resolves to, for a caller that
+      // needs to know which of the 31 verdicts below actually apply to it.
+      // Resolved with the same function report generation uses, so the
+      // period picker cannot preview a section set the generator would not
+      // produce. Returned in both branches — a project with no snapshot still
+      // has a template.
+      const defaultEnabledIds = resolveSections(
+        project.reportSections as Parameters<typeof resolveSections>[0]
+      ).map((s) => s.id);
+
       // No snapshot at all → every section is "Run a sync first".
       if (!snapshot) {
         return {
           hasSnapshot: false as const,
+          defaultEnabledIds,
           readiness: [] as Array<{
             id: string;
             ready: false;
@@ -568,7 +582,7 @@ export const projectsRouter = router({
         minSignificant: changeSignificanceFloor(total),
       });
 
-      return { hasSnapshot: true as const, readiness };
+      return { hasSnapshot: true as const, defaultEnabledIds, readiness };
     }),
 
   /**

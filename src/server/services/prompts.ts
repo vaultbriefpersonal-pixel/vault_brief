@@ -81,6 +81,16 @@ export function buildReportPrompts(
   enabled: ReportSection[];
   /** Ids of `enabled` sections that had real content this generation — see `sectionIdsWithContent`. */
   sectionsWithContent: Set<string>;
+  /**
+   * The context these prompts were built from.
+   *
+   * Returned so post-generation diagnostics run at the GENERATOR layer rather
+   * than being computed in here, which would turn a prompt builder into the
+   * home for founder-facing checks. Handing back the same object also keeps
+   * report-derived.ts's `WeakMap` memoisation warm — a caller that rebuilt an
+   * equivalent context would silently recompute every derived figure.
+   */
+  ctx: ReportSectionContext;
 } {
   const {
     snapshot,
@@ -141,6 +151,7 @@ export function buildReportPrompts(
     user: buildUserPrompt(ctx, enabled),
     enabled,
     sectionsWithContent: sectionIdsWithContent(ctx, enabled),
+    ctx,
   };
 }
 

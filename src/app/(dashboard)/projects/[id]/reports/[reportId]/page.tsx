@@ -5,7 +5,15 @@ import { trpc } from "@/lib/api";
 import { ReportEditor } from "@/components/report/ReportEditor";
 import { ReportWidgets } from "@/components/report/ReportWidgets";
 import { ReportEngagements } from "@/components/report/ReportEngagements";
-import { Download, Send, RefreshCw, ChevronLeft, Copy, FileDown } from "lucide-react";
+import {
+  Download,
+  Send,
+  RefreshCw,
+  ChevronLeft,
+  Copy,
+  FileDown,
+  AlertTriangle,
+} from "lucide-react";
 import Link from "next/link";
 import { formatDate } from "@/lib/utils";
 import { normalizeForExport } from "@/lib/report-markdown";
@@ -42,7 +50,13 @@ export default function ReportEditorPage({ params }: Props) {
   const [copied, setCopied] = useState(false);
 
   const update = trpc.reports.update.useMutation({ onSuccess: () => refetch() });
-  const updateStatus = trpc.reports.updateStatus.useMutation({ onSuccess: () => refetch() });
+  const updateStatus = trpc.reports.updateStatus.useMutation({
+    onSuccess: () => refetch(),
+    // This mutation had no error handler at all, so a refused or failed
+    // status change looked exactly like a successful one: nothing moved and
+    // nothing was said. Now that it can refuse on purpose, silence is worse.
+    onError: (err) => setSendError(err.message || "Could not update status"),
+  });
   const regenerate = trpc.reports.regenerate.useMutation({ onSuccess: () => refetch() });
   const downloadPdf = trpc.reports.downloadPdf.useMutation({
     onSuccess: ({ url }) => window.open(url, "_blank"),
@@ -234,6 +248,29 @@ export default function ReportEditorPage({ params }: Props) {
             >
               {STATUS_LABELS[report.status] ?? report.status}
             </span>
+            {/* `report_type`'s first reader anywhere in the product. The
+                column has been written since Stage 6 and read by nothing, so
+                two structurally different documents — one answering to
+                investors, one to a grant funder — looked identical in the UI. */}
+            {report.reportType === "grant" && (
+              <span
+                style={{
+                  display: "inline-block",
+                  marginTop: 2,
+                  marginLeft: 6,
+                  padding: "1px 8px",
+                  borderRadius: 4,
+                  fontSize: 11,
+                  fontFamily: "var(--font-inter), Inter, sans-serif",
+                  fontWeight: 500,
+                  background: "rgba(129,140,248,0.14)",
+                  color: "#a5b4fc",
+                }}
+                title="Scoped to a grant award or generated from a grant template"
+              >
+                Grant
+              </span>
+            )}
           </div>
         </div>
 
@@ -264,6 +301,22 @@ export default function ReportEditorPage({ params }: Props) {
               <button
                 onClick={() => {
                   setSendError(null);
+
+                  // Naming the specific problems, not a generic "are you
+                  // sure". A founder can only make this call if they are told
+                  // what is wrong with the document in front of them.
+                  const blockers = report.shipBlockers ?? [];
+                  if (blockers.length > 0) {
+                    const list = blockers.map((b) => `  • ${b}`).join("\n");
+                    if (
+                      !window.confirm(
+                        `This report has ${blockers.length} unresolved issue${blockers.length === 1 ? "" : "s"}:\n\n${list}\n\nRegenerating or re-syncing may fix ${blockers.length === 1 ? "it" : "them"}. Continue anyway?`
+                      )
+                    ) {
+                      return;
+                    }
+                  }
+
                   if (nextStatus === "sent") {
                     if (
                       !window.confirm(
@@ -277,6 +330,9 @@ export default function ReportEditorPage({ params }: Props) {
                     updateStatus.mutate({
                       reportId,
                       status: nextStatus as "draft" | "review" | "sent",
+                      // Set only on this path, and only after the dialog
+                      // above actually showed the issues.
+                      acknowledgeIssues: blockers.length > 0 ? true : undefined,
                     });
                   }
                 }}
@@ -336,6 +392,65 @@ export default function ReportEditorPage({ params }: Props) {
           )}
         </div>
       </div>
+
+      {/* What the product already knew and never said.
+          `validation_issues` is the verdict `generateReport` used to compute
+          and discard; the coverage lines come from the snapshot's own
+          `sync_warnings`, which was joined into this query all along and read
+          by nobody. Same array the send gate enforces — see
+          report-ship-check.ts. */}
+      {(report.shipBlockers?.length ?? 0) > 0 && (
+        <div
+          style={{
+            margin: "0 0 16px",
+            padding: "12px 16px",
+            background: "rgba(251,191,36,0.08)",
+            border: "1px solid rgba(251,191,36,0.25)",
+            borderRadius: 10,
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 12,
+            fontFamily: "var(--font-inter), Inter, sans-serif",
+          }}
+        >
+          <AlertTriangle
+            size={16}
+            style={{ color: "#fbbf24", flexShrink: 0, marginTop: 1 }}
+            aria-hidden="true"
+          />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <p
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#fbbf24",
+                margin: "0 0 6px",
+              }}
+            >
+              {report.shipBlockers.length} unresolved issue
+              {report.shipBlockers.length === 1 ? "" : "s"} in this report
+            </p>
+            <ul
+              style={{
+                margin: 0,
+                paddingLeft: 18,
+                fontSize: 12,
+                color: "var(--vb-muted)",
+                lineHeight: 1.65,
+              }}
+            >
+              {report.shipBlockers.map((b, i) => (
+                <li key={i}>{b}</li>
+              ))}
+            </ul>
+            <p style={{ fontSize: 12, color: "var(--vb-dim)", margin: "6px 0 0" }}>
+              <strong>Regenerate</strong> rebuilds the text;{" "}
+              <strong>Sync now</strong> re-reads the wallets. You can still
+              send — you will be asked to confirm.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Editor — widget strip rendered above so the founder previews
           exactly what the investor will see when the report ships.

@@ -74,9 +74,26 @@ Existing scripts: `add-snapshot-space.mjs`, `add-report-sections.mjs`,
 `add-snapshot-period.mjs`, `add-grant-awards.mjs`,
 `add-snapshot-balance-basis.mjs`, `add-grant-award-fields.mjs`,
 `add-grant-report-fields.mjs`, `add-report-presets.mjs`,
-`add-grant-award-reminder-field.mjs`. These are one-shots kept as a
+`add-grant-award-reminder-field.mjs`,
+`add-report-validation-issues.mjs`. These are one-shots kept as a
 record; each is safe to re-run (all use `IF NOT EXISTS` /
 `ON CONFLICT ... DO NOTHING`).
+
+`add-report-validation-issues.mjs` is **not yet applied** and **must run
+before the code that depends on it deploys**. It adds one additive
+nullable column — `reports.validation_issues` (`JSONB`, no NOT NULL, no
+default) — which `schema.ts` now names, so every drizzle-generated query
+against `reports` fails with `column "validation_issues" does not exist`
+until it has run. No ordering constraint relative to other pending
+migrations; it is the only in-flight change touching `reports`.
+
+Three states, and the distinction is load-bearing: `NULL` means the
+report was never checked (every report generated before this shipped),
+`[]` means checked and clean, a non-empty array carries the issues.
+Nothing is backfilled — asserting `[]` for historical rows would claim
+they passed checks that never ran on them, and at least one provably
+would not have (the truncated 473-character report found in production
+during the Stage 12 walkthrough).
 
 `add-grant-award-reminder-field.mjs` is **not yet applied** and, like
 `add-snapshot-balance-basis.mjs` below, **must run before the code that

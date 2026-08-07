@@ -13,6 +13,7 @@ import type {
   ReconstructionTransfer,
 } from "./balance-reconstruction";
 import { monthsInDateRange } from "./report-period";
+import type { SyncWarning, WarningSeverity } from "./sync-warnings";
 import { fetchSolanaTransfers } from "./solana-sync";
 import {
   MAX_TRANSFER_PAGES,
@@ -184,11 +185,9 @@ export interface ExpenseSummary {
 
 export type IncomeSummary = Record<IncomeCategory, number>;
 
-export interface SyncWarning {
-  walletAddress: string;
-  chain: string;
-  error: string;
-}
+// `SyncWarning` now lives in sync-warnings.ts and is shared with wallet-sync.ts
+// — see that file for why the two identical local copies were merged.
+export type { SyncWarning } from "./sync-warnings";
 
 export interface TransactionSyncResult {
   transactions: ClassifiedTransaction[];
@@ -261,9 +260,15 @@ async function fetchAlchemyTransfers(
   periodEnd: Date,
   direction: "from" | "to"
 ): Promise<TransferFetchResult> {
-  const warn = (error: string): SyncWarning => ({
+  // `severity` is the caller's call at every site, because the same HTTP error
+  // means different things depending on how far the paging got: nothing read
+  // is `failed`, something read is a FLOOR and therefore `partial`. Defaulting
+  // it here would erase exactly that distinction.
+  const warn = (error: string, severity: WarningSeverity): SyncWarning => ({
     walletAddress,
     chain,
+    scope: "transfers",
+    severity,
     error,
   });
 
@@ -273,7 +278,8 @@ async function fetchAlchemyTransfers(
       transfers: [],
       warnings: [
         warn(
-          `No Alchemy endpoint is configured for chain "${chain}", so no transfer history could be read. Figures derived from transactions (burn, inflows, outflows) do not include this wallet.`
+          `No Alchemy endpoint is configured for chain "${chain}", so no transfer history could be read. Figures derived from transactions (burn, inflows, outflows) do not include this wallet.`,
+          "failed"
         ),
       ],
     };
@@ -326,7 +332,8 @@ async function fetchAlchemyTransfers(
           warn(
             `Alchemy returned HTTP ${res.status} while reading ${direction === "from" ? "outgoing" : "incoming"} transfers${
               pages > 0 ? ` (after ${pages} page(s) succeeded)` : ""
-            }. Transaction-derived figures for this wallet are incomplete.`
+            }. Transaction-derived figures for this wallet are incomplete.`,
+            pages > 0 ? "partial" : "failed"
           )
         );
         break;
@@ -337,7 +344,8 @@ async function fetchAlchemyTransfers(
         warn(
           `Could not reach Alchemy while reading ${direction === "from" ? "outgoing" : "incoming"} transfers: ${
             err instanceof Error ? err.message : String(err)
-          }. Transaction-derived figures for this wallet are incomplete.`
+          }. Transaction-derived figures for this wallet are incomplete.`,
+          pages > 0 ? "partial" : "failed"
         )
       );
       break;
@@ -354,7 +362,8 @@ async function fetchAlchemyTransfers(
         warn(
           `Alchemy rejected the transfer query (categories: ${categories.join(
             ", "
-          )}): ${data.error.message ?? "unknown error"}. Transaction-derived figures for this wallet are incomplete.`
+          )}): ${data.error.message ?? "unknown error"}. Transaction-derived figures for this wallet are incomplete.`,
+          pages > 0 ? "partial" : "failed"
         )
       );
       break;
@@ -372,7 +381,8 @@ async function fetchAlchemyTransfers(
   if (pageKey && pages >= MAX_TRANSFER_PAGES) {
     warnings.push(
       warn(
-        `More than ${MAX_TRANSFER_PAGES * 1000} ${direction === "from" ? "outgoing" : "incoming"} transfers in this period; reading stopped at the page cap. Transaction-derived figures for this wallet are a partial view.`
+        `More than ${MAX_TRANSFER_PAGES * 1000} ${direction === "from" ? "outgoing" : "incoming"} transfers in this period; reading stopped at the page cap. Transaction-derived figures for this wallet are a partial view.`,
+        "partial"
       )
     );
   }
@@ -541,6 +551,8 @@ export async function fetchAndClassify(
       warnings.push({
         walletAddress: wallet.address,
         chain: wallet.chain,
+        scope: "transfers",
+        severity: "failed",
         error: res.reason instanceof Error ? res.reason.message : String(res.reason),
       });
       // A wallet whose fetch threw has no legs at all, so nothing about it can

@@ -6,6 +6,7 @@ import {
   composeTreasury,
   type LegacySnapshotColumns,
 } from "./treasury-composition";
+import type { SyncWarning } from "./sync-warnings";
 
 const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY!;
 const ALCHEMY_PORTFOLIO_URL = `https://api.g.alchemy.com/data/v1/${ALCHEMY_API_KEY}/assets/tokens/by-address`;
@@ -23,7 +24,7 @@ const ALCHEMY_PORTFOLIO_URL = `https://api.g.alchemy.com/data/v1/${ALCHEMY_API_K
  * airdropped tens of thousands of spam contracts.
  *
  * Hitting the cap does NOT throw: the pages already read are real balances and
- * are kept. It raises a `BalanceWarning` instead, which `data-sync.ts` persists
+ * are kept. It raises a `partial` balance warning instead, which `data-sync.ts` persists
  * into `treasury_snapshots.sync_warnings` — same "warn, never silently drop"
  * contract the transfer page cap in transfer-fetch-policy.ts follows.
  */
@@ -154,17 +155,15 @@ export interface WalletBalanceSummary {
   /**
    * Set only when the balance read stopped at `MAX_BALANCE_PAGES` with pages
    * still outstanding — the figures above are then a floor, not a total.
-   * `fetchAllBalances` turns this into a `BalanceWarning`; absent on every
+   * `fetchAllBalances` turns this into a `partial` balance warning; absent on every
    * normal read and on the Solana path, which does not paginate.
    */
   truncated?: boolean;
 }
 
-export interface BalanceWarning {
-  walletAddress: string;
-  chain: string;
-  error: string;
-}
+// Balance and transfer warnings share one type (see sync-warnings.ts). They
+// were two identical interfaces in two files, which is how the dashboard came
+// to describe both under a single, wrong headline.
 
 export interface ProjectBalanceSummary {
   totalBalanceUsd: number;
@@ -173,7 +172,7 @@ export interface ProjectBalanceSummary {
   nativeTokenUsd: number;
   otherAssetsUsd: number;
   balancesDetail: WalletBalanceSummary[];
-  warnings: BalanceWarning[];
+  warnings: SyncWarning[];
 }
 
 /**
@@ -337,7 +336,7 @@ export async function fetchAllBalances(
   );
 
   const results: WalletBalanceSummary[] = [];
-  const warnings: BalanceWarning[] = [];
+  const warnings: SyncWarning[] = [];
   settled.forEach((res, i) => {
     if (res.status === "fulfilled") {
       results.push(res.value);
@@ -348,6 +347,11 @@ export async function fetchAllBalances(
         warnings.push({
           walletAddress: w.address,
           chain: w.chain,
+          scope: "balance",
+          // `partial`, not `failed`: this wallet's holdings are real and are a
+          // floor. Calling it a failure is what made the dashboard tell
+          // founders a wallet had not synced when it had.
+          severity: "partial",
           error: `Balance read stopped at the ${MAX_BALANCE_PAGES}-page cap — this wallet's holdings are a floor, not a complete total.`,
         });
       }
@@ -356,6 +360,8 @@ export async function fetchAllBalances(
       warnings.push({
         walletAddress: w.address,
         chain: w.chain,
+        scope: "balance",
+        severity: "failed",
         error: res.reason instanceof Error ? res.reason.message : String(res.reason),
       });
       console.warn(`[balances] wallet ${w.address} (${w.chain}) failed:`, res.reason);

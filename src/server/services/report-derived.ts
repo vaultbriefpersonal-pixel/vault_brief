@@ -1575,6 +1575,79 @@ export function grantLeftoverFunds(
   return result;
 }
 
+/**
+ * True when an award carries at least one reportable fact.
+ *
+ * An award row with no amount and no tranches is a grantor's name and a date.
+ * `grant_fund_usage` used to gate on the row merely EXISTING, so such an award
+ * turned the section's readiness chip green and then rendered a block whose
+ * only figure was `$0` — the product telling a founder they were ready to
+ * report on money it knew nothing about.
+ *
+ * Shared by the section's `requires` and its `userPromptFragment`, which must
+ * agree: `buildSystemPrompt` picks a section's rules by whether the fragment
+ * is non-empty, so a fragment that renders while `requires` is false ships the
+ * grant accounting rules into the system prompt with no data block to govern.
+ */
+export function awardHasReportableSubstance(award: GrantAwardView): boolean {
+  return (
+    award.awardAmountUsd !== null ||
+    award.awardAmountToken !== null ||
+    award.tranches.length > 0
+  );
+}
+
+/**
+ * Inconsistencies in the founder's own grant data, phrased for the founder.
+ *
+ * These conditions were already detected — and handed exclusively to the
+ * language model, in prose written to steer its wording ("state it as 'at
+ * most'", "do not reconcile them"). The person who could actually fix the
+ * data was never told. This restates the same facts in the register of
+ * someone who can go and correct a form.
+ *
+ * NOT a refusal, and the wording avoids implying one. The grant-report
+ * research is explicit that real, accepted reports fail to reconcile — one
+ * grantee reported spending 81,000 against 75,000 received — so these travel
+ * the same confirm-and-proceed path as every other ship blocker.
+ */
+export function grantDataIssues(ctx: ReportSectionContext): string[] {
+  const issues: string[] = [];
+
+  for (const award of grantFundUsage(ctx).awards) {
+    if (award.scheduleIncomplete) {
+      issues.push(
+        `${awardLabel(award.grantor, award.program)}: the tranche schedule totals ` +
+          `${formatUsd(award.scheduledTotalUsd)} but the award is recorded as ` +
+          `${formatUsd(award.awardAmountUsd as number)} — one of the two is out of date.`
+      );
+    }
+  }
+
+  for (const view of grantLeftoverFunds(ctx)) {
+    if (
+      view.utilizedToDateUsd !== null &&
+      view.utilizationRecordedCount < view.receivedTrancheCount
+    ) {
+      issues.push(
+        `${view.label}: utilisation is recorded for ${view.utilizationRecordedCount} of ` +
+          `${view.receivedTrancheCount} received tranches, so any leftover figure in this ` +
+          `report is an upper bound rather than a balance.`
+      );
+    }
+
+    if (view.leftoverUsd !== null && view.leftoverUsd < 0) {
+      issues.push(
+        `${view.label}: recorded utilisation exceeds recorded receipts by ` +
+          `${formatUsd(Math.abs(view.leftoverUsd))}. Both figures are founder-entered, ` +
+          `so this is a discrepancy between two records rather than a finding about spending.`
+      );
+    }
+  }
+
+  return issues;
+}
+
 // ─── deviation from the plan ───────────────────────────────────────────────
 
 /** One award's standing answer to "did the plan change?". */

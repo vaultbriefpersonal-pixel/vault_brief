@@ -32,6 +32,7 @@ import {
   compositionOf,
   grantDeliverables,
   grantFundUsage,
+  awardHasReportableSubstance,
   grantLeftoverFunds,
   grantPlanDeviations,
   liquidityOf,
@@ -1898,13 +1899,24 @@ const grantFundUsageSection: ReportSection = {
   // `!s.defaultEnabled`, so no existing project's stored config changes and no
   // config migration is needed.
   defaultEnabled: false,
-  // At least one award already granted as of `period.end`. Status is NOT part
-  // of the gate — see `grantFundUsage` for why a completed or terminated award
-  // is exactly the one a closing report is written about.
-  requires: (ctx) => awardsForPeriod(ctx).length > 0,
+  // At least one award granted as of `period.end` that carries a reportable
+  // fact — an amount or a tranche. Status is NOT part of the gate: see
+  // `grantFundUsage` for why a completed or terminated award is exactly the
+  // one a closing report is written about.
+  //
+  // The substance test is the fix for a section that used to gate on the award
+  // ROW existing. A founder who recorded "we got a grant from X" and nothing
+  // else saw a green Ready chip and got a block whose only figure was $0.
+  // `awardHasReportableSubstance` is shared with the fragment below, and must
+  // be: the system prompt selects this section's rules by whether the fragment
+  // is non-empty, so the two disagreeing leaks the grant accounting rules into
+  // a report carrying no grant data.
+  requires: (ctx) =>
+    grantFundUsage(ctx).awards.some(awardHasReportableSubstance),
   userPromptFragment: (ctx) => {
     const usage = grantFundUsage(ctx);
-    if (usage.awards.length === 0) return "";
+    const awards = usage.awards.filter(awardHasReportableSubstance);
+    if (awards.length === 0) return "";
 
     const lines: string[] = [
       "GRANT ACCOUNTING RULE — this governs every sentence in this section:",
@@ -1914,13 +1926,13 @@ const grantFundUsageSection: ReportSection = {
       "",
     ];
 
-    for (const award of usage.awards) {
+    for (const award of awards) {
       lines.push(...awardBlock(award), "");
     }
 
-    if (usage.awards.length > 1) {
+    if (awards.length > 1) {
       lines.push(
-        `Across all ${usage.awards.length} awards — received to date: ${formatUsd(
+        `Across all ${awards.length} awards — received to date: ${formatUsd(
           usage.receivedToDateUsd
         )}; received during this reporting period: ${formatUsd(
           usage.receivedInPeriodUsd
@@ -2066,6 +2078,14 @@ const grantMilestoneProgress: ReportSection = {
 - Do not editorialise or grade — no "excellent delivery record", no "concerning delays". State status, dates and slippage; a bare table with no commentary is a complete answer.
 - This section is about deliverables committed under a grant. Do not merge it with Milestones Completed, and do not repeat rows between the two.
 ${SOURCE_OF_TRUTH_RULE} In this section's table it belongs in its own final column, so a funder can scan straight down the evidence.`,
+  // Told a founder who already HAD an award to go record one, sending them
+  // back to a step they had finished while the step they were missing — the
+  // attach — went unnamed. `notReadyHintFor` reads the context and names the
+  // step that is actually outstanding.
+  notReadyHintFor: (ctx) =>
+    awardsForPeriod(ctx).length === 0
+      ? "Click Edit data to record a grant award, then attach the milestones you committed to deliver under it."
+      : "This project has a grant award but no milestones attached to it. Click Edit data, open the award, and attach the milestones you committed to deliver under it — a milestone only counts here once it is linked to an award.",
   notReadyHint:
     "Click Edit data to record a grant award, then attach the milestones you committed to deliver under it.",
 };
@@ -3078,6 +3098,94 @@ export function sectionIdsWithContent(
     }
   }
   return ids;
+}
+
+/**
+ * Sections that carry a report's LOAD-BEARING signal, by family.
+ *
+ * A section whose `requires` is false simply vanishes from the report, with
+ * nothing said to anyone. That is correct behaviour for one section and a
+ * silent failure for a whole family: a reader handed a treasury total, no
+ * burn, no flows and no comparison has been told what the project HAS and
+ * nothing about what it DID.
+ *
+ * ── WHY MEMBERSHIP IS DRAWN WHERE IT IS ────────────────────────────────────
+ * `financial` is deliberately "money MOVED", not "money EXISTS".
+ * `treasury_overview`, `treasury_by_chain`, `treasury_concentration` and
+ * `token_metrics` render from balances alone and are therefore non-empty on
+ * essentially every snapshot — including one where every flow figure failed
+ * to read. Counting them would make the check unfireable, which is worse than
+ * not having it.
+ *
+ * `grant` excludes two sections it might look like it should contain.
+ * `plan_deviation` falls back to a canned "No changes to the original plan."
+ * with zero founder input, so it is non-empty always and proves nothing.
+ * `external_dashboard` is a URL — a pointer at substance, not substance.
+ *
+ * NOT keyed on `reports.report_type`. That column is derived from HOW
+ * generation was invoked (was a grantId or presetId passed?), not from what
+ * the report ended up containing — a founder who enables the grant sections
+ * in their own project template gets a grant-shaped report typed 'investor'.
+ * Keying a correctness check on it would check the wrong thing.
+ */
+export const SIGNAL_FAMILIES: ReadonlyArray<{
+  key: string;
+  label: string;
+  sectionIds: readonly string[];
+}> = [
+  {
+    key: "financial",
+    label: "financial",
+    sectionIds: [
+      "financial_health",
+      "expense_breakdown",
+      "previous_month_comparison",
+      "major_transactions",
+      "protocol_revenue",
+      "treasury_operations",
+      "actual_vs_budget",
+    ],
+  },
+  {
+    key: "grant",
+    label: "grant",
+    sectionIds: ["grant_fund_usage", "grant_milestone_progress", "leftover_funds"],
+  },
+];
+
+/**
+ * One issue per family the report ASKED for and did not get.
+ *
+ * Silent on a family the report never enabled — that is the Optimism-shaped
+ * grant report, which carries no financial sections on purpose and must not
+ * be nagged about missing financial data it never claimed to have.
+ *
+ * Names the specific sections that came back empty, because "no financial
+ * signal" is not actionable and "Financial Health and Expense Breakdown had
+ * no data" is.
+ */
+export function missingSignalIssues(
+  enabled: ReportSection[],
+  sectionsWithContent: Set<string>
+): string[] {
+  const titleById = new Map(enabled.map((s) => [s.id, s.title]));
+  const issues: string[] = [];
+
+  for (const family of SIGNAL_FAMILIES) {
+    const asked = family.sectionIds.filter((id) => titleById.has(id));
+    if (asked.length === 0) continue; // never claimed this family
+    const delivered = asked.filter((id) => sectionsWithContent.has(id));
+    if (delivered.length > 0) continue; // at least one carried real content
+
+    const names = asked.map((id) => titleById.get(id) ?? id).join(", ");
+    issues.push(
+      `This report enables ${asked.length} ${family.label} section${asked.length === 1 ? "" : "s"} ` +
+        `but none of them had any data this period (${names}). The report states what the ` +
+        `treasury holds without stating what it did.`
+    );
+  }
+
+  return issues;
 }
 
 export function buildUserPrompt(

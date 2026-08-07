@@ -12,6 +12,7 @@ import {
   type PeriodSnapshotChoice,
 } from "@/server/services/report-period-options";
 import { periodFromRange } from "@/server/services/report-period";
+import { SECTION_LIBRARY_META } from "@/server/services/report-sections";
 
 /**
  * Choose the period a report covers, then generate it.
@@ -67,6 +68,19 @@ interface Props {
 
 const CUSTOM_ID = "custom";
 
+/**
+ * Section id → human title, read from the same client-safe metadata export the
+ * template editor uses. A hand-kept map here would be a second list of 31
+ * strings to keep in step with the library, and it would drift.
+ */
+const SECTION_TITLE_BY_ID = new Map(
+  SECTION_LIBRARY_META.map((s) => [s.id, s.title])
+);
+
+function sectionTitle(id: string): string {
+  return SECTION_TITLE_BY_ID.get(id) ?? id;
+}
+
 export function ReportPeriodPicker({
   projectId,
   snapshots,
@@ -91,6 +105,44 @@ export function ReportPeriodPicker({
   // Fetched fresh here rather than threaded down as a prop: this is the only
   // consumer, and `presets.list` is a cheap system+own-project query.
   const presetsQ = trpc.presets.list.useQuery({ projectId });
+
+  // Which sections will actually carry data, asked BEFORE the founder spends
+  // a generation rather than after. This endpoint has existed since the
+  // section library did and had exactly one consumer — the template editor in
+  // project settings — so the answer was available everywhere except the
+  // screen where the decision is made.
+  //
+  // `staleTime` is set locally because this is an expensive query (a project
+  // read, two snapshot reads and a nine-way fan-out over the manual-entry
+  // tables) and the app's QueryClient is built with no defaults, so it would
+  // otherwise re-run the whole thing every time the tab regained focus.
+  const readinessQ = trpc.projects.getSectionReadiness.useQuery(
+    { projectId },
+    { staleTime: 60_000 }
+  );
+
+  // The section set this generation will use: the chosen preset's config when
+  // one is picked, the project's own resolved template otherwise. Mirrors
+  // `generateReport`, which substitutes a preset's `blockConfig` for
+  // `project.reportSections` and never merges the two.
+  const notReadySections = useMemo(() => {
+    const data = readinessQ.data;
+    if (!data || !data.hasSnapshot) return [];
+
+    let enabledIds: Set<string>;
+    if (selectedPresetId) {
+      const preset = presetsQ.data?.find((p) => p.id === selectedPresetId);
+      const config = (preset?.blockConfig ?? []) as Array<{
+        id: string;
+        enabled: boolean;
+      }>;
+      enabledIds = new Set(config.filter((e) => e.enabled).map((e) => e.id));
+    } else {
+      enabledIds = new Set(data.defaultEnabledIds);
+    }
+
+    return data.readiness.filter((r) => !r.ready && enabledIds.has(r.id));
+  }, [readinessQ.data, presetsQ.data, selectedPresetId]);
 
   const options = useMemo(
     () =>
@@ -401,6 +453,39 @@ export function ReportPeriodPicker({
             </div>
           )}
         </div>
+      )}
+
+      {/* What this template will NOT be able to say, before the generation is
+          spent. A section whose `requires` is false simply vanishes from the
+          finished report with nothing said, so without this the founder's
+          first sight of a thin report is after paying for it — and on the free
+          plan, after spending the only one. */}
+      {notReadySections.length > 0 && (
+        <details className="mt-3 rounded-lg border border-[rgba(251,191,36,0.25)] bg-[rgba(251,191,36,0.06)] px-4 py-3">
+          <summary className="cursor-pointer list-none font-[var(--font-inter),Inter,sans-serif] text-[12px] font-semibold text-[#fbbf24]">
+            {notReadySections.length} section
+            {notReadySections.length === 1 ? "" : "s"} in this template ha
+            {notReadySections.length === 1 ? "s" : "ve"} no data yet — they will
+            be left out
+          </summary>
+          <ul className="mt-2 space-y-1.5 pl-4">
+            {notReadySections.map((s) => (
+              <li
+                key={s.id}
+                className="list-disc font-[var(--font-inter),Inter,sans-serif] text-[12px] leading-relaxed text-[var(--vb-muted)]"
+              >
+                <span className="text-[var(--vb-text)]">
+                  {sectionTitle(s.id)}
+                </span>
+                {s.reason ? ` — ${s.reason}` : ""}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 font-[var(--font-inter),Inter,sans-serif] text-[11px] text-[var(--vb-dim)]">
+            Generating anyway is fine — a section with nothing to say is left
+            out rather than padded.
+          </p>
+        </details>
       )}
 
       <div className="mt-4 flex flex-wrap items-center gap-3">

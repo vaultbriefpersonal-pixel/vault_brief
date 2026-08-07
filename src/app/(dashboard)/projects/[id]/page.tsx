@@ -11,6 +11,10 @@ import { IncomeBreakdown } from "@/components/charts/IncomeBreakdown";
 import { ChainIcon } from "@/components/ui/ChainIcon";
 import { trailingAverageBurn } from "@/server/services/burn-metrics";
 import { composeTreasury } from "@/server/services/treasury-composition";
+import {
+  summarizeSyncWarnings,
+  describeSyncCoverage,
+} from "@/server/services/sync-warnings";
 
 // Brand colors keyed by chain id, used by the per-chain stacked bar so
 // each segment matches the wallet-list ChainIcon palette. Unknown chains
@@ -161,6 +165,13 @@ export default async function ProjectPage({ params }: Props) {
           })
         : statCard("Burn / mo", "—", "#f87171");
 
+  // Which figures on this page are incomplete, and why. Summarised in one
+  // shared place rather than counted inline: the old inline version counted
+  // WARNINGS where it claimed to count WALLETS, and called a page-capped read
+  // a failure. See sync-warnings.ts.
+  const coverage = summarizeSyncWarnings(latestSnapshot?.syncWarnings);
+  const coverageNote = describeSyncCoverage(coverage);
+
   return (
     <>
       {/* Sync warnings — surfaced when one or more wallets failed to fetch
@@ -168,8 +179,7 @@ export default async function ProjectPage({ params }: Props) {
           looking-but-incomplete numbers on every tile and chart, then send
           a wrong report to investors. The schema's `sync_warnings` column
           was added for this; we just need to render it. */}
-      {Array.isArray(latestSnapshot?.syncWarnings) &&
-        latestSnapshot.syncWarnings.length > 0 && (
+      {coverageNote && Array.isArray(latestSnapshot?.syncWarnings) && (
           <div
             style={{
               marginBottom: 24,
@@ -193,10 +203,7 @@ export default async function ProjectPage({ params }: Props) {
                   margin: "0 0 4px",
                 }}
               >
-                Snapshot is partial — {latestSnapshot.syncWarnings.length}{" "}
-                wallet
-                {latestSnapshot.syncWarnings.length === 1 ? "" : "s"} failed
-                to sync
+                {coverageNote.title} — {coverageNote.detail}
               </p>
               <ul
                 style={{
@@ -243,8 +250,8 @@ export default async function ProjectPage({ params }: Props) {
                   margin: "6px 0 0",
                 }}
               >
-                Numbers below reflect only the wallets that synced
-                successfully. Click <strong>Sync now</strong> to retry.
+                Click <strong>Sync now</strong> to retry. Per-wallet figures
+                are on the <strong>Wallets</strong> tab.
               </p>
             </div>
           </div>

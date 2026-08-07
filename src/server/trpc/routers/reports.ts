@@ -19,6 +19,7 @@ import {
   generateAndSaveReport,
 } from "@/server/services/report-generator";
 import { renderAndStorePDF } from "@/server/services/pdf-storage";
+import { reportShipBlockers } from "@/server/services/report-ship-check";
 import {
   assertTrialActive,
   assertCanGenerateReport,
@@ -56,10 +57,22 @@ export const reportsRouter = router({
       // above the markdown — same widgets the public investor view
       // shows. Drizzle resolves this as one JOIN, not a second query.
       await requireReport(ctx, input.reportId);
-      return ctx.db.query.reports.findFirst({
+      const row = await ctx.db.query.reports.findFirst({
         where: eq(reports.id, input.reportId),
         with: { project: true, snapshot: true, preset: true },
       });
+      if (!row) return row;
+
+      // Computed here rather than in the page so the banner the founder reads
+      // and the gate `updateStatus` enforces come from ONE rule. The snapshot
+      // is already joined above, so this costs no extra query.
+      return {
+        ...row,
+        shipBlockers: reportShipBlockers({
+          validationIssues: row.validationIssues,
+          syncWarnings: row.snapshot?.syncWarnings ?? null,
+        }),
+      };
     }),
 
   // Per-recipient engagement for a single report. The aggregate
@@ -178,15 +191,54 @@ export const reportsRouter = router({
       return updated;
     }),
 
+  /**
+   * Advance (or roll back) a report's status.
+   *
+   * Moving FORWARD — out of `draft` — now consults what the product already
+   * knows about the document. Until Stage 16 this procedure's only gate was
+   * `requireReport`, an authz check: a report the validator had rejected, or
+   * one built on a snapshot whose wallets half failed to sync, walked to
+   * "Ready to send" with nothing said.
+   *
+   * It still is not a hard block, and that is deliberate — the grant-report
+   * research found that real, accepted reports routinely don't reconcile, so
+   * a product that refuses to ship them is wrong about its own domain. What
+   * this stops is shipping *unwittingly*: the caller must pass
+   * `acknowledgeIssues` to proceed, which the UI only sets after showing the
+   * founder exactly what is wrong. Rolling BACK to draft is never gated.
+   */
   updateStatus: protectedProcedure
     .input(
       z.object({
         reportId: z.string().uuid(),
         status: z.enum(["draft", "review", "sent"]),
+        /** Set only after the caller has been shown the issues below. */
+        acknowledgeIssues: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await requireReport(ctx, input.reportId);
+      const report = await requireReport(ctx, input.reportId);
+
+      if (input.status !== "draft" && !input.acknowledgeIssues) {
+        // Recomputed from the database, never trusted from the client — the
+        // acknowledgement is the client's to give, the facts are not.
+        const snapshot = report.snapshotId
+          ? await ctx.db.query.treasurySnapshots.findFirst({
+              where: eq(treasurySnapshots.id, report.snapshotId),
+            })
+          : null;
+        const blockers = reportShipBlockers({
+          validationIssues: report.validationIssues,
+          syncWarnings: snapshot?.syncWarnings ?? null,
+        });
+        if (blockers.length > 0) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: blockers.join(" · "),
+          });
+        }
+      }
+
       const [updated] = await ctx.db
         .update(reports)
         .set({ status: input.status, updatedAt: new Date() })
@@ -212,17 +264,22 @@ export const reportsRouter = router({
       // with. `blocks` below, by contrast, IS re-frozen: a regenerate is
       // itself a new generation event, exactly like the `contentMd` it
       // already unconditionally overwrites.
-      const { markdown: contentMd, blocks } = await generateReport(
-        report.projectId,
-        report.snapshotId,
-        { grantId: report.grantId, presetId: report.presetId }
-      );
+      const { markdown: contentMd, blocks, validationIssues } =
+        await generateReport(report.projectId, report.snapshotId, {
+          grantId: report.grantId,
+          presetId: report.presetId,
+        });
 
       const [updated] = await ctx.db
         .update(reports)
         .set({
           contentMd,
           blocks,
+          // Re-frozen alongside `contentMd`, for the same reason `blocks` is:
+          // the verdict describes the document that is there NOW. Keeping the
+          // previous one would leave the column describing content that no
+          // longer exists — and a stale "clean" is worse than no verdict.
+          validationIssues,
           status: "draft",
           pdfUrl: null, // invalidate stale blob; rerender triggered next.
           updatedAt: new Date(),

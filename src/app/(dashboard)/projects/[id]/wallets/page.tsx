@@ -4,8 +4,10 @@ import { useState } from "react";
 import { use } from "react";
 import { useSearchParams } from "next/navigation";
 import { trpc } from "@/lib/api";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, AlertTriangle } from "lucide-react";
 import { ChainIcon } from "@/components/ui/ChainIcon";
+import { formatUsd } from "@/lib/utils";
+import type { WalletBalanceView } from "@/server/services/wallet-balances";
 
 const CHAINS = [
   { value: "ethereum", label: "Ethereum" },
@@ -32,6 +34,33 @@ const inputStyle: React.CSSProperties = {
   fontFamily: "var(--font-inter), Inter, sans-serif",
   outline: "none",
 };
+
+/**
+ * The secondary line under a wallet's figure.
+ *
+ * Every branch that returns a non-null caption is a case where the number
+ * above it must NOT be read as a plain treasury total — either nothing was
+ * measured, or what was measured is a floor. A wallet that genuinely holds
+ * nothing gets no caption at all: `$0.00` is the complete and correct answer
+ * there, and dressing it up would blur the one distinction this page exists
+ * to make.
+ */
+function balanceCaption(b: WalletBalanceView): string | null {
+  switch (b.state) {
+    case "neverSynced":
+      return "not synced yet";
+    case "failed":
+      return "not read in the last sync";
+    case "notInSnapshot":
+      return "added since the last sync";
+    case "truncated":
+      return "a floor — the read hit the page cap";
+    case "synced":
+      return b.unpricedCount && b.unpricedCount > 0
+        ? `a floor — ${b.unpricedCount} holding${b.unpricedCount === 1 ? "" : "s"} unpriced`
+        : null;
+  }
+}
 
 export default function WalletsPage({ params }: Props) {
   const { id: projectId } = use(params);
@@ -264,7 +293,7 @@ export default function WalletsPage({ params }: Props) {
               padding: "12px 16px",
             }}
           >
-            <div>
+            <div style={{ minWidth: 0 }}>
               <p
                 style={{
                   fontFamily: "var(--font-geist-mono), monospace",
@@ -291,22 +320,88 @@ export default function WalletsPage({ params }: Props) {
                 )}
               </div>
             </div>
-            <button
-              onClick={() => removeWallet.mutate({ projectId, walletId: w.id })}
+
+            <div
               style={{
-                background: "transparent",
-                border: "none",
-                padding: "6px",
-                borderRadius: 6,
-                cursor: "pointer",
-                color: "var(--vb-dim)",
                 display: "flex",
+                alignItems: "center",
+                gap: 14,
+                flexShrink: 0,
+                paddingLeft: 16,
               }}
-              aria-label={`Remove wallet ${w.label ?? w.address}`}
-              title="Remove wallet"
             >
-              <Trash2 size={15} aria-hidden="true" />
-            </button>
+              {w.balance && (
+                <div style={{ textAlign: "right" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "flex-end",
+                      gap: 6,
+                    }}
+                  >
+                    {w.balance.warnings.length > 0 && (
+                      <AlertTriangle
+                        size={13}
+                        style={{ color: "#fbbf24", flexShrink: 0 }}
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span
+                      style={{
+                        fontFamily: "var(--font-geist-mono), monospace",
+                        fontSize: 14,
+                        color:
+                          w.balance.totalUsd === null
+                            ? "var(--vb-dim)"
+                            : "var(--vb-text)",
+                      }}
+                      // The warning text is the provider's own message. Shown
+                      // on hover rather than inline so a failed wallet still
+                      // occupies one row — a founder scanning for "which of
+                      // these is empty" needs the column to stay readable.
+                      title={
+                        w.balance.warnings.length > 0
+                          ? w.balance.warnings.join("\n")
+                          : undefined
+                      }
+                    >
+                      {w.balance.totalUsd === null
+                        ? "—"
+                        : formatUsd(w.balance.totalUsd)}
+                    </span>
+                  </div>
+                  {balanceCaption(w.balance) && (
+                    <div
+                      style={{
+                        fontFamily: "var(--font-inter), Inter, sans-serif",
+                        fontSize: 11,
+                        color: "var(--vb-dim)",
+                        marginTop: 3,
+                      }}
+                    >
+                      {balanceCaption(w.balance)}
+                    </div>
+                  )}
+                </div>
+              )}
+              <button
+                onClick={() => removeWallet.mutate({ projectId, walletId: w.id })}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  padding: "6px",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  color: "var(--vb-dim)",
+                  display: "flex",
+                }}
+                aria-label={`Remove wallet ${w.label ?? w.address}`}
+                title="Remove wallet"
+              >
+                <Trash2 size={15} aria-hidden="true" />
+              </button>
+            </div>
           </div>
         ))}
       </div>

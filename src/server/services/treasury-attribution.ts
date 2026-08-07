@@ -174,8 +174,14 @@ function num(value: unknown): number {
  * raw. A missing address (legacy payloads) collapses to a stable placeholder
  * so old snapshots compare equal to each other, rather than every wallet
  * looking simultaneously added and removed.
+ *
+ * Exported because wallet-balances.ts matches configured `wallets` rows
+ * against the same `balances_detail` payloads and must agree with this
+ * character for character. A second implementation that lowercased Solana
+ * too — which is what balance-reconstruction.ts's private copy does — would
+ * merge two distinct base58 wallets into one row.
  */
-function walletKey(chain: string, address: string): string {
+export function walletKey(chain: string, address: string): string {
   return chain === "solana"
     ? `${chain}:${address}`
     : `${chain}:${address.toLowerCase()}`;

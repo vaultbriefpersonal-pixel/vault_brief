@@ -1,12 +1,13 @@
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
-import { wallets } from "@/server/db/schema";
+import { wallets, treasurySnapshots } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { requireProject } from "../guards";
 import { checkLimit, mutationLimiter } from "@/server/lib/ratelimit";
 import { assertTrialActive } from "@/server/lib/plan-limits";
 import { getSafeInfoForProject } from "@/server/services/safe-info";
+import { viewWalletBalances } from "@/server/services/wallet-balances";
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -17,14 +18,40 @@ function validateWalletAddress(address: string, chain: string): boolean {
 }
 
 export const walletsRouter = router({
+  /**
+   * Wallet rows, each carrying its balance as of the latest snapshot.
+   *
+   * The balance is attached here rather than exposed as a second procedure
+   * because there is no useful version of this page WITHOUT it: showing a
+   * founder six addresses and no figures is what let a treasury assembled
+   * from the wrong multisigs look identical to one assembled from the right
+   * ones. See wallet-balances.ts for why `null` and `0` stay distinct.
+   */
   list: protectedProcedure
     .input(z.object({ projectId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      await requireProject(ctx, input.projectId);
-      return ctx.db.query.wallets.findMany({
+      const project = await requireProject(ctx, input.projectId);
+      const rows = await ctx.db.query.wallets.findMany({
         where: eq(wallets.projectId, input.projectId),
         orderBy: (w, { asc }) => [asc(w.createdAt)],
       });
+
+      const snapshot = await ctx.db.query.treasurySnapshots.findFirst({
+        where: eq(treasurySnapshots.projectId, input.projectId),
+        orderBy: [desc(treasurySnapshots.snapshotDate)],
+      });
+
+      const views = viewWalletBalances({
+        wallets: rows,
+        balancesDetail: snapshot?.balancesDetail ?? null,
+        syncWarnings: snapshot?.syncWarnings ?? null,
+        project,
+        hasSnapshot: Boolean(snapshot),
+      });
+
+      // Index-aligned by construction: viewWalletBalances maps over the same
+      // array in the same order and never filters.
+      return rows.map((w, i) => ({ ...w, balance: views[i] }));
     }),
 
   // Signer count + threshold for any wallet tagged gnosis_safe, read live

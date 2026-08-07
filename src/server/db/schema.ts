@@ -440,6 +440,27 @@ export const reports = pgTable("reports", {
    */
   blocks: jsonb("blocks"),
 
+  /**
+   * What `validateReportContent` concluded about `contentMd`, frozen at
+   * generation time. Three states, one column:
+   *
+   *   NULL  — never checked. Every report generated before this shipped.
+   *           Read as UNKNOWN, never as "clean": surfaces must stay silent
+   *           rather than imply a verdict that was never reached.
+   *   []    — checked, every check passed.
+   *   [...] — checked, and these are the issues, verbatim from the validator.
+   *
+   * Exists because the verdict used to be computed and thrown away: after two
+   * failed correction attempts `generateReport` returns the broken markdown
+   * as-is, and nothing downstream could tell. Re-frozen on regenerate, like
+   * `blocks` and `contentMd`.
+   *
+   * NOT derivable after the fact — two of the checks are gated on
+   * `sectionsWithContent`, which is computed from a live section context and
+   * is not stored, and the check set itself changes between releases.
+   */
+  validationIssues: jsonb("validation_issues"),
+
   // Content
   contentMd: text("content_md"),
   executiveSummary: text("executive_summary"),

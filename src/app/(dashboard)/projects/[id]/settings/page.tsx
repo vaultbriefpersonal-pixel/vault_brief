@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useEffect } from "react";
+import { use, useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/api";
 import { ReportTemplateEditor } from "@/components/settings/ReportTemplateEditor";
 import { ProjectMembersPanel } from "@/components/settings/ProjectMembersPanel";
@@ -22,6 +22,26 @@ const inputStyle: React.CSSProperties = {
   outline: "none",
   boxSizing: "border-box",
 };
+
+/**
+ * A logo URL worth actually fetching.
+ *
+ * The preview `<img>` below renders straight off the input's value, so a
+ * half-typed address is still a real `src` and still a real network request.
+ * Paired with the debounce on the preview state, this is what stops typing one
+ * URL from firing dozens of doomed requests, each one running the `onError`
+ * handler that mutates DOM style during a render commit.
+ */
+function isFetchableUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
 
 const labelStyle: React.CSSProperties = {
   display: "block",
@@ -53,7 +73,47 @@ export default function ProjectSettingsPage({ params }: Props) {
   });
   const [saved, setSaved] = useState(false);
 
+  /**
+   * Whether the founder has edited anything since the last hydrate or save.
+   *
+   * A ref, not state: it must not trigger a render, and it must not become a
+   * dependency of the hydrate effect below — reading live form state in that
+   * effect is what would make it fight itself on every keystroke.
+   */
+  const dirtyRef = useRef(false);
+
+  /**
+   * The only way this page may change `form`. Routing every field through one
+   * helper is what keeps `dirtyRef` honest: a per-call-site flag on eight
+   * inputs is a flag that eventually gets forgotten on the ninth.
+   */
+  const patch: typeof setForm = (updater) => {
+    dirtyRef.current = true;
+    setForm(updater);
+  };
+
+  // The logo preview trails the input rather than tracking it, so a request
+  // goes out once the founder stops typing instead of once per character.
+  const [logoPreview, setLogoPreview] = useState("");
   useEffect(() => {
+    const timer = setTimeout(() => setLogoPreview(form.logoUrl), 400);
+    return () => clearTimeout(timer);
+  }, [form.logoUrl]);
+
+  useEffect(() => {
+    // Hydrate from the server ONLY while the form is untouched.
+    //
+    // `providers.tsx` builds its QueryClient with no defaults, so staleTime is
+    // 0 and refetchOnWindowFocus is on; superjson also hands back fresh `Date`
+    // objects, which defeats react-query's structural sharing. Together that
+    // means `project` gets a NEW object reference every time the tab regains
+    // focus — not only when the data actually changed. Re-hydrating there
+    // silently reverted whatever had been typed and not yet saved: alt-tab to
+    // copy a dashboard URL, come back, the form is blank again.
+    //
+    // Once there are unsaved edits the server's copy is the stale one, so the
+    // correct move is to leave the founder's work alone.
+    if (dirtyRef.current) return;
     if (project) {
       // customBranding is optional JSONB — pull primaryColor/logoUrl out
       // defensively. Older projects (created before branding existed) just
@@ -93,6 +153,10 @@ export default function ProjectSettingsPage({ params }: Props) {
 
   const update = trpc.projects.update.useMutation({
     onSuccess: () => {
+      // Saved means the form and the server agree again, so later refetches
+      // may hydrate freely. Without this a founder who saves once would never
+      // see a change made from another tab or by a teammate.
+      dirtyRef.current = false;
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     },
@@ -180,7 +244,7 @@ export default function ProjectSettingsPage({ params }: Props) {
                 style={{ ...inputStyle, resize: "vertical" }}
                 value={form[key]}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, [key]: e.target.value }))
+                  patch((f) => ({ ...f, [key]: e.target.value }))
                 }
               />
             ) : (
@@ -190,7 +254,7 @@ export default function ProjectSettingsPage({ params }: Props) {
                 style={inputStyle}
                 value={form[key]}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, [key]: e.target.value }))
+                  patch((f) => ({ ...f, [key]: e.target.value }))
                 }
               />
             )}
@@ -234,7 +298,7 @@ export default function ProjectSettingsPage({ params }: Props) {
               type="color"
               value={form.primaryColor}
               onChange={(e) =>
-                setForm((f) => ({ ...f, primaryColor: e.target.value }))
+                patch((f) => ({ ...f, primaryColor: e.target.value }))
               }
               aria-label="Pick brand color"
               style={{
@@ -251,7 +315,7 @@ export default function ProjectSettingsPage({ params }: Props) {
               type="text"
               value={form.primaryColor}
               onChange={(e) =>
-                setForm((f) => ({ ...f, primaryColor: e.target.value }))
+                patch((f) => ({ ...f, primaryColor: e.target.value }))
               }
               placeholder="#6366F1"
               maxLength={7}
@@ -267,12 +331,12 @@ export default function ProjectSettingsPage({ params }: Props) {
             placeholder="https://yoursite.com/logo.png"
             value={form.logoUrl}
             onChange={(e) =>
-              setForm((f) => ({ ...f, logoUrl: e.target.value }))
+              patch((f) => ({ ...f, logoUrl: e.target.value }))
             }
             style={inputStyle}
           />
           {/* Live preview pill — confirms the URL resolves before save. */}
-          {form.logoUrl && (
+          {isFetchableUrl(logoPreview) && (
             <div
               style={{
                 marginTop: 10,
@@ -288,7 +352,12 @@ export default function ProjectSettingsPage({ params }: Props) {
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={form.logoUrl}
+                // `key` on the src so a corrected URL gets a FRESH element.
+                // The onError below hides the node by mutating its style, and
+                // a hidden node stays hidden however many times `src` changes
+                // — without this, one typo left the preview blank until reload.
+                key={logoPreview}
+                src={logoPreview}
                 alt="Logo preview"
                 style={{ maxHeight: 28, maxWidth: 120, objectFit: "contain" }}
                 onError={(e) => {
@@ -347,7 +416,7 @@ export default function ProjectSettingsPage({ params }: Props) {
             placeholder="https://discord.com/api/webhooks/..."
             value={form.discordWebhookUrl}
             onChange={(e) =>
-              setForm((f) => ({ ...f, discordWebhookUrl: e.target.value }))
+              patch((f) => ({ ...f, discordWebhookUrl: e.target.value }))
             }
             style={inputStyle}
           />
@@ -359,7 +428,7 @@ export default function ProjectSettingsPage({ params }: Props) {
             placeholder="123456:ABC-DEF..."
             value={form.telegramBotToken}
             onChange={(e) =>
-              setForm((f) => ({ ...f, telegramBotToken: e.target.value }))
+              patch((f) => ({ ...f, telegramBotToken: e.target.value }))
             }
             style={inputStyle}
           />
@@ -371,7 +440,7 @@ export default function ProjectSettingsPage({ params }: Props) {
             placeholder="-1001234567890"
             value={form.telegramChatId}
             onChange={(e) =>
-              setForm((f) => ({ ...f, telegramChatId: e.target.value }))
+              patch((f) => ({ ...f, telegramChatId: e.target.value }))
             }
             style={inputStyle}
           />

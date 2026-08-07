@@ -190,6 +190,25 @@ export default async function ReportsPage({ params }: Props) {
                       : ""}
                   </span>
                 )}
+                {/* Which of the two products this report is. Grant and
+                    investor reports answer to different readers and are
+                    checked against different signal sets; before this the
+                    list showed no difference between them at all. */}
+                {report.reportType === "grant" && (
+                  <span
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      fontFamily: "var(--font-inter), Inter, sans-serif",
+                      background: "rgba(129,140,248,0.14)",
+                      color: "#a5b4fc",
+                    }}
+                  >
+                    Grant
+                  </span>
+                )}
                 <span
                   style={{
                     padding: "3px 10px",
