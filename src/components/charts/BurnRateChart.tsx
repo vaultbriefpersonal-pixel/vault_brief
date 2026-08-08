@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { formatUsd } from "@/lib/utils";
+import { DARK_CHART_PALETTE, type ChartPalette } from "./chart-palette";
 
 interface DataPoint {
   date: string;
@@ -17,6 +18,10 @@ interface DataPoint {
 }
 
 interface BurnRateChartProps {
+  /** Omit on the dashboard; the report page passes DOC_CHART_PALETTE.
+   *  Recharts writes these as SVG presentation attributes, where var() is
+   *  invalid — so the .vb-doc token scope cannot reach this component. */
+  palette?: ChartPalette;
   data: DataPoint[];
 }
 
@@ -41,7 +46,7 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function BurnRateChart({ data }: BurnRateChartProps) {
+export function BurnRateChart({ data, palette = DARK_CHART_PALETTE }: BurnRateChartProps) {
   if (data.length === 0) {
     return (
       <EmptyState>
@@ -83,29 +88,29 @@ export function BurnRateChart({ data }: BurnRateChartProps) {
   return (
     <ResponsiveContainer width="100%" height={200}>
       <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke={palette.grid} vertical={false} />
         <XAxis
           dataKey="date"
-          tick={{ fill: "#64748b", fontSize: 11 }}
+          tick={{ fill: palette.axis, fontSize: 11 }}
           axisLine={false}
           tickLine={false}
         />
         <YAxis
           tickFormatter={(v) => formatUsd(v)}
-          tick={{ fill: "#64748b", fontSize: 11 }}
+          tick={{ fill: palette.axis, fontSize: 11 }}
           axisLine={false}
           tickLine={false}
         />
         <Tooltip
           contentStyle={{
-            background: "#1e293b",
-            border: "1px solid #334155",
+            background: palette.tooltipBg,
+            border: `1px solid ${palette.tooltipBorder}`,
             borderRadius: 8,
             color: "#e2e8f0",
           }}
           formatter={(value) => [formatUsd(Number(value ?? 0)), "Burn rate"]}
         />
-        <Bar dataKey="burnRateUsd" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="burnRateUsd" fill={palette.seriesAlt} radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );

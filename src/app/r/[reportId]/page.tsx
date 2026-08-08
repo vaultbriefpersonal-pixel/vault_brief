@@ -6,6 +6,7 @@ import { db } from "@/server/db";
 import { reports, projects, treasurySnapshots, milestones } from "@/server/db/schema";
 import { ReportPreview } from "@/components/report/ReportPreview";
 import { ReportWidgets } from "@/components/report/ReportWidgets";
+import { DOC_CHART_PALETTE } from "@/components/charts/chart-palette";
 import { formatDate } from "@/lib/utils";
 import { getSafeInfoForProject } from "@/server/services/safe-info";
 import { REPORT_DISCLAIMER } from "@/lib/report-disclaimer";
@@ -272,6 +273,10 @@ export default async function PublicReportPage({ params }: Props) {
           safes={safes}
           trend={trend}
           milestones={milestoneList}
+          // Recharts writes SVG presentation attributes, where var() is
+          // invalid, so these two are the one part of the widget strip the
+          // .vb-doc token scope cannot reach.
+          chartPalette={DOC_CHART_PALETTE}
           // The own-token identity the composition classifier needs. Without
           // it the project's own holdings fall into "Other assets".
           project={project}

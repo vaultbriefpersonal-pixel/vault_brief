@@ -75,6 +75,17 @@
   --doc-track: rgba(255, 255, 255, 0.06);
   --doc-series-2: #4f9cf9;
   --doc-series-3: #a78bfa;
+  /* Geometry and the figure face, as tokens.
+     ReportWidgets renders on BOTH the dark dashboard and the light report, and
+     its styles are inline, so CSS cannot override them per-scope. Driving the
+     few properties that carry visual REGISTER — corner radius and the face
+     numbers are set in — from tokens is what lets the same components read as
+     a dashboard in one place and a document in the other, with the dashboard
+     values here left exactly as they were. */
+  --doc-radius-card: 12px;
+  --doc-radius-tile: 10px;
+  --doc-radius-pill: 999px;
+  --doc-figure-font: var(--font-space-grotesk), "Space Grotesk", sans-serif;
   --doc-paper: var(--vb-bg);
   --doc-raised: var(--vb-card);
   --doc-line: var(--vb-border);
@@ -122,6 +133,15 @@
   --doc-track: rgba(28, 32, 36, 0.08);
   --doc-series-2: #3d6b86;
   --doc-series-3: #6b5b8a;
+  /* Documentary register. Rounded cards and 999px pills are dashboard
+     vocabulary; on paper the same components become hairline-ruled blocks and
+     square stamps, and every figure moves to the mono face so columns of money
+     line up. Same components, no per-component edits — see the dark values at
+     :root for why this is a token and not a rewrite. */
+  --doc-radius-card: 0px;
+  --doc-radius-tile: 0px;
+  --doc-radius-pill: 3px;
+  --doc-figure-font: var(--font-plex-mono), ui-monospace, monospace;
 
   /* Compatibility aliases — see the depth note above. */
   --vb-bg: var(--doc-raised);

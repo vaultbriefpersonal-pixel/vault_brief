@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { formatUsd } from "@/lib/utils";
+import { DARK_CHART_PALETTE, type ChartPalette } from "./chart-palette";
 
 interface DataPoint {
   date: string;
@@ -17,6 +18,10 @@ interface DataPoint {
 }
 
 interface TreasuryChartProps {
+  /** Omit on the dashboard; the report page passes DOC_CHART_PALETTE.
+   *  Recharts writes these as SVG presentation attributes, where var() is
+   *  invalid — so the .vb-doc token scope cannot reach this component. */
+  palette?: ChartPalette;
   data: DataPoint[];
 }
 
@@ -41,7 +46,7 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function TreasuryChart({ data }: TreasuryChartProps) {
+export function TreasuryChart({ data, palette = DARK_CHART_PALETTE }: TreasuryChartProps) {
   if (data.length === 0) {
     return <EmptyState>No data yet — sync your wallets to see treasury history.</EmptyState>;
   }
@@ -83,27 +88,27 @@ export function TreasuryChart({ data }: TreasuryChartProps) {
       <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
         <defs>
           <linearGradient id="treasury" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#6366F1" stopOpacity={0.3} />
-            <stop offset="95%" stopColor="#6366F1" stopOpacity={0} />
+            <stop offset="5%" stopColor={palette.series} stopOpacity={0.3} />
+            <stop offset="95%" stopColor={palette.series} stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+        <CartesianGrid strokeDasharray="3 3" stroke={palette.grid} />
         <XAxis
           dataKey="date"
-          tick={{ fill: "#64748b", fontSize: 11 }}
+          tick={{ fill: palette.axis, fontSize: 11 }}
           axisLine={false}
           tickLine={false}
         />
         <YAxis
           tickFormatter={(v) => formatUsd(v)}
-          tick={{ fill: "#64748b", fontSize: 11 }}
+          tick={{ fill: palette.axis, fontSize: 11 }}
           axisLine={false}
           tickLine={false}
         />
         <Tooltip
           contentStyle={{
-            background: "#1e293b",
-            border: "1px solid #334155",
+            background: palette.tooltipBg,
+            border: `1px solid ${palette.tooltipBorder}`,
             borderRadius: 8,
             color: "#e2e8f0",
           }}
@@ -112,7 +117,7 @@ export function TreasuryChart({ data }: TreasuryChartProps) {
         <Area
           type="monotone"
           dataKey="totalBalanceUsd"
-          stroke="#6366F1"
+          stroke={palette.series}
           strokeWidth={2}
           fill="url(#treasury)"
         />

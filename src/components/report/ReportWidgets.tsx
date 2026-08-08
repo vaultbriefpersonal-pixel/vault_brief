@@ -2,6 +2,7 @@ import type { TreasurySnapshot } from "@/server/db/schema";
 import { formatUsd } from "@/lib/utils";
 import { TreasuryChart } from "@/components/charts/TreasuryChart";
 import { BurnRateChart } from "@/components/charts/BurnRateChart";
+import type { ChartPalette } from "@/components/charts/chart-palette";
 import { extractDefiPositions } from "@/server/services/defi-positions";
 import {
   composeTreasury,
@@ -97,6 +98,13 @@ interface ReportWidgetsProps {
    * with no `tokenSymbol` is a real, valid state, not a missing prop.
    */
   project?: { tokenSymbol?: string | null; tokenContract?: string | null } | null;
+  /**
+   * Colours for the two Recharts blocks. Everything else in this component
+   * re-themes through the .vb-doc token scope, but Recharts emits SVG
+   * presentation attributes where var() is invalid, so these two need the
+   * values passed in. Omitted on the dashboard, which keeps the dark default.
+   */
+  chartPalette?: ChartPalette;
 }
 
 export function ReportWidgets({
@@ -106,6 +114,7 @@ export function ReportWidgets({
   trend,
   milestones = [],
   project = null,
+  chartPalette,
 }: ReportWidgetsProps) {
   if (!snapshot) return null;
 
@@ -131,7 +140,12 @@ export function ReportWidgets({
   // (its only imports are `@/lib/chains` and `./defi-positions`) and safe in the
   // browser bundle. Zero-value slices are dropped so an empty bucket doesn't
   // render an empty bar.
-  const compositionColors = [accent, "#4f9cf9", "#a78bfa", "var(--vb-dim)"];
+  const compositionColors = [
+    accent,
+    "var(--doc-series-2)",
+    "var(--doc-series-3)",
+    "var(--doc-ink-faint)",
+  ];
   const composition: Slice[] = compositionSlices(
     composeTreasury(snapshot.balancesDetail, project),
     project
@@ -278,10 +292,10 @@ export function ReportWidgets({
       {showTrend && trend && (
         <div className="vb-grid-2" style={{ gap: 24 }}>
           <Panel title="Treasury over time">
-            <TreasuryChart data={trend.treasury} />
+            <TreasuryChart data={trend.treasury} palette={chartPalette} />
           </Panel>
           <Panel title="Burn rate over time">
-            <BurnRateChart data={trend.burn} />
+            <BurnRateChart data={trend.burn} palette={chartPalette} />
           </Panel>
         </div>
       )}
@@ -307,7 +321,7 @@ export function ReportWidgets({
           <div
             style={{
               background: "var(--vb-bg)",
-              borderRadius: 12,
+              borderRadius: "var(--doc-radius-card)",
               border: "1px solid var(--vb-border)",
               padding: 24,
             }}
@@ -322,7 +336,7 @@ export function ReportWidgets({
                   <p
                     style={{
                       fontFamily:
-                        "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+                        "var(--doc-figure-font)",
                       fontSize: 32,
                       fontWeight: 700,
                       color: accent,
@@ -360,7 +374,7 @@ export function ReportWidgets({
                 style={{
                   background: "var(--vb-bg)",
                   border: "1px solid var(--vb-border)",
-                  borderRadius: 10,
+                  borderRadius: "var(--doc-radius-tile)",
                   padding: "12px 16px",
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                   fontSize: 14,
@@ -406,7 +420,7 @@ export function ReportWidgets({
                 style={{
                   background: "var(--vb-bg)",
                   border: "1px solid var(--vb-border)",
-                  borderRadius: 10,
+                  borderRadius: "var(--doc-radius-tile)",
                   padding: "12px 16px",
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                   fontSize: 14,
@@ -440,7 +454,7 @@ export function ReportWidgets({
                   gap: 12,
                   background: "var(--vb-bg)",
                   border: "1px solid var(--vb-border)",
-                  borderRadius: 10,
+                  borderRadius: "var(--doc-radius-tile)",
                   padding: "12px 16px",
                   fontFamily: "var(--font-inter), Inter, sans-serif",
                 }}
@@ -505,23 +519,23 @@ const MILESTONE_STATUS_STYLE: Record<
 > = {
   planned: {
     color: "var(--vb-muted)",
-    background: "rgba(255,255,255,0.06)",
+    background: "var(--doc-track)",
     border: "var(--vb-border)",
   },
   in_progress: {
-    color: "#4f9cf9",
-    background: "rgba(79,156,249,0.12)",
-    border: "rgba(79,156,249,0.3)",
+    color: "var(--doc-info)",
+    background: "var(--doc-info-soft)",
+    border: "var(--doc-info)",
   },
   delayed: {
-    color: "#f87171",
-    background: "rgba(248,113,113,0.12)",
-    border: "rgba(248,113,113,0.3)",
+    color: "var(--doc-danger)",
+    background: "var(--doc-danger-soft)",
+    border: "var(--doc-danger)",
   },
   completed: {
-    color: "#00e87b",
-    background: "rgba(0,232,123,0.12)",
-    border: "rgba(0,232,123,0.3)",
+    color: "var(--doc-ok)",
+    background: "var(--doc-ok-soft)",
+    border: "var(--doc-ok)",
   },
 };
 
@@ -536,7 +550,7 @@ function MilestoneStatusBadge({ status }: { status: string }) {
         color: style.color,
         background: style.background,
         border: `1px solid ${style.border}`,
-        borderRadius: 999,
+        borderRadius: "var(--doc-radius-pill)",
         padding: "4px 10px",
         whiteSpace: "nowrap",
       }}
@@ -549,15 +563,15 @@ function MilestoneStatusBadge({ status }: { status: string }) {
 function KpiTileView({ label, val, tone }: KpiTile) {
   const toneColor =
     tone === "positive"
-      ? "#00e87b"
+      ? "var(--doc-ok)"
       : tone === "negative"
-        ? "#f87171"
+        ? "var(--doc-danger)"
         : "var(--vb-text)";
   return (
     <div
       style={{
         background: "var(--vb-bg)",
-        borderRadius: 10,
+        borderRadius: "var(--doc-radius-tile)",
         padding: "20px 16px",
         border: "1px solid var(--vb-border)",
       }}
@@ -576,7 +590,7 @@ function KpiTileView({ label, val, tone }: KpiTile) {
       </p>
       <p
         style={{
-          fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+          fontFamily: "var(--doc-figure-font)",
           fontSize: 22,
           fontWeight: 700,
           color: toneColor,
@@ -594,7 +608,7 @@ function MetricTileView({ label, val, note }: MetricTile) {
     <div
       style={{
         background: "var(--vb-bg)",
-        borderRadius: 10,
+        borderRadius: "var(--doc-radius-tile)",
         padding: "20px 16px",
         border: "1px solid var(--vb-border)",
       }}
@@ -613,7 +627,7 @@ function MetricTileView({ label, val, note }: MetricTile) {
       </p>
       <p
         style={{
-          fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+          fontFamily: "var(--doc-figure-font)",
           fontSize: 20,
           fontWeight: 700,
           color: "var(--vb-text)",
@@ -647,14 +661,14 @@ function Panel({
     <div
       style={{
         background: "var(--vb-bg)",
-        borderRadius: 12,
+        borderRadius: "var(--doc-radius-card)",
         border: "1px solid var(--vb-border)",
         padding: 24,
       }}
     >
       <h3
         style={{
-          fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+          fontFamily: "var(--doc-figure-font)",
           fontSize: 15,
           fontWeight: 600,
           color: "var(--vb-text)",
@@ -681,7 +695,7 @@ function SectionHeading({
     <div style={{ marginBottom: 16 }}>
       <h3
         style={{
-          fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
+          fontFamily: "var(--doc-figure-font)",
           fontSize: 16,
           fontWeight: 600,
           color: "var(--vb-text)",
@@ -754,7 +768,7 @@ function BarRow({
       <div
         style={{
           height: 4,
-          background: "rgba(255,255,255,0.06)",
+          background: "var(--doc-track)",
           borderRadius: 2,
           overflow: "hidden",
         }}

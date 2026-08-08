@@ -152,6 +152,59 @@ describe("globals.css ↔ DOC_LIGHT parity", () => {
       expect(vars.has(extra), `${extra} missing from :root`).toBe(true);
     }
   });
+
+  // ReportWidgets renders on BOTH the dark dashboard and the light report, and
+  // its inline colours were replaced with these tokens. The replacement is only
+  // safe if the :root values are byte-for-byte what the literals used to be —
+  // otherwise a report-surface change silently restyles the founder's
+  // dashboard. This is what makes "the dashboard is unchanged" checkable
+  // rather than merely asserted.
+  it("keeps the dashboard byte-identical: :root values match the literals they replaced", () => {
+    const rootStart = css.indexOf(":root {");
+    const vars = declared(css.slice(rootStart, css.indexOf("\n}", rootStart)));
+    const REPLACED_LITERALS: Record<string, string> = {
+      "--doc-ok": "#00e87b",
+      "--doc-danger": "#f87171",
+      "--doc-info": "#4f9cf9",
+      "--doc-series-2": "#4f9cf9",
+      "--doc-series-3": "#a78bfa",
+      "--doc-track": "rgba(255, 255, 255, 0.06)",
+      "--doc-ok-soft": "rgba(0, 232, 123, 0.14)",
+      "--doc-danger-soft": "rgba(248, 113, 113, 0.16)",
+      "--doc-info-soft": "rgba(79, 156, 249, 0.16)",
+      "--doc-radius-card": "12px",
+      "--doc-radius-tile": "10px",
+      "--doc-radius-pill": "999px",
+    };
+    for (const [token, literal] of Object.entries(REPLACED_LITERALS)) {
+      const actual = (vars.get(token) ?? "").replace(/\s+/g, "");
+      expect(actual, `${token} drifted from the dashboard literal it replaced`).toBe(
+        literal.replace(/\s+/g, "")
+      );
+    }
+    // The figure face must still be the app's display font on the dashboard.
+    expect(vars.get("--doc-figure-font")).toContain("--font-space-grotesk");
+  });
+
+  // Stages 12-17 exist to surface uncertainty; a prettier surface must not
+  // mute it. On a light ground amber and red naturally recede, so these are
+  // pinned to be at least as loud as ordinary secondary prose.
+  it("keeps warning and danger at least as prominent as secondary body text", () => {
+    const onPaper = (c: string) => contrastRatio(c, DOC_LIGHT.paper);
+    expect(onPaper(DOC_LIGHT.warn)).toBeGreaterThanOrEqual(onPaper(DOC_LIGHT.inkFaint));
+    expect(onPaper(DOC_LIGHT.danger)).toBeGreaterThanOrEqual(onPaper(DOC_LIGHT.inkFaint));
+  });
+
+  it("gives the document its own visual register, not the dashboard's", () => {
+    const vars = declared(vbDocBlock());
+    // Rounded cards and 999px pills are dashboard vocabulary; paper is ruled
+    // blocks and square stamps.
+    expect(vars.get("--doc-radius-card")).toBe("0px");
+    expect(vars.get("--doc-radius-tile")).toBe("0px");
+    expect(vars.get("--doc-radius-pill")).toBe("3px");
+    // Figures move to the mono face so columns of money line up.
+    expect(vars.get("--doc-figure-font")).toContain("--font-plex-mono");
+  });
 });
 
 describe("contrastRatio", () => {
