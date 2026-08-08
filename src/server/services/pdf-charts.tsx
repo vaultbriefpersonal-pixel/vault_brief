@@ -1,4 +1,5 @@
 import React from "react";
+import { PDF_MONO } from "@/lib/report-theme";
 import { Svg, Path, Rect, Line, Text as SvgText, G } from "@react-pdf/renderer";
 
 /**
@@ -19,8 +20,10 @@ import { Svg, Path, Rect, Line, Text as SvgText, G } from "@react-pdf/renderer";
  * - All sizes are in PDF points (72pt = 1 inch). A4 page width minus 144pt
  *   of horizontal padding leaves ~451pt usable, so charts default to ~420pt
  *   max width.
- * - Text labels use Helvetica — same default the rest of the PDF template
- *   uses, so we don't ship custom fonts just for charts.
+ * - Text labels use the embedded mono face (PDF_MONO). Chart text is axis
+ *   ticks, percentages and legends, so tabular figures matter more than
+ *   reading comfort. Registered in pdf-fonts.ts, which pdf-generator awaits
+ *   before rendering; these were Helvetica until the report faces shipped.
  */
 
 const PALETTE = {
@@ -105,14 +108,14 @@ export function TreasuryPie({
               <SvgText
                 x={size + 30}
                 y={y + 8}
-                style={{ fontFamily: "Helvetica", fontSize: 9, fill: PALETTE.textBody }}
+                style={{ fontFamily: PDF_MONO, fontSize: 9, fill: PALETTE.textBody }}
               >
                 {s.label}
               </SvgText>
               <SvgText
                 x={size + 30}
                 y={y + 19}
-                style={{ fontFamily: "Helvetica", fontSize: 8, fill: PALETTE.textMid }}
+                style={{ fontFamily: PDF_MONO, fontSize: 8, fill: PALETTE.textMid }}
               >
                 {`${(s.percent * 100).toFixed(1)}%`}
               </SvgText>
@@ -228,7 +231,7 @@ export function ChainSplit({
             x={i * legendW + 14}
             y={legendY + 7}
             style={{
-              fontFamily: "Helvetica-Bold",
+              fontFamily: PDF_MONO,
               fontSize: 8,
               fill: PALETTE.textBody,
             }}
@@ -238,7 +241,7 @@ export function ChainSplit({
           <SvgText
             x={i * legendW + 14}
             y={legendY + 18}
-            style={{ fontFamily: "Helvetica", fontSize: 8, fill: PALETTE.textMid }}
+            style={{ fontFamily: PDF_MONO, fontSize: 8, fill: PALETTE.textMid }}
           >
             {`${(s.percent * 100).toFixed(0)}%`}
           </SvgText>
@@ -296,7 +299,7 @@ export function TrendBars({
         x={padL - 4}
         y={padT + 6}
         textAnchor="end"
-        style={{ fontFamily: "Helvetica", fontSize: 7, fill: PALETTE.textMid }}
+        style={{ fontFamily: PDF_MONO, fontSize: 7, fill: PALETTE.textMid }}
       >
         {abbrev(max)}
       </SvgText>
@@ -304,7 +307,7 @@ export function TrendBars({
         x={padL - 4}
         y={padT + innerH / 2 + 3}
         textAnchor="end"
-        style={{ fontFamily: "Helvetica", fontSize: 7, fill: PALETTE.textMid }}
+        style={{ fontFamily: PDF_MONO, fontSize: 7, fill: PALETTE.textMid }}
       >
         {abbrev((max + min) / 2)}
       </SvgText>
@@ -312,7 +315,7 @@ export function TrendBars({
         x={padL - 4}
         y={padT + innerH + 3}
         textAnchor="end"
-        style={{ fontFamily: "Helvetica", fontSize: 7, fill: PALETTE.textMid }}
+        style={{ fontFamily: PDF_MONO, fontSize: 7, fill: PALETTE.textMid }}
       >
         {abbrev(min)}
       </SvgText>
@@ -354,7 +357,7 @@ export function TrendBars({
               y={padT + innerH + 14}
               textAnchor="middle"
               style={{
-                fontFamily: "Helvetica",
+                fontFamily: PDF_MONO,
                 fontSize: 7,
                 fill: PALETTE.textMid,
               }}
@@ -369,7 +372,7 @@ export function TrendBars({
         x={4}
         y={padT + innerH / 2}
         style={{
-          fontFamily: "Helvetica-Bold",
+          fontFamily: PDF_MONO,
           fontSize: 7,
           fill: PALETTE.textMid,
         }}

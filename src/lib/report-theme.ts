@@ -177,30 +177,95 @@ export function readableAccentOn(
 
   return towardBlack ? DOC_LIGHT.ink : DOC_LIGHT.paper;
 }
-
 // ─── PDF glyph safety ──────────────────────────────────────────────────────
 
 /**
- * Characters the report fonts cannot draw, and what to draw instead.
+ * Codepoint ranges the embedded subset covers.
  *
- * Registering a real typeface does NOT make these safe — Spectral and IBM Plex
- * Mono are Latin text faces, so arrows, ticks and stars are as absent from
- * them as they were from Helvetica. What changes is that the set is now
- * *verifiable*: `pdf-fonts.test.ts` asserts every key here is genuinely
- * missing from the shipped subset, so this table cannot quietly go stale.
+ * Expressed as numbers, not as a literal character class. A class full of
+ * dashes, curly quotes and accented letters is unreviewable, and this one
+ * would begin at U+00A0 — a non-breaking space, indistinguishable from a plain
+ * space on screen and liable to mutate on re-encoding.
  *
- * Replaces a blind `U+1F300–U+1FAFF` strip that covered pictographs only and
- * let `→` and `✓` — squarely in the range a model actually emits — through to
- * a font that could not encode them.
+ * Tab/LF/CR, printable ASCII, then Latin-1 Supplement + Latin Extended-A,
+ * which is where accented contributor names live along with the degree, section,
+ * plus-minus, multiply, divide, guillemet and currency marks a treasury report
+ * actually uses.
+ */
+const PDF_SAFE_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x09, 0x0a],
+  [0x0d, 0x0d],
+  [0x20, 0x7e],
+  [0xa0, 0x17f],
+];
+
+/**
+ * Individual codepoints above Latin Extended-A that the subset also carries.
+ *
+ * This list is EMPIRICAL, not assumed. Each was probed against all four source
+ * faces and kept only where every one of them has a glyph, and
+ * `pdf-fonts.test.ts` re-verifies it against the shipped base64 — so this and
+ * the subset charset in `scripts/build-report-fonts.mjs` cannot drift apart
+ * without CI noticing.
+ *
+ * Worth stating plainly, because the opposite was assumed while planning:
+ * Spectral and IBM Plex Mono DO carry the arrows, the tick and the maths
+ * comparators. Only dingbats and geometric shapes are genuinely missing.
+ */
+export const PDF_SAFE_EXTRA: readonly number[] = [
+  0x2013, // en dash
+  0x2014, // em dash
+  0x2018, // left single quote
+  0x2019, // right single quote
+  0x201c, // left double quote
+  0x201d, // right double quote
+  0x2020, // dagger
+  0x2021, // double dagger
+  0x2022, // bullet
+  0x2026, // ellipsis
+  0x2030, // per mille
+  0x20ac, // euro
+  0x2190, // left arrow
+  0x2191, // up arrow
+  0x2192, // right arrow
+  0x2193, // down arrow
+  0x2248, // almost equal
+  0x2260, // not equal
+  0x2264, // less than or equal
+  0x2265, // greater than or equal
+  0x2713, // check mark
+];
+
+const PDF_SAFE_EXTRA_SET = new Set(PDF_SAFE_EXTRA);
+
+function isPdfSafe(cp: number): boolean {
+  for (const [lo, hi] of PDF_SAFE_RANGES) {
+    if (cp >= lo && cp <= hi) return true;
+  }
+  return PDF_SAFE_EXTRA_SET.has(cp);
+}
+
+/**
+ * Characters no shipped face can draw, and what to draw instead.
+ *
+ * Much shorter than it would have been under the planning assumption that a
+ * Latin text face carries no symbols. Measured against the real fonts, only
+ * two groups need mapping:
+ *
+ *   - dingbats absent from all four faces
+ *   - geometric shapes present in Spectral but NOT in IBM Plex Mono
+ *
+ * The second group is mapped rather than kept because the sanitizer cannot
+ * know which face a given string will be set in. A character that renders in
+ * prose and then silently vanishes inside a table cell is worse than one that
+ * is consistently an ASCII stand-in.
+ *
+ * The heavy check mark maps to the light one rather than to ASCII: the real
+ * tick IS available, so it should degrade one step, not all the way.
  */
 export const GLYPH_FALLBACKS: ReadonlyArray<readonly [string, string]> = [
-  ["→", "->"],
-  ["←", "<-"],
-  ["↑", "^"],
-  ["↓", "v"],
   ["⇒", "=>"],
-  ["✓", "+"],
-  ["✔", "+"],
+  ["✔", "✓"],
   ["✗", "x"],
   ["✘", "x"],
   ["★", "*"],
@@ -209,40 +274,28 @@ export const GLYPH_FALLBACKS: ReadonlyArray<readonly [string, string]> = [
   ["▼", "v"],
   ["●", "*"],
   ["■", "*"],
-  ["≥", ">="],
-  ["≤", "<="],
-  ["≠", "!="],
 ];
-
-/**
- * Everything the embedded subset can draw, as an inverted class.
- *
- * Written with \u escapes rather than literal glyphs on purpose: a character
- * class full of dashes, curly quotes and accented letters is invisible to
- * review, survives editors and diffs poorly, and is exactly the kind of source
- * line that silently mutates when a file is re-encoded.
- *
- * Ranges: tab/LF/CR, printable ASCII, Latin-1 Supplement and Latin Extended-A
- * (accented contributor names), plus the individual General Punctuation marks
- * the subset carries — en/em dash, curly quotes, bullet, ellipsis, euro.
- */
-const PDF_SAFE_STRIP_RE =
-  /[^\t\n\r\u0020-\u007E\u00A0-\u017F\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u2026\u20AC]/gu;
 
 /**
  * Make a string safe to draw with the embedded PDF fonts.
  *
- * Applies the fallback table, then strips anything still outside the covered
+ * Applies the fallback table, then drops anything still outside the covered
  * set — emoji included — rather than emitting a codepoint the font cannot
  * resolve, which renders as a blank box in the investor's PDF. Whitespace is
- * normalised afterwards so a stripped pictograph does not leave a double space
+ * normalised afterwards so a dropped pictograph does not leave a double space
  * mid-sentence.
+ *
+ * Replaces a blind U+1F300–U+1FAFF strip that covered pictographs only, and so
+ * passed the arrows and ticks straight through to base-14 Helvetica, which
+ * could not encode them either.
  */
 export function sanitizeForPdf(input: string): string {
   let out = input;
   for (const [from, to] of GLYPH_FALLBACKS) {
     if (out.includes(from)) out = out.split(from).join(to);
   }
-  out = out.replace(PDF_SAFE_STRIP_RE, "");
+  // Iterate by codepoint so astral characters (emoji) are dropped whole
+  // rather than leaving a lone surrogate behind.
+  out = [...out].filter((ch) => isPdfSafe(ch.codePointAt(0)!)).join("");
   return out.replace(/[ \t]{2,}/g, " ");
 }

@@ -272,12 +272,43 @@ describe("sanitizeForPdf", () => {
     }
   });
 
-  // The old strip covered pictographs only, so these reached a font that
-  // could not encode them and printed as blank boxes.
-  it("converts the arrows and ticks the old pictograph-only strip let through", () => {
-    expect(sanitizeForPdf("spend -> up")).toBe("spend -> up");
-    expect(sanitizeForPdf("runway → 4 months")).toBe("runway -> 4 months");
-    expect(sanitizeForPdf("done ✓")).toBe("done +");
+  // Measured, not assumed: the shipped subset genuinely carries the arrows,
+  // the tick and the comparators, so they must survive untouched. Mapping
+  // them to ASCII (as the planning assumption implied) would have degraded
+  // output the fonts can render perfectly well.
+  it("preserves the symbols the fonts actually carry", () => {
+    for (const s of [
+      "runway → 4 months",
+      "burn ≈ $231,700/mo",
+      "coverage ≥ 80% and drift ≤ 2%",
+      "reconciled ✓",
+      "net ≠ gross",
+      "cost ± 5%",
+      "€1,200 · £900 · ¥400 · 20°",
+      "note † and ‡, 250‰",
+    ]) {
+      expect(sanitizeForPdf(s), s).toBe(s);
+    }
+  });
+
+  // The two groups that genuinely need mapping, for two different reasons.
+  it("maps dingbats absent from every face", () => {
+    expect(sanitizeForPdf("top ★ pick")).toBe("top * pick");
+    expect(sanitizeForPdf("a ⇒ b")).toBe("a => b");
+    expect(sanitizeForPdf("failed ✘")).toBe("failed x");
+  });
+
+  it("degrades the heavy tick to the light one rather than to ASCII", () => {
+    expect(sanitizeForPdf("done ✔")).toBe("done ✓");
+  });
+
+  // Present in Spectral, absent from Plex Mono. The sanitizer cannot know
+  // which face a string lands in, so consistency beats fidelity: better an
+  // ASCII stand-in everywhere than a glyph that vanishes inside a table cell.
+  it("maps geometric shapes that Plex Mono lacks, even though Spectral has them", () => {
+    expect(sanitizeForPdf("▲ up")).toBe("^ up");
+    expect(sanitizeForPdf("▼ down")).toBe("v down");
+    expect(sanitizeForPdf("● dot")).toBe("* dot");
   });
 
   it("drops emoji rather than emitting an unresolvable codepoint", () => {

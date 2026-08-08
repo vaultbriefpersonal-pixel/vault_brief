@@ -1,5 +1,11 @@
 import type { Metadata } from "next";
-import { Inter, Space_Grotesk, Geist_Mono } from "next/font/google";
+import {
+  Inter,
+  Space_Grotesk,
+  Geist_Mono,
+  Spectral,
+  IBM_Plex_Mono,
+} from "next/font/google";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -16,6 +22,34 @@ const spaceGrotesk = Space_Grotesk({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+// The report document's faces, deliberately distinct from the three above.
+// The app is a dashboard and reads like one; a report is read by investors
+// and grant funders, printed, and attached to emails, so it gets the
+// typographic register of a document instead.
+//
+// Loaded through next/font/google rather than as local files even though the
+// PDF ships the same families as base64: Next self-hosts and subsets these
+// automatically, and inlining them here would defeat browser caching. The two
+// paths are allowed to differ because their constraints do — see
+// src/server/services/pdf-fonts.ts for why the PDF cannot read from disk.
+//
+// Weights match what the PDF registers, so the two surfaces agree: 400/600
+// upright plus a 400 italic for the serif, 400 for the mono.
+const spectral = Spectral({
+  variable: "--font-spectral",
+  subsets: ["latin"],
+  weight: ["400", "600"],
+  style: ["normal", "italic"],
+  display: "swap",
+});
+
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -50,7 +84,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${spaceGrotesk.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${spaceGrotesk.variable} ${geistMono.variable} ${spectral.variable} ${plexMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <Providers>{children}</Providers>

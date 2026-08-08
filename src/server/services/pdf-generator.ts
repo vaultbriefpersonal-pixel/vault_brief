@@ -14,6 +14,7 @@ import { db } from "@/server/db";
 import { reports, projects, treasurySnapshots } from "@/server/db/schema";
 import { and, desc, eq, lt } from "drizzle-orm";
 import { formatDate } from "@/lib/utils";
+import { registerReportFonts } from "./pdf-fonts";
 import {
   composeTreasury,
   compositionSlices as buildCompositionSlices,
@@ -94,6 +95,15 @@ export async function generatePDF(
     trendSnapshots,
     compositionSlices,
   });
+
+  // Must precede the render, and must happen on EVERY path into this
+  // function. Both callers matter and they run in different runtimes: the
+  // Vercel Lambda (the PDF route and the two tRPC procedures) and the
+  // Trigger.dev worker (auto-generate-reports.ts, in the `dirs` that
+  // trigger.config.ts registers). Registering here rather than at module
+  // scope keeps it inside the async boundary that pdf-fonts.ts needs for its
+  // dynamic import of @react-pdf/renderer. Idempotent per process.
+  await registerReportFonts();
 
   const renderToBuffer = await getRenderToBuffer();
   const buffer = await renderToBuffer(

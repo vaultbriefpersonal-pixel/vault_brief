@@ -15,6 +15,11 @@ import {
 } from "./pdf-charts";
 import type { TreasurySnapshot } from "@/server/db/schema";
 import { REPORT_DISCLAIMER } from "@/lib/report-disclaimer";
+// Family NAMES only — the registration itself lives in pdf-fonts.ts, which
+// pdf-generator.ts awaits before rendering. Keeping the `Font` object out of
+// this module avoids a second static import of @react-pdf/renderer, which
+// pdf-generator.ts:5-12 documents as unreliable under serverExternalPackages.
+import { PDF_SERIF, PDF_MONO, sanitizeForPdf } from "@/lib/report-theme";
 
 interface PDFTemplateProps {
   projectName: string;
@@ -52,7 +57,7 @@ const ACCENT = "#6366F1";
 
 const styles = StyleSheet.create({
   page: {
-    fontFamily: "Helvetica",
+    fontFamily: PDF_SERIF,
     paddingTop: 72,
     paddingBottom: 72,
     paddingHorizontal: 72,
@@ -81,29 +86,31 @@ const styles = StyleSheet.create({
   },
   projectName: {
     fontSize: 14,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: PDF_SERIF, fontWeight: 600,
     color: NAVY,
   },
   headerRight: {
+    fontFamily: PDF_MONO,
     fontSize: 9,
     color: MID_GRAY,
     textAlign: "right",
   },
   h1: {
     fontSize: 14,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: PDF_SERIF, fontWeight: 600,
     color: NAVY,
     marginTop: 16,
     marginBottom: 6,
   },
   h2: {
     fontSize: 12,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: PDF_SERIF, fontWeight: 600,
     color: NAVY,
     marginTop: 12,
     marginBottom: 4,
   },
   paragraph: {
+    fontFamily: PDF_SERIF,
     fontSize: 10,
     color: BODY,
     lineHeight: 1.5,
@@ -115,9 +122,16 @@ const styles = StyleSheet.create({
     marginBottom: 3,
     paddingLeft: 6,
   },
-  // Use a styled View as the bullet dot — Helvetica's standard encoding
-  // doesn't carry "•" reliably (extracted as � in some readers) and we
-  // don't want to ship a custom font just for one glyph.
+  // A styled View, not a "•" character.
+  //
+  // This was originally a workaround: Helvetica's standard encoding didn't
+  // carry the bullet reliably, and shipping a font for one glyph wasn't worth
+  // it. Both halves of that are now obsolete — the report faces are embedded,
+  // and pdf-fonts.test.ts verifies U+2022 is in every one of them.
+  //
+  // Kept anyway, as a design choice rather than a constraint: a 4px dot in the
+  // project's accent colour carries brand where a typographic bullet doesn't,
+  // and it stays correct through any future change of typeface.
   bulletDot: {
     width: 4,
     height: 4,
@@ -127,6 +141,7 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   bulletText: {
+    fontFamily: PDF_SERIF,
     flex: 1,
     fontSize: 10,
     color: BODY,
@@ -150,13 +165,14 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     paddingHorizontal: 8,
     fontSize: 9,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: PDF_SERIF, fontWeight: 600,
     color: NAVY,
     backgroundColor: LIGHT_GRAY,
     borderRightWidth: 1,
     borderColor: "#E5E7EB",
   },
   td: {
+    fontFamily: PDF_MONO,
     flex: 1,
     paddingVertical: 5,
     paddingHorizontal: 8,
@@ -177,10 +193,16 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: LIGHT_GRAY,
     paddingTop: 6,
+    // Explicit, because `position: absolute` + `fixed` takes this View out of
+    // the page's flow and it stops inheriting `page`'s fontFamily — which
+    // silently embedded a whole extra base-14 Helvetica resource just to set
+    // "Page 1 of 3". Mono also suits the content: a URL and a page counter.
+    fontFamily: PDF_MONO,
   },
   // Rendered once at the end of the document content — NOT `fixed`, unlike
   // `footer` above, which repeats on every page and has no room to spare.
   disclaimer: {
+    fontFamily: PDF_SERIF,
     fontSize: 8,
     color: MID_GRAY,
     marginTop: 16,
@@ -224,10 +246,16 @@ const ITALIC_RE = /(?<!\*)\*([^*\n]+)\*(?!\*)/g;
 const CODE_RE = /`([^`]+)`/g;
 
 function renderInline(text: string, key: number): React.ReactNode {
-  // Strip stray emoji / unknown glyphs that resolve to � in Helvetica. The
-  // LLM occasionally emits them in bullet markers; safer to drop than
-  // render a broken square. (The ASCII subset is fine.)
-  text = text.replace(/[\u{1F300}-\u{1FAFF}]/gu, "");
+  // Drop or substitute anything the embedded faces cannot draw.
+  //
+  // Was a bare U+1F300-U+1FAFF strip, which covered pictographs only — so the
+  // arrows and ticks a model actually emits in a treasury narrative passed
+  // straight through to a font that could not encode them either. The
+  // replacement is driven by a table that pdf-fonts.test.ts verifies against
+  // the shipped subsets, and it now PRESERVES the symbols the faces really
+  // carry (arrows, the tick, the maths comparators) instead of flattening
+  // them to ASCII.
+  text = sanitizeForPdf(text);
 
   // Tokenize. Each token is either plain or a styled span.
   type Tok = { kind: "plain" | "bold" | "italic" | "code"; text: string };
@@ -266,14 +294,14 @@ function renderInline(text: string, key: number): React.ReactNode {
       {tokens.map((t, i) => {
         if (t.kind === "bold") {
           return (
-            <Text key={`${key}-${i}`} style={{ fontFamily: "Helvetica-Bold" }}>
+            <Text key={`${key}-${i}`} style={{ fontFamily: PDF_SERIF, fontWeight: 600 }}>
               {t.text}
             </Text>
           );
         }
         if (t.kind === "italic") {
           return (
-            <Text key={`${key}-${i}`} style={{ fontFamily: "Helvetica-Oblique" }}>
+            <Text key={`${key}-${i}`} style={{ fontFamily: PDF_SERIF, fontStyle: "italic" }}>
               {t.text}
             </Text>
           );
@@ -283,7 +311,7 @@ function renderInline(text: string, key: number): React.ReactNode {
             <Text
               key={`${key}-${i}`}
               style={{
-                fontFamily: "Courier",
+                fontFamily: PDF_MONO,
                 backgroundColor: LIGHT_GRAY,
                 fontSize: 9,
               }}
