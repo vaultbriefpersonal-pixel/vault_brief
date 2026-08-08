@@ -26,6 +26,7 @@ import {
   compositionSlices,
 } from "./treasury-composition";
 import { REPORT_DISCLAIMER } from "@/lib/report-disclaimer";
+import { brandingFor } from "@/lib/report-branding";
 
 // Lazy init: Trigger.dev's deploy bundler imports task files at build time
 // when env vars aren't available. Constructing the Resend client at module
@@ -64,12 +65,11 @@ async function loadEmailContext(report: Report): Promise<{
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, report.projectId),
   });
-  const branding = (project?.customBranding as {
-    primaryColor?: string;
-    logoUrl?: string;
-  } | null) ?? null;
-  const palette = paletteFor(branding ?? undefined);
-  const logoUrl = branding?.logoUrl ?? project?.logoUrl ?? null;
+  // One reader for branding, hex-validated and with a single default. The raw
+  // cast this replaces had neither, and carried its own idea of the default.
+  const branding = brandingFor(project);
+  const palette = paletteFor({ primaryColor: branding.primaryColor });
+  const logoUrl = branding.logoUrl;
 
   // Load the snapshot referenced by the report so we can pull KPIs without
   // re-parsing the markdown body. Avoids the brittle regex extraction the

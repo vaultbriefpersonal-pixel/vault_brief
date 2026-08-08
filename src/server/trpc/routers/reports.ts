@@ -31,6 +31,7 @@ import {
   periodFromRange,
   periodFromSnapshot,
 } from "@/server/services/report-period";
+import { deriveExecutiveSummary } from "@/lib/report-markdown";
 
 /** A `date` column as it travels over the wire. */
 const isoDate = z
@@ -186,9 +187,22 @@ export const reportsRouter = router({
       await requireReport(ctx, reportId);
       // Markdown changed → pdf is stale. Null it out; next download will
       // trigger an on-demand re-render via the /pdf route.
+      //
+      // `executive_summary` is stale for the same reason and was not being
+      // refreshed: it is DERIVED from `content_md`, so a founder rewriting the
+      // Executive Summary in the editor left the stored copy describing the
+      // old text — which the reports list renders and, worse, which
+      // `sendReportEmail` mails to investors.
+      //
+      // Only when the markdown actually changed: a founder-notes-only save
+      // must not touch it.
+      const derived =
+        data.contentMd !== undefined
+          ? { executiveSummary: deriveExecutiveSummary(data.contentMd) }
+          : {};
       const [updated] = await ctx.db
         .update(reports)
-        .set({ ...data, pdfUrl: null, updatedAt: new Date() })
+        .set({ ...data, ...derived, pdfUrl: null, updatedAt: new Date() })
         .where(eq(reports.id, reportId))
         .returning();
       return updated;
@@ -288,6 +302,12 @@ export const reportsRouter = router({
           // previous one would leave the column describing content that no
           // longer exists — and a stale "clean" is worse than no verdict.
           validationIssues,
+          // The same argument, applied to the column that was missing it. This
+          // omission is why the reports list quoted $162.8K beside a report
+          // reading $792.3K — and why a regenerated-then-sent report emailed
+          // investors the pre-regeneration figures, since
+          // `sendReportEmail` uses this column as the email body.
+          executiveSummary: deriveExecutiveSummary(contentMd),
           status: "draft",
           pdfUrl: null, // invalidate stale blob; rerender triggered next.
           updatedAt: new Date(),

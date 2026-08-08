@@ -5,6 +5,7 @@ import { trpc } from "@/lib/api";
 import { ReportTemplateEditor } from "@/components/settings/ReportTemplateEditor";
 import { ProjectMembersPanel } from "@/components/settings/ProjectMembersPanel";
 import type { SectionConfigEntry } from "@/server/services/report-sections";
+import { DEFAULT_ACCENT } from "@/lib/report-theme";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -65,7 +66,7 @@ export default function ProjectSettingsPage({ params }: Props) {
     foundedDate: "",
     lastFundingRound: "",
     lastFundingAmount: "",
-    primaryColor: "#6366F1",
+    primaryColor: DEFAULT_ACCENT,
     logoUrl: "",
     discordWebhookUrl: "",
     telegramBotToken: "",
@@ -136,7 +137,7 @@ export default function ProjectSettingsPage({ params }: Props) {
         foundedDate: project.foundedDate ?? "",
         lastFundingRound: project.lastFundingRound ?? "",
         lastFundingAmount: project.lastFundingAmount?.toString() ?? "",
-        primaryColor: branding?.primaryColor ?? "#6366F1",
+        primaryColor: branding?.primaryColor ?? DEFAULT_ACCENT,
         logoUrl: branding?.logoUrl ?? "",
         discordWebhookUrl:
           (project as { discordWebhookUrl?: string | null })
@@ -166,8 +167,14 @@ export default function ProjectSettingsPage({ params }: Props) {
     e.preventDefault();
     // Branding: only send when at least one field changed from the default.
     // null clears the row → no styles → falls back to Vault Brief default.
+    // Compared against DEFAULT_ACCENT, not a hardcoded hex. This stayed pinned
+    // to "#6366f1" while the product default moved, so a founder who chose
+    // that exact colour had `hasBrand` come out false and their choice was
+    // silently discarded — the picker showed it, the report never used it.
     const hasBrand =
-      form.primaryColor.toLowerCase() !== "#6366f1" || form.logoUrl.trim();
+      form.primaryColor.toLowerCase() !== DEFAULT_ACCENT.toLowerCase() ||
+      form.logoUrl.trim();
+
     update.mutate({
       id,
       name: form.name,
@@ -317,7 +324,7 @@ export default function ProjectSettingsPage({ params }: Props) {
               onChange={(e) =>
                 patch((f) => ({ ...f, primaryColor: e.target.value }))
               }
-              placeholder="#6366F1"
+              placeholder={DEFAULT_ACCENT}
               maxLength={7}
               style={{ ...inputStyle, fontFamily: "var(--font-geist-mono), monospace", textTransform: "uppercase" }}
               aria-label="Brand color hex"

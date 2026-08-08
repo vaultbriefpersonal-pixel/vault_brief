@@ -506,3 +506,63 @@ describe("validateReportContent — mid-sentence truncation", () => {
     expect(validateReportContent(markdown, clean).passed).toBe(true);
   });
 });
+
+describe("validateReportContent — unfilled placeholders", () => {
+  // The real production sentence. Note it contains a genuine figure ($2.7M)
+  // and the surrounding report printed the real total — which is exactly why
+  // the document-wide total-balance check let it through to an
+  // investor-facing surface.
+  const LEAKED =
+    "### Executive Summary\n\nThe treasury holds $X.XM, reflecting a decrease of $2.7M this month.\n\n### Financial Health\n\nThe treasury total is $2,413,417 as of period end.";
+
+  it("catches the money placeholder that shipped to production", () => {
+    const { passed, issues } = validateReportContent(LEAKED, snapshot("2413417"));
+    expect(passed).toBe(false);
+    expect(issues.join(" ")).toContain("$X.XM");
+  });
+
+  it("catches the other shapes a model emits", () => {
+    for (const text of [
+      "The treasury balance is currently $XXM.",
+      "Runway is $XM at the current burn.",
+      "the treasury holds $x.xm",
+    ]) {
+      expect(validateReportContent(text, snapshot(null)).passed, text).toBe(false);
+    }
+  });
+
+  it("catches a bracketed placeholder", () => {
+    const { passed, issues } = validateReportContent(
+      "Given concentration of 91% in [token], consider a diversification policy.",
+      snapshot(null)
+    );
+    expect(passed).toBe(false);
+    expect(issues.join(" ")).toContain("[token]");
+  });
+
+  // A false positive costs a needless regeneration, so the shapes a real
+  // treasury report legitimately contains must survive untouched.
+  it("spares tickers, links and ordinary figures", () => {
+    for (const text of [
+      "Total treasury value: $835.2K across four wallets.",
+      "Holdings include $XRP and $XDC positions.",
+      "See [Etherscan](https://etherscan.io/tx/0xabc) for the transfer.",
+      "Source of Truth: [name](https://github.com/example/sdk).",
+      "Burn was $161.6K against inflows of $29.0K.",
+      "Wallet 0xcC7d34C76A9d08aa0109F7Bae35f29C1CE35355A holds USDC.",
+    ]) {
+      const { issues } = validateReportContent(text, snapshot(null));
+      expect(
+        issues.filter((i) => i.includes("placeholder")),
+        text
+      ).toEqual([]);
+    }
+  });
+
+  it("does not fire on a clean report", () => {
+    const clean =
+      "### Executive Summary\n\nThe treasury held $2,413,417 across 4 wallets, down $258K.";
+    const { issues } = validateReportContent(clean, snapshot("2413417"));
+    expect(issues.filter((i) => i.includes("placeholder"))).toEqual([]);
+  });
+});

@@ -6,6 +6,7 @@ import { detectAnomalies } from "@/server/services/anomalies";
 import { sendAnomalyAlertEmail } from "@/server/services/email-sender";
 import { notify } from "@/server/services/notifications";
 import { filterEligibleProjects } from "@/server/lib/plan-limits";
+import { brandingFor } from "@/lib/report-branding";
 
 /**
  * Weekly, independent of the monthly report cycle. `detectAnomalies()`
@@ -87,18 +88,20 @@ export const anomalyAlertsJob = schedules.task({
 
         const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.vaultbrief.io";
         const projectUrl = `${APP_URL}/projects/${project.id}`;
-        const branding = (project.customBranding as {
-          primaryColor?: string;
-          logoUrl?: string;
-        } | null) ?? null;
+        // Same one reader as the report surfaces — the raw cast this replaces
+        // had no hex validation and defaulted differently.
+        const branding = brandingFor(project);
 
         await sendAnomalyAlertEmail({
           to: { name: founder.name ?? "there", email: founder.email },
           projectName: project.name,
           projectUrl,
           anomalies,
-          logoUrl: branding?.logoUrl ?? project.logoUrl ?? null,
-          brandColor: branding?.primaryColor,
+          // `brandingFor` already prefers customBranding.logoUrl over the
+          // legacy column and guarantees a valid hex, so neither fallback
+          // that used to sit here is needed.
+          logoUrl: branding.logoUrl,
+          brandColor: branding.primaryColor,
         });
 
         const top = anomalies[0];

@@ -1787,6 +1787,24 @@ describe("no section's system-prompt rule text contains a literal $X placeholder
       expect(rules).not.toMatch(/\$X\b/);
     });
   }
+
+  // Widened after the same defect turned up in a shape the `$X` guard could
+  // not see: `recommendations` carried "concentration of 91% in [token]" —
+  // a bracketed fill-in-the-blank sitting in the same sentence as a
+  // correctly-concrete "4.2 months", so the original fix had been applied
+  // unevenly inside one string. Sweep EVERY section rather than a named list,
+  // so the next one is caught without anyone remembering to add it.
+  it("no section's rule text carries a placeholder of any shape", () => {
+    const offenders: string[] = [];
+    for (const s of SECTION_LIBRARY) {
+      const rules = typeof s.systemPromptFragment === "string" ? s.systemPromptFragment : "";
+      if (!rules) continue;
+      if (/\$X\b/.test(rules) || /\[(token|amount|project|date|name|figure|value)\]/i.test(rules)) {
+        offenders.push(s.id);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });
 
 // ─── anomalies ─────────────────────────────────────────────────────────────
@@ -4331,5 +4349,59 @@ describe("expense_breakdown — unclassified is not a spending category", () => 
     const rules = section("expense_breakdown").systemPromptFragment as string;
     expect(rules).toMatch(/measurement gap, not a category of spending/i);
     expect(rules).toMatch(/never describe it as money spent/i);
+  });
+});
+
+// ─── treasury_by_chain's not-ready hint ────────────────────────────────────
+//
+// The gate is a $100-per-chain floor, not a wallet count, so a project can
+// have wallets on five chains and still be correctly ineligible. The old flat
+// hint said "Add wallets on ≥2 chains." to exactly those projects — naming a
+// step they had finished, which reads as the product being broken.
+
+describe("treasury_by_chain not-ready hint", () => {
+  const hintFor = (balancesByChain: Record<string, number> | null) =>
+    section("treasury_by_chain").notReadyHintFor!(contextWith({ balancesByChain }));
+
+  it("still tells a genuinely single-chain project to add a second", () => {
+    expect(hintFor({ ethereum: 500_000 })).toBe("Add wallets on ≥2 chains.");
+  });
+
+  it("keeps the static wording when nothing has synced", () => {
+    expect(hintFor(null)).toBe("Add wallets on ≥2 chains.");
+    expect(hintFor({})).toBe("Add wallets on ≥2 chains.");
+  });
+
+  // The Threshold case, verbatim: five chains, four of them under the floor.
+  it("names the real blocker when the wallets are there but the balances are not", () => {
+    const hint = hintFor({
+      ethereum: 792_300,
+      arbitrum: 4,
+      optimism: 2,
+      polygon: 1,
+      base: 1.91,
+    });
+    expect(hint).not.toBe("Add wallets on ≥2 chains.");
+    expect(hint).toContain("5 chains");
+    expect(hint).toContain("ethereum");
+    expect(hint).not.toMatch(/add wallets/i);
+  });
+
+  it("handles the case where no chain clears the floor", () => {
+    const hint = hintFor({ ethereum: 12, base: 4 });
+    expect(hint).toContain("2 chains");
+    expect(hint).toContain("none");
+  });
+
+  // The hint must never contradict the gate: whenever `requires` is false the
+  // hint is shown, and whenever it is true no hint is shown at all.
+  it("only ever fires for a set the gate actually rejects", () => {
+    const s = section("treasury_by_chain");
+    const eligible = contextWith({ balancesByChain: { ethereum: 500_000, base: 250_000 } });
+    expect(s.requires!(eligible)).toBe(true);
+
+    const rejected = contextWith({ balancesByChain: { ethereum: 792_300, base: 1.91 } });
+    expect(s.requires!(rejected)).toBe(false);
+    expect(s.notReadyHintFor!(rejected)).toContain("2 chains");
   });
 });

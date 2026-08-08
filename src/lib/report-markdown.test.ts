@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { upsertFounderNoteSection, normalizeForExport } from "./report-markdown";
+import {
+  upsertFounderNoteSection,
+  normalizeForExport,
+  extractMarkdownSection,
+  deriveExecutiveSummary,
+} from "./report-markdown";
 import { REPORT_DISCLAIMER } from "./report-disclaimer";
 
 /**
@@ -211,5 +216,82 @@ describe("normalizeForExport — end to end", () => {
         "---\n\n" +
         `${REPORT_DISCLAIMER}\n`
     );
+  });
+});
+
+describe("extractMarkdownSection", () => {
+  const DOC = [
+    "## Executive Summary",
+    "",
+    "The treasury held $792.3K.",
+    "Net flow was -$113.0K.",
+    "",
+    "### Key Takeaways",
+    "",
+    "- One",
+  ].join("\n");
+
+  it("pulls a section body and stops at the next heading", () => {
+    expect(extractMarkdownSection(DOC, "Executive Summary")).toBe(
+      "The treasury held $792.3K.\nNet flow was -$113.0K."
+    );
+  });
+
+  // The two extractors this replaced disagreed on exactly these two points,
+  // and each disagreement silently produced a NULL summary in production.
+  it("accepts ## through ####, not just ###", () => {
+    for (const hashes of ["##", "###", "####"]) {
+      expect(
+        extractMarkdownSection(`${hashes} Executive Summary\n\nBody.`, "Executive Summary")
+      ).toBe("Body.");
+    }
+  });
+
+  it("tolerates trailing text on the heading line", () => {
+    expect(
+      extractMarkdownSection("### Executive Summary (Q1 2026)\n\nBody.", "Executive Summary")
+    ).toBe("Body.");
+  });
+
+  it("is case-insensitive", () => {
+    expect(extractMarkdownSection("### EXECUTIVE SUMMARY\n\nBody.", "Executive Summary")).toBe(
+      "Body."
+    );
+  });
+
+  // null, never "" — a caller has to be able to tell "section missing" from
+  // "section present but empty".
+  it("returns null when the heading is absent", () => {
+    expect(extractMarkdownSection("### Other\n\nBody.", "Executive Summary")).toBeNull();
+    expect(extractMarkdownSection("", "Executive Summary")).toBeNull();
+  });
+
+  it("reads the last section when nothing follows it", () => {
+    expect(extractMarkdownSection("### Executive Summary\n\nFinal words.", "Executive Summary")).toBe(
+      "Final words."
+    );
+  });
+});
+
+describe("deriveExecutiveSummary", () => {
+  it("lifts the Executive Summary out of a report", () => {
+    expect(
+      deriveExecutiveSummary("### Executive Summary\n\nHeld $2.4M.\n\n### Key Takeaways\n\n- x")
+    ).toBe("Held $2.4M.");
+  });
+
+  it("returns null rather than throwing on empty or absent input", () => {
+    expect(deriveExecutiveSummary("")).toBeNull();
+    expect(deriveExecutiveSummary("## Treasury Overview\n\nNo summary here.")).toBeNull();
+  });
+
+  // The regression this whole change exists for: the stored summary must
+  // track the markdown, or the reports list and the investor email both
+  // describe a document that no longer exists.
+  it("yields a DIFFERENT summary once the markdown is regenerated", () => {
+    const before = "### Executive Summary\n\nTreasury stands at $162.8K.";
+    const after = "### Executive Summary\n\nTreasury stands at $792.3K.";
+    expect(deriveExecutiveSummary(before)).not.toBe(deriveExecutiveSummary(after));
+    expect(deriveExecutiveSummary(after)).toContain("$792.3K");
   });
 });

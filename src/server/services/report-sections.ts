@@ -780,6 +780,35 @@ const treasuryByChain: ReportSection = {
 - Only render if the input contains a "## Treasury by chain" block with 2+ chains.
 - One or two sentences explaining the split. Example: "85% sits on Ethereum mainnet; the remaining 15% is split across Optimism and Base for L2 ops."
 - Skip when only one chain is present — "100% on Ethereum" is noise, not analysis.`,
+  // Told a project with wallets on FIVE chains to "add wallets on ≥2 chains".
+  // The gate is right — Threshold holds 99.99% on Ethereum and the other four
+  // chains carry under $100 each — but the copy named a step the founder had
+  // already done, so it read as the product being broken rather than as the
+  // section correctly staying silent. Same defect class, and same remedy, as
+  // `grant_milestone_progress` below: read the context and name the step that
+  // is actually outstanding.
+  notReadyHintFor: (ctx) => {
+    const byChain =
+      (ctx.snapshot.balancesByChain as Record<string, number> | null) ?? null;
+    if (!byChain || Object.keys(byChain).length === 0) {
+      return "Add wallets on ≥2 chains.";
+    }
+    const chains = Object.keys(byChain).length;
+    const funded = Object.entries(byChain).filter(
+      ([, v]) => Number(v) > DUST_FLOOR_USD
+    );
+    // Genuinely single-chain: the original hint is the right one.
+    if (chains < 2) return "Add wallets on ≥2 chains.";
+
+    const only = funded[0]?.[0];
+    return funded.length === 1 && only
+      ? `Wallets are synced on ${chains} chains, but only ${only} holds more than ${formatUsd(
+          DUST_FLOOR_USD
+        )} — a one-chain split is noise, not analysis. This section renders once a second chain carries a real balance.`
+      : `Wallets are synced on ${chains} chains, but none holds more than ${formatUsd(
+          DUST_FLOOR_USD
+        )} yet. This section renders once at least two chains carry a real balance.`;
+  },
   notReadyHint: "Add wallets on ≥2 chains.",
 };
 
@@ -2681,7 +2710,7 @@ const recommendations: ReportSection = {
 - **Every recommendation must cite a figure from the "## Decision ledger" block, quoted exactly as given.** A recommendation with no citable figure is an opinion this section does not carry. If the ledger holds only one item, write one bullet; never pad to reach four.
 - **Absolute, non-negotiable: never mention, project, or imply a future token price, market cap, or valuation** — this ban is not relaxed anywhere in this report, and this section is not an exception.
 - **Absolute, non-negotiable: never advise the reader to buy, sell, or hold the token**, in any wording, at any confidence.
-- Each bullet is a recommendation ABOUT the treasury's own management — e.g. "Given concentration of 91% in [token], consider a diversification policy" or "Given a liquid runway of 4.2 months, consider building stablecoin reserves before the next raise." A bare restatement of a ledger figure with no recommendation attached belongs in the section that figure came from, not here.
+- Each bullet is a recommendation ABOUT the treasury's own management — e.g. "Given concentration of 91% in the project's own token, consider a diversification policy" or "Given a liquid runway of 4.2 months, consider building stablecoin reserves before the next raise." A bare restatement of a ledger figure with no recommendation attached belongs in the section that figure came from, not here.
 - If the decision ledger is empty, this section produces nothing — never invent a recommendation to fill space.`,
   notReadyHint:
     "Needs at least one verified finding (liquidity, concentration, budget variance, or a named holding) to ground a recommendation.",

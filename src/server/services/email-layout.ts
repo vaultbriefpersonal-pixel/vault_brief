@@ -1,3 +1,4 @@
+import { DEFAULT_ACCENT } from "@/lib/report-theme";
 /**
  * Shared HTML shell for all transactional emails.
  *
@@ -28,7 +29,10 @@ export interface BrandPalette {
 
 const DEFAULT_PALETTE: BrandPalette = {
   navy: "#1B2A4A",
-  accent: "#6366F1",
+  // The product default, shared with the report page, the PDF and the HTML
+  // export. This was an independent "#6366F1", so an unbranded project got a
+  // green report and an indigo email describing it.
+  accent: DEFAULT_ACCENT,
   text: "#374151",
   textMuted: "#9CA3AF",
   border: "#E5E7EB",

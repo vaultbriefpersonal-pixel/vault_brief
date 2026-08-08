@@ -374,9 +374,31 @@ describe("readableAccentOn", () => {
   });
 
   it("leaves an already-readable accent untouched", () => {
-    expect(readableAccentOn(DEFAULT_ACCENT, DOC_LIGHT.paper)).toBe(
-      DEFAULT_ACCENT.toLowerCase()
-    );
+    // An explicit colour, not DEFAULT_ACCENT. This asserted the default was
+    // returned unchanged, which was true only while the default happened to
+    // be a dark teal — and it broke the moment the default became the brand
+    // green, for the right reason. The property under test is "readable input
+    // is passed through", not "the default is readable".
+    const alreadyReadable = "#1f4b5f";
+    expect(contrastRatio(alreadyReadable, DOC_LIGHT.paper)).toBeGreaterThanOrEqual(AA);
+    expect(readableAccentOn(alreadyReadable, DOC_LIGHT.paper)).toBe(alreadyReadable);
+  });
+
+  // The two-accent split exists precisely so the brand can stay the brand.
+  it("darkens the product's own default for text while keeping it a valid fill", () => {
+    // The default is the vivid brand green, and it is NOT readable as text on
+    // paper — deliberately. Fills use it raw; only text goes through here.
+    expect(contrastRatio(DEFAULT_ACCENT, DOC_LIGHT.paper)).toBeLessThan(AA);
+
+    const ink = readableAccentOn(DEFAULT_ACCENT, DOC_LIGHT.paper);
+    expect(ink).not.toBe(DEFAULT_ACCENT);
+    expect(contrastRatio(ink, DOC_LIGHT.paper)).toBeGreaterThanOrEqual(AA);
+    expect(isHexColor(ink)).toBe(true);
+
+    // Same hue, so a reader still recognises the brand.
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(ink.slice(i, i + 2), 16));
+    expect(g).toBeGreaterThan(r);
+    expect(g).toBeGreaterThan(b);
   });
 
   it("preserves hue while darkening — green stays green", () => {

@@ -2,6 +2,7 @@
 
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { formatUsd } from "@/lib/utils";
+import { DARK_CHART_PALETTE } from "./chart-palette";
 
 // Green/teal palette so income reads at a glance as the positive counterpart
 // to the warm Expense breakdown chart.
@@ -18,8 +19,15 @@ interface IncomeBreakdownProps {
   data: Record<string, number>;
 }
 
+/**
+ * Income split for the project Overview. The twin of ExpenseBreakdown — see
+ * that file for why the entrance animation is disabled and why the values are
+ * coerced; both components had the identical defect and the identical fix.
+ */
 export function IncomeBreakdown({ data }: IncomeBreakdownProps) {
-  const entries = Object.entries(data).filter(([, v]) => v > 0);
+  const entries = Object.entries(data)
+    .map(([name, v]) => [name, Number(v)] as const)
+    .filter(([, v]) => Number.isFinite(v) && v > 0);
 
   if (entries.length === 0) {
     return (
@@ -48,6 +56,7 @@ export function IncomeBreakdown({ data }: IncomeBreakdownProps) {
           cy="50%"
           outerRadius={70}
           strokeWidth={0}
+          isAnimationActive={false}
         >
           {chartData.map((_, index) => (
             <Cell key={index} fill={COLORS[index % COLORS.length]} />
@@ -55,10 +64,10 @@ export function IncomeBreakdown({ data }: IncomeBreakdownProps) {
         </Pie>
         <Tooltip
           contentStyle={{
-            background: "#1e293b",
-            border: "1px solid #334155",
+            background: DARK_CHART_PALETTE.tooltipBg,
+            border: `1px solid ${DARK_CHART_PALETTE.tooltipBorder}`,
             borderRadius: 8,
-            color: "#e2e8f0",
+            color: DARK_CHART_PALETTE.tooltipText,
           }}
           formatter={(value) => [formatUsd(Number(value ?? 0))]}
         />
@@ -66,7 +75,9 @@ export function IncomeBreakdown({ data }: IncomeBreakdownProps) {
           iconType="circle"
           iconSize={8}
           formatter={(value) => (
-            <span style={{ color: "#94a3b8", fontSize: 11 }}>{value}</span>
+            <span style={{ color: DARK_CHART_PALETTE.axis, fontSize: 11 }}>
+              {value}
+            </span>
           )}
         />
       </PieChart>

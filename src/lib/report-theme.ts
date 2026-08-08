@@ -42,14 +42,22 @@ export const DOC_LIGHT = {
 export type DocColorToken = keyof typeof DOC_LIGHT;
 
 /**
- * The single default accent.
+ * The single default accent — the product's own brand green.
  *
- * Replaces three conflicting ones for the same field: `#6366F1` in the project
- * settings form and the email layout, `#00e87b` on both web report pages. A
- * founder who never touched the picker got green on the web and indigo in the
- * email for the same report.
+ * Replaces three conflicting values for one field: `#6366F1` in the settings
+ * picker, in the email layout and in the anomaly-alert job, against `#00e87b`
+ * on both web report pages. A founder who never touched the picker saw indigo
+ * in the form, green on the report page, and indigo again in the email — for
+ * the same project.
+ *
+ * NOTE this is deliberately NOT a colour that already clears AA on paper: at
+ * ~1.5:1 against `DOC_LIGHT.paper` it is unreadable as text. That is fine and
+ * intended — `readableAccentOn` darkens it for text roles while fills keep the
+ * vivid green, which is the whole reason the two-accent split exists. Picking
+ * a pre-darkened default instead would have made the brand invisible in the
+ * one place it is most recognisable.
  */
-export const DEFAULT_ACCENT = "#1F4B5F";
+export const DEFAULT_ACCENT = "#00e87b";
 
 /** Font family names registered with @react-pdf. Kept here so pdf-template
  *  never needs to import the font module or the `Font` object itself. */

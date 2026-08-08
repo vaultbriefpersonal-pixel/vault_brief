@@ -24,6 +24,7 @@ import {
   type ReportSectionContext,
   type SectionConfigEntry,
 } from "./report-sections";
+import { extractMarkdownSection } from "@/lib/report-markdown";
 
 /**
  * Composes both prompts for a report from a per-project section config.
@@ -199,6 +200,36 @@ const FORBIDDEN_PHRASES: readonly { pattern: RegExp; note: string }[] = [
 ];
 
 /**
+ * Fill-in-the-blank text that reached the reader instead of a real figure.
+ *
+ * A shipped report opened "The treasury holds $X.XM, reflecting a decrease of
+ * $2.7M this month." The upstream cause is fixed (the Executive Summary gets
+ * real anchor figures, and no `$X`-shaped example survives in prompt text),
+ * but that fix lives on the INPUT side — a model can still emit a placeholder,
+ * and until now nothing looked.
+ *
+ * Both patterns are written to be narrow, because a false positive costs a
+ * needless regeneration:
+ *
+ *   - `$X+` requires a word boundary AFTER the optional K/M/B suffix, so the
+ *     tickers a treasury report legitimately names — `$XRP`, `$XDC` — do not
+ *     match (`X` and `R` are both word characters, so there is no boundary
+ *     between them), while `$XM`, `$XXM` and `$X.XM` do.
+ *   - the bracket pattern excludes a following `(`, so a genuine Markdown link
+ *     `[name](https://…)` is left alone and only a bare `[name]` is caught.
+ */
+const PLACEHOLDER_PATTERNS: readonly { pattern: RegExp; note: string }[] = [
+  {
+    pattern: /\$X+(\.X+)?[KMB]?\b/i,
+    note: "a money placeholder was never replaced with a real figure",
+  },
+  {
+    pattern: /\[(token|amount|project|date|name|figure|value)\](?!\()/i,
+    note: "a bracketed placeholder was never replaced with a real value",
+  },
+];
+
+/**
  * Calibrated against a real production incident: a 473-character completion
  * (cut off mid-sentence at "### Financial Health\n\nRun") passed every other
  * check here and was cached forever by `callLLM` (report-generator.ts),
@@ -213,29 +244,12 @@ const FORBIDDEN_PHRASES: readonly { pattern: RegExp; note: string }[] = [
 const MIN_REPORT_CHARS = 250;
 const MIN_CHARS_PER_ENABLED_SECTION = 60;
 
-/**
- * Extract one Markdown section's body by heading, from `### <heading>...` to
- * the next `##`/`###` heading or end of document. Whitespace- and
- * trailing-text-tolerant, so a rendered "### Key Takeaways" heading and an
- * instruction-style "### Key Takeaways (CONDITIONAL)" both match. Returns
- * null when the heading is absent, never an empty string, so callers can
- * tell "section missing" from "section present but blank."
- *
- * No markdown parser needed for a document this codebase already generates
- * in a fixed heading shape — same lightweight regex-based inspection style
- * as the rest of this function.
- */
-function extractMarkdownSection(
-  markdown: string,
-  headingPattern: string
-): string | null {
-  const re = new RegExp(
-    `###\\s*${headingPattern}[^\\n]*\\n+([\\s\\S]+?)(?=\\n##|$)`,
-    "i"
-  );
-  const match = markdown.match(re);
-  return match ? match[1].trim() : null;
-}
+// `extractMarkdownSection` used to live here, in a form that only matched
+// `###`. It now lives in report-markdown.ts alongside `deriveExecutiveSummary`,
+// which needs the same tolerance — two extractors that disagreed about what a
+// heading looks like is what let a `## Executive Summary` store a NULL summary.
+
+
 
 export function validateReportContent(
   markdown: string,
@@ -264,6 +278,25 @@ export function validateReportContent(
     const match = markdown.match(pattern);
     if (match) {
       issues.push(`Forbidden phrase found: "${match[0]}" — ${note}`);
+    }
+  }
+
+  // Unfilled placeholders.
+  //
+  // A production report opened with "The treasury holds $X.XM, reflecting a
+  // decrease of $2.7M this month." The cause was fixed upstream — the
+  // Executive Summary now gets real anchor figures, and no `$X`-shaped token
+  // survives in any prompt string — but NOTHING here would have caught it,
+  // which is why it reached an investor-facing surface.
+  //
+  // The total-balance check above is the near miss: it is a document-WIDE
+  // substring test, so a placeholder in one section passes as long as some
+  // other section printed the real total, which they always do. This looks at
+  // the shape of the text instead of the presence of a number somewhere.
+  for (const { pattern, note } of PLACEHOLDER_PATTERNS) {
+    const hit = markdown.match(pattern);
+    if (hit) {
+      issues.push(`Unfilled placeholder "${hit[0]}" — ${note}`);
     }
   }
 
