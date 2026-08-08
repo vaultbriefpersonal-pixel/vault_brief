@@ -55,12 +55,16 @@ function deriveExecutiveSummary(markdown) {
   return m ? m[1].trim() : null;
 }
 
+// `to_char` rather than letting the driver hand back a Date: the Neon driver
+// returns a `date` column as a JS Date at LOCAL midnight, so it prints as a
+// full timezone-stamped string and, worse, shifts a day east of Greenwich.
+// Formatting SQL-side is this repo's standing rule for date columns.
 const rows = await sql`
   SELECT r.id,
-         p.name          AS project,
+         p.name                                AS project,
          r.status,
-         r.period_end,
-         r.sent_at,
+         to_char(r.period_end, 'YYYY-MM-DD')   AS period_end,
+         to_char(r.sent_at, 'YYYY-MM-DD')      AS sent_on,
          r.executive_summary,
          r.content_md
   FROM reports r
@@ -95,7 +99,7 @@ console.log(`\n${rows.length} report(s) examined.\n`);
 
 console.log(`── ${changed.length} row(s) would change ──`);
 for (const r of changed) {
-  console.log(`\n  ${r.id}  ${r.project}  ${r.period_end}  status=${r.status}${r.sent_at ? "  ALREADY SENT" : ""}`);
+  console.log(`\n  ${r.id}  ${r.project}  ${r.period_end}  status=${r.status}${r.sent_on ? "  ALREADY SENT" : ""}`);
   console.log(`    stored : ${preview(r.executive_summary)}`);
   console.log(`    derived: ${preview(r.derived)}`);
 }
@@ -115,7 +119,7 @@ if (wouldNull.length > 0) {
   }
 }
 
-const sentAndChanging = changed.filter((r) => r.sent_at);
+const sentAndChanging = changed.filter((r) => r.sent_on);
 if (sentAndChanging.length > 0) {
   console.log(
     `\n!! ${sentAndChanging.length} of the changing row(s) have ALREADY BEEN SENT.`
