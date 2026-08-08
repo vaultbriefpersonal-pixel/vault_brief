@@ -258,8 +258,12 @@ export function ReportEditor({ initialContent, founderNotes, onSave }: ReportEdi
       >
         {/* PaneHeader hidden on mobile — the tab switcher already labels it. */}
         {!isMobile && <PaneHeader label="Preview" />}
-        <div style={{ flex: 1, overflowY: "auto", background: "var(--vb-bg)" }}>
-          <ReportPreview content={content} />
+        {/* Stays dark on purpose: it is the gutter the page floats on, not
+            the page. `sheet` gives the document an edge so the founder is
+            looking at the artifact their funder receives, rather than at a
+            dark-themed approximation of it. */}
+        <div style={{ flex: 1, overflowY: "auto", background: "var(--vb-alt)" }}>
+          <ReportPreview content={content} sheet />
         </div>
       </div>
     </div>

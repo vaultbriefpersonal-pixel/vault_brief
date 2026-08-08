@@ -4,7 +4,10 @@
     {
       "name": "vaultbrief",
       "runtimeExecutable": "cmd",
-      "runtimeArgs": ["/c", "cd /d C:\\Users\\DEV\\PROJECTS\\VaultBrief\\vaultbrief && npm run dev"],
+      "runtimeArgs": [
+        "/c",
+        "cd /d C:\\Users\\DEV\\PROJECTS\\VaultBrief\\vaultbrief && set \"NODE_OPTIONS=--use-system-ca\" && npm run dev"
+      ],
       "port": 3000
     }
   ]

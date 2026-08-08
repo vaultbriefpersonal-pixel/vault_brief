@@ -1,3 +1,4 @@
+import React from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { eq, desc } from "drizzle-orm";
@@ -8,6 +9,7 @@ import { ReportWidgets } from "@/components/report/ReportWidgets";
 import { formatDate } from "@/lib/utils";
 import { getSafeInfoForProject } from "@/server/services/safe-info";
 import { REPORT_DISCLAIMER } from "@/lib/report-disclaimer";
+import { DOC_LIGHT, readableAccentOn } from "@/lib/report-theme";
 
 /**
  * Public investor view of a sent report.
@@ -98,14 +100,28 @@ export default async function PublicReportPage({ params }: Props) {
     where: eq(milestones.projectId, report.projectId),
   });
 
+  // Text-role accent. The project's raw brand colour keeps painting fills
+  // (the header rule, widget bars), but on paper it may be unreadable as
+  // text — the product's own default, #00e87b, measures about 1.5:1 against
+  // #EDEEEA. `readableAccentOn` darkens it just enough to clear AA.
+  const accentInk = readableAccentOn(accent, DOC_LIGHT.paper);
+
   return (
+    // `vb-doc` re-points the design tokens for this subtree: the document
+    // palette, plus aliases for the --vb-* names the widgets are authored
+    // against, so they re-theme without per-component edits. A report is read
+    // by investors and funders, printed, and attached to emails — it is paper,
+    // even though the rest of the product is dark-only by design.
     <div
-      style={{
-        background: "var(--vb-bg)",
-        minHeight: "100dvh",
-        color: "var(--vb-text)",
-        fontFamily: "var(--font-inter), Inter, sans-serif",
-      }}
+      className="vb-doc"
+      style={
+        {
+          minHeight: "100dvh",
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          "--doc-accent": accent,
+          "--doc-accent-ink": accentInk,
+        } as React.CSSProperties
+      }
     >
       <header
         style={{

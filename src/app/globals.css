@@ -144,6 +144,143 @@
   color: var(--doc-ink);
 }
 
+/* ── The report document's typography ─────────────────────────────────────
+   Mirrors src/server/services/pdf-template.tsx as closely as two different
+   rendering engines allow: Spectral for prose and headings, IBM Plex Mono for
+   figures, labels, addresses and code. The point is that a founder reading the
+   preview pane is looking at the document their funder will receive, not at an
+   approximation of it.
+
+   Sizes are px here and pt there, so they cannot be shared as constants; the
+   ratios are what match. */
+.vb-doc-body {
+  font-family: var(--font-spectral), Georgia, "Times New Roman", serif;
+  font-size: 15px;
+  line-height: 1.62;
+  color: var(--doc-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.vb-doc-body > *:first-child { margin-top: 0; }
+.vb-doc-body > *:last-child { margin-bottom: 0; }
+
+.vb-doc-h1,
+.vb-doc-h2,
+.vb-doc-h3 {
+  font-family: var(--font-spectral), Georgia, serif;
+  font-weight: 600;
+  color: var(--doc-ink);
+  letter-spacing: -0.005em;
+  text-wrap: balance;
+}
+.vb-doc-h1 {
+  font-size: 25px;
+  line-height: 1.2;
+  margin: 30px 0 12px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--doc-line);
+}
+.vb-doc-h2 { font-size: 19px; line-height: 1.28; margin: 26px 0 9px; }
+.vb-doc-h3 { font-size: 16px; line-height: 1.35; margin: 20px 0 7px; }
+/* h4 is a mono eyebrow rather than a smaller serif — it marks a labelled
+   subdivision (Data Quality, Assumptions) rather than another step down in
+   the reading hierarchy. Previously it was not rendered at all. */
+.vb-doc-h4 {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--doc-ink-faint);
+  margin: 22px 0 7px;
+}
+
+.vb-doc-p { margin: 0 0 12px; }
+
+.vb-doc-ul,
+.vb-doc-ol { margin: 0 0 14px; padding-left: 22px; }
+.vb-doc-ul li,
+.vb-doc-ol li { margin: 0 0 5px; padding-left: 3px; }
+.vb-doc-ul { list-style: none; padding-left: 16px; }
+.vb-doc-ul li { position: relative; }
+/* An accent dot rather than a typographic bullet — same decision, and the
+   same reason, as the PDF template's bulletDot. */
+.vb-doc-ul li::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 0.62em;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--doc-accent, var(--doc-ink-faint));
+}
+.vb-doc-ol li::marker {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: 0.82em;
+  color: var(--doc-ink-faint);
+}
+
+.vb-doc-hr { border: none; border-top: 1px solid var(--doc-line); margin: 22px 0; }
+
+.vb-doc-a { color: var(--doc-accent-ink); text-underline-offset: 2px; }
+
+.vb-doc-code,
+.vb-doc-pre {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  background: var(--doc-raised);
+  color: var(--doc-ink-soft);
+}
+.vb-doc-code {
+  font-size: 0.86em;
+  padding: 1px 5px;
+  border: 1px solid var(--doc-line);
+  border-radius: 3px;
+  word-break: break-all;
+}
+.vb-doc-pre {
+  font-size: 12.5px;
+  line-height: 1.45;
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  border-left: 2px solid var(--doc-line);
+  overflow-x: auto;
+}
+.vb-doc-pre code { background: none; border: none; padding: 0; }
+
+/* Ruled rows, not a boxed grid: a ruled table reads as a financial statement,
+   a boxed one reads as a spreadsheet screenshot. */
+.vb-doc-tablewrap { margin: 0 0 18px; }
+.vb-doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.vb-doc-table th {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--doc-ink-faint);
+  padding: 0 10px 6px;
+  border-bottom: 1px solid var(--doc-ink);
+  white-space: nowrap;
+}
+.vb-doc-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--doc-line);
+  color: var(--doc-ink);
+  vertical-align: top;
+}
+.vb-doc-table tbody tr:last-child td { border-bottom: none; }
+/* Figures get the mono face so columns of money actually line up. */
+.vb-doc-table td.vb-doc-num {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
 @theme inline {
   --color-background: var(--vb-bg);
   --color-foreground: var(--vb-text);
