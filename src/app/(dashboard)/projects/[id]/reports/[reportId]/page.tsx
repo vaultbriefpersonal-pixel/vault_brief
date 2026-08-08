@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useState } from "react";
+import { brandingFor } from "@/lib/report-branding";
 import { trpc } from "@/lib/api";
 import { ReportEditor } from "@/components/report/ReportEditor";
 import { ReportWidgets } from "@/components/report/ReportWidgets";
@@ -461,10 +462,7 @@ export default function ReportEditorPage({ params }: Props) {
       <div style={{ flex: 1, overflow: "auto" }}>
         <ReportWidgets
           snapshot={report.snapshot ?? null}
-          accent={
-            (report.project as { customBranding?: { primaryColor?: string } } | null)
-              ?.customBranding?.primaryColor ?? "#00e87b"
-          }
+          accent={brandingFor(report.project).primaryColor}
           safes={safes ?? []}
           trend={trend}
           milestones={milestoneList ?? []}

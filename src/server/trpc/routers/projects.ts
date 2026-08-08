@@ -269,8 +269,18 @@ export const projectsRouter = router({
         reportFrequency: z.enum(["monthly", "quarterly"]).optional(),
         reportDay: z.number().int().min(1).max(28).optional(),
         reportTimezone: z.string().optional(),
+        // `primaryColor` was a bare z.string() and reached a CSS property and
+        // a PDF style unvalidated. The blast radius was a broken style rather
+        // than script execution (it only ever lands in colour positions), but
+        // nothing stopped "red", "" or a stray `}` from being persisted.
+        // `brandingFor` still defends on read, for rows written before this.
         customBranding: z
-          .object({ primaryColor: z.string(), logoUrl: z.string() })
+          .object({
+            primaryColor: z
+              .string()
+              .regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Must be a hex colour, e.g. #1F4B5F"),
+            logoUrl: z.string(),
+          })
           .optional()
           .nullable(),
         snapshotSpace: z.string().trim().min(1).max(120).optional().nullable(),

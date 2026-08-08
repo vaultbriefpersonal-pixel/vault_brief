@@ -10,6 +10,9 @@ import { formatDate } from "@/lib/utils";
 import { getSafeInfoForProject } from "@/server/services/safe-info";
 import { REPORT_DISCLAIMER } from "@/lib/report-disclaimer";
 import { DOC_LIGHT, readableAccentOn } from "@/lib/report-theme";
+import { brandingFor } from "@/lib/report-branding";
+import { parseReportDoc, docPlainText } from "@/lib/report-doc";
+import { describeReport } from "@/lib/report-label";
 
 /**
  * Public investor view of a sent report.
@@ -27,22 +30,12 @@ interface Props {
   params: Promise<{ reportId: string }>;
 }
 
-// Block search engine indexing — investor reports are not public marketing
-// surfaces. Anyone with the link can read; nobody should find them via Google.
-export const metadata: Metadata = {
-  robots: { index: false, follow: false },
-};
-
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export default async function PublicReportPage({ params }: Props) {
-  const { reportId } = await params;
-
-  // Cheap pre-DB validation — random garbage in the URL shouldn't burn a
-  // round-trip. Drizzle would reject the cast anyway, but we'd rather 404
-  // fast than surface a stack trace.
-  if (!UUID_RE.test(reportId)) notFound();
+/** Shared by generateMetadata and the page so they cannot describe different reports. */
+async function loadReport(reportId: string) {
+  if (!UUID_RE.test(reportId)) return null;
 
   const report = await db.query.reports.findFirst({
     where: eq(reports.id, reportId),
@@ -54,21 +47,66 @@ export default async function PublicReportPage({ params }: Props) {
 
   // Status gate: only delivered reports are visible publicly. A leaked
   // UUID for a draft would otherwise expose the founder's WIP narrative.
-  if (!report || report.status !== "sent") notFound();
+  if (!report || report.status !== "sent") return null;
 
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, report.projectId),
   });
+  if (!project) return null;
 
-  if (!project) notFound();
+  return { report, project };
+}
 
-  const branding = (project.customBranding as {
-    primaryColor?: string;
-    logoUrl?: string;
-  } | null) ?? null;
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { reportId } = await params;
+  const loaded = await loadReport(reportId);
 
-  const accent = branding?.primaryColor ?? "#00e87b";
-  const period = formatDate(report.periodEnd);
+  // `robots: noindex` is retained on every path, including the miss. Investor
+  // reports are not marketing surfaces: anyone with the link can read, nobody
+  // should find one via Google.
+  const robots = { index: false, follow: false } as const;
+  if (!loaded) return { robots };
+
+  const { report, project } = loaded;
+  const { kind, period } = describeReport(report);
+  const title = `${project.name} — ${kind}, ${period}`;
+
+  // A short prose lead-in, so a pasted link unfurls as something recognisable
+  // instead of the generic marketing card from the root layout.
+  //
+  // DELIBERATELY NO OG IMAGE. Generating one means serving treasury figures
+  // from a URL that link-unfurlers (Slack, Telegram, iMessage) fetch
+  // server-side with no bearer check on the image itself, and third-party
+  // caches keep it. The report's own privacy model is "the UUID is the token";
+  // an image route would quietly route around that.
+  const description = docPlainText(parseReportDoc(report.contentMd ?? ""))
+    .slice(0, 180)
+    .trim();
+
+  return {
+    title,
+    description: description || undefined,
+    robots,
+    openGraph: { title, description: description || undefined, type: "article" },
+  };
+}
+
+export default async function PublicReportPage({ params }: Props) {
+  const { reportId } = await params;
+  const loaded = await loadReport(reportId);
+  if (!loaded) notFound();
+
+  const { report, project } = loaded;
+  const branding = brandingFor(project);
+  const { kind, period } = describeReport(report);
+
+  // Two accents. The raw brand colour paints FILLS — the masthead rule, widget
+  // bars, bullet dots — so a project stays recognisable. The derived one
+  // paints TEXT, because the product's own default (#00e87b) measures about
+  // 1.5:1 on paper and is unreadable as a link.
+  const accent = branding.primaryColor;
+  const accentInk = readableAccentOn(accent, DOC_LIGHT.paper);
+
   const safes = await getSafeInfoForProject(report.projectId);
 
   // Trailing treasury/burn history for the trend chart — same trailing-12
@@ -100,12 +138,6 @@ export default async function PublicReportPage({ params }: Props) {
     where: eq(milestones.projectId, report.projectId),
   });
 
-  // Text-role accent. The project's raw brand colour keeps painting fills
-  // (the header rule, widget bars), but on paper it may be unreadable as
-  // text — the product's own default, #00e87b, measures about 1.5:1 against
-  // #EDEEEA. `readableAccentOn` darkens it just enough to clear AA.
-  const accentInk = readableAccentOn(accent, DOC_LIGHT.paper);
-
   return (
     // `vb-doc` re-points the design tokens for this subtree: the document
     // palette, plus aliases for the --vb-* names the widgets are authored
@@ -117,7 +149,6 @@ export default async function PublicReportPage({ params }: Props) {
       style={
         {
           minHeight: "100dvh",
-          fontFamily: "var(--font-inter), Inter, sans-serif",
           "--doc-accent": accent,
           "--doc-accent-ink": accentInk,
         } as React.CSSProperties
@@ -125,55 +156,108 @@ export default async function PublicReportPage({ params }: Props) {
     >
       <header
         style={{
-          borderBottom: `2px solid ${accent}`,
-          padding: "24px 28px",
-          display: "flex",
-          alignItems: "center",
-          gap: 16,
           maxWidth: 880,
           margin: "0 auto",
+          padding: "40px 28px 20px",
+          borderBottom: `2px solid var(--doc-ink)`,
         }}
       >
-        {branding?.logoUrl && (
-          // Investor-facing surface — keep this as a plain <img> so a
-          // broken upstream logo URL doesn't 500 the whole page (next/image
-          // would try to optimize and could fail noisily on opaque CDN URLs).
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={branding.logoUrl}
-            alt={`${project.name} logo`}
-            style={{ maxHeight: 36, maxWidth: 140, objectFit: "contain" }}
-          />
-        )}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h1
-            style={{
-              fontFamily: "var(--font-space-grotesk), 'Space Grotesk', sans-serif",
-              fontSize: 22,
-              fontWeight: 700,
-              margin: 0,
-              letterSpacing: "-0.02em",
-            }}
-          >
-            {project.name}
-          </h1>
-          <p
-            style={{
-              fontSize: 13,
-              color: "var(--vb-muted)",
-              margin: "4px 0 0",
-            }}
-          >
-            Monthly Investor Update · {period}
-          </p>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 20,
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p
+              style={{
+                fontFamily: "var(--font-plex-mono), ui-monospace, monospace",
+                fontSize: 11,
+                letterSpacing: "0.09em",
+                textTransform: "uppercase",
+                color: "var(--doc-ink-faint)",
+                margin: 0,
+              }}
+            >
+              {kind}
+            </p>
+            <h1
+              style={{
+                fontFamily: "var(--font-spectral), Georgia, serif",
+                fontSize: 32,
+                fontWeight: 600,
+                lineHeight: 1.15,
+                letterSpacing: "-0.01em",
+                color: "var(--doc-ink)",
+                margin: "8px 0 0",
+                textWrap: "balance",
+              }}
+            >
+              {project.name}
+            </h1>
+          </div>
+          {branding.logoUrl && (
+            // Investor-facing surface — keep this as a plain <img> so a
+            // broken upstream logo URL doesn't 500 the whole page (next/image
+            // would try to optimize and could fail noisily on opaque CDN URLs).
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={branding.logoUrl}
+              alt={`${project.name} logo`}
+              style={{ maxHeight: 40, maxWidth: 150, objectFit: "contain", flexShrink: 0 }}
+            />
+          )}
         </div>
+
+        {/* Meta grid, mirroring the PDF masthead. Mono because these are
+            reference values a reader looks up, not prose they read. */}
+        <dl
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "14px 40px",
+            margin: "22px 0 0",
+          }}
+        >
+          {[
+            { label: "Period", value: period },
+            ...(project.website ? [{ label: "Project", value: project.website }] : []),
+          ].map((item) => (
+            <div key={item.label}>
+              <dt
+                style={{
+                  fontFamily: "var(--font-plex-mono), ui-monospace, monospace",
+                  fontSize: 10,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "var(--doc-ink-faint)",
+                  margin: "0 0 3px",
+                }}
+              >
+                {item.label}
+              </dt>
+              <dd
+                style={{
+                  fontFamily: "var(--font-plex-mono), ui-monospace, monospace",
+                  fontSize: 13,
+                  color: "var(--doc-ink-soft)",
+                  margin: 0,
+                }}
+              >
+                {item.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
       </header>
 
       <article
         style={{
           maxWidth: 880,
           margin: "0 auto",
-          padding: "8px 0 64px",
+          padding: "24px 28px 64px",
         }}
       >
         {/* Widget strip — KPIs, treasury composition, expenses, token
@@ -199,10 +283,11 @@ export default async function PublicReportPage({ params }: Props) {
         style={{
           maxWidth: 880,
           margin: "0 auto",
-          padding: "16px 28px 48px",
-          borderTop: "1px solid var(--vb-border)",
-          fontSize: 11,
-          color: "var(--vb-dim)",
+          padding: "18px 28px 56px",
+          borderTop: "1px solid var(--doc-line)",
+          fontFamily: "var(--font-inter), Inter, sans-serif",
+          fontSize: 12,
+          color: "var(--doc-ink-faint)",
           display: "flex",
           justifyContent: "space-between",
           gap: 16,
@@ -213,15 +298,15 @@ export default async function PublicReportPage({ params }: Props) {
           Generated by{" "}
           <a
             href="https://vaultbrief.io"
-            style={{ color: "var(--vb-muted)", textDecoration: "underline" }}
+            style={{ color: "var(--doc-ink-soft)", textUnderlineOffset: 2 }}
           >
             Vault Brief
           </a>
         </span>
-        <span>
-          Confidential — for the recipient of this email only.
-        </span>
-        <p style={{ width: "100%", margin: 0, fontSize: 11, color: "var(--vb-dim)" }}>
+        <span>Confidential — for the recipient of this email only.</span>
+        {/* One disclaimer, four surfaces — see src/lib/report-disclaimer.ts.
+            Platform-rendered, never model-written. */}
+        <p style={{ width: "100%", margin: 0, lineHeight: 1.5 }}>
           {REPORT_DISCLAIMER}
         </p>
       </footer>
