@@ -57,6 +57,91 @@
   --radius-lg: 14px;    /* default cards */
   --radius-xl: 16px;    /* hero/pricing cards */
   --radius-full: 999px; /* pills */
+
+  /* ── Document tokens, DARK values ───────────────────────────────────────
+     Named semantically so report components can reference one token and be
+     correct on both the dark dashboard and the light document. These are the
+     dashboard values; `.vb-doc` below redefines the same names for paper.
+     Keeping them here (rather than only inside .vb-doc) is what makes the
+     ReportWidgets colour swap a provable no-op on the dashboard. */
+  --doc-ok: #00e87b;
+  --doc-ok-soft: rgba(0, 232, 123, 0.14);
+  --doc-warn: #f0b847;
+  --doc-warn-soft: rgba(240, 184, 71, 0.16);
+  --doc-danger: #f87171;
+  --doc-danger-soft: rgba(248, 113, 113, 0.16);
+  --doc-info: #4f9cf9;
+  --doc-info-soft: rgba(79, 156, 249, 0.16);
+  --doc-track: rgba(255, 255, 255, 0.06);
+  --doc-series-2: #4f9cf9;
+  --doc-series-3: #a78bfa;
+  --doc-paper: var(--vb-bg);
+  --doc-raised: var(--vb-card);
+  --doc-line: var(--vb-border);
+  --doc-line-strong: var(--vb-border-strong);
+  --doc-ink: var(--vb-text);
+  --doc-ink-soft: var(--vb-muted);
+  --doc-ink-faint: var(--vb-dim);
+  /* Set per-project inline on the document root; these are the fallbacks. */
+  --doc-accent: var(--accent);
+  --doc-accent-ink: var(--accent);
+}
+
+/* ── The document surface ─────────────────────────────────────────────────
+   A report is paper, not a dashboard screen — it is read by investors and
+   grant funders, printed, and attached to emails. The whole product is
+   otherwise dark-only (there is no light mode anywhere else, deliberately),
+   so instead of a global theme this scope re-points the tokens for the
+   subtree a report renders into.
+
+   The `--vb-*` aliases at the bottom are what let components authored against
+   the dashboard palette (ReportWidgets and its primitives) re-theme with no
+   per-component edits.
+
+   DEPTH INVERTS, and this is the subtle part. On dark, --vb-bg (#0a0a0a) sits
+   RECESSED behind --vb-card (#161616): a tile face is darker than the card
+   around it. On paper a tile must be RAISED above the sheet. So --vb-bg maps
+   to the raised tone here, not the paper tone. Swap these two and every
+   widget reads as a hole punched in the page. */
+.vb-doc {
+  --doc-paper: #edeeea;
+  --doc-raised: #f7f7f4;
+  --doc-line: #d8d9d2;
+  --doc-line-strong: #b9bbb3;
+  --doc-ink: #1c2024;
+  --doc-ink-soft: #565b57;
+  --doc-ink-faint: #686a65;   /* AA on paper; a text token, not a hairline */
+  --doc-ok: #3f6b4f;
+  --doc-ok-soft: #e7efe8;
+  --doc-warn: #8a5d1f;
+  --doc-warn-soft: #f3ead9;
+  --doc-danger: #9c3b2e;
+  --doc-danger-soft: #f5e5e1;
+  --doc-info: #1f4b5f;
+  --doc-info-soft: #e4ebec;
+  --doc-track: rgba(28, 32, 36, 0.08);
+  --doc-series-2: #3d6b86;
+  --doc-series-3: #6b5b8a;
+
+  /* Compatibility aliases — see the depth note above. */
+  --vb-bg: var(--doc-raised);
+  --vb-alt: var(--doc-paper);
+  --vb-card: var(--doc-raised);
+  --vb-card-hover: var(--doc-paper);
+  --vb-text: var(--doc-ink);
+  --vb-muted: var(--doc-ink-soft);
+  --vb-dim: var(--doc-ink-faint);
+  --vb-border: var(--doc-line);
+  --vb-border-strong: var(--doc-line-strong);
+  --vb-border-faint: var(--doc-line);
+  --vb-danger: var(--doc-danger);
+  --vb-warn: var(--doc-warn);
+  /* Text-role accent only. Fills keep --doc-accent so a project's brand
+     colour stays visible on bars, dots and the header rule. */
+  --accent: var(--doc-accent-ink);
+
+  background: var(--doc-paper);
+  color: var(--doc-ink);
 }
 
 @theme inline {
