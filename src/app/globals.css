@@ -268,6 +268,86 @@
 }
 .vb-doc-pre code { background: none; border: none; padding: 0; }
 
+/* ── Print ────────────────────────────────────────────────────────────────
+   A report is a document, so it has to survive Cmd-P. This effectively gives
+   a THIRD PDF for free, pixel-matched to the web page — it doesn't replace
+   @react-pdf (that is what the email attaches and the cron pre-renders), but
+   it is the one a founder will actually reach for when showing someone.
+
+   Scoped to `.vb-doc` throughout: the dashboard has no business changing
+   under print, and an unscoped rule here would reach it. */
+@media print {
+  html,
+  body {
+    background: #fff !important;
+  }
+
+  @page {
+    margin: 18mm 16mm;
+  }
+
+  .vb-doc {
+    /* Paper is already light, but a tinted ground wastes ink over a whole
+       document and shifts every other colour against it. */
+    --doc-paper: #fff;
+    --doc-raised: #fff;
+    max-width: none;
+  }
+
+  /* The sheet treatment is for a screen. On paper the page IS the sheet. */
+  .vb-doc-body {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* A heading stranded at the foot of a page is the classic print defect. */
+  .vb-doc-h1,
+  .vb-doc-h2,
+  .vb-doc-h3,
+  .vb-doc-h4 {
+    break-after: avoid-page;
+  }
+
+  .vb-doc-table,
+  .vb-doc-pre,
+  .vb-doc-tablewrap {
+    break-inside: avoid-page;
+  }
+  .vb-doc-table tr {
+    break-inside: avoid-page;
+  }
+
+  /* Repeats the header row on every page a long table spans. The single
+     highest-value line here for financial tables — without it, page two of a
+     transaction table is a wall of unlabelled figures. */
+  .vb-doc-table thead {
+    display: table-header-group;
+  }
+
+  /* .vb-table-scroll carries `min-width: 600px` on its child so a wide table
+     scrolls on a phone. In print there is nothing to scroll and that floor
+     just clips the right-hand columns off the sheet. */
+  .vb-doc .vb-table-scroll {
+    overflow: visible !important;
+  }
+  .vb-doc .vb-table-scroll > * {
+    min-width: 0 !important;
+  }
+
+  /* A link is useless on paper unless its destination is printed. Only
+     external ones — mailto and in-page anchors read as noise. */
+  .vb-doc-a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-family: var(--font-plex-mono), ui-monospace, monospace;
+    font-size: 0.78em;
+    word-break: break-all;
+    color: var(--doc-ink-faint);
+  }
+}
+
 /* Ruled rows, not a boxed grid: a ruled table reads as a financial statement,
    a boxed one reads as a spreadsheet screenshot. */
 .vb-doc-tablewrap { margin: 0 0 18px; }

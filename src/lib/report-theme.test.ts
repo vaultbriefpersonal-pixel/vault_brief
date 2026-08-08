@@ -195,6 +195,94 @@ describe("globals.css ↔ DOC_LIGHT parity", () => {
     expect(onPaper(DOC_LIGHT.danger)).toBeGreaterThanOrEqual(onPaper(DOC_LIGHT.inkFaint));
   });
 
+  // Print is a first-class output for this surface — a founder showing a
+  // funder will reach for Cmd-P long before they open the emailed PDF. These
+  // are the rules whose absence produces a visibly broken printout, and they
+  // are cheap to pin here; the Playwright spec exercises them in a real
+  // engine but is database-gated and so does not run everywhere.
+  describe("print rules", () => {
+    const print = (() => {
+      const i = css.indexOf("@media print {");
+      expect(i, "no @media print block in globals.css").toBeGreaterThan(-1);
+      // Nested at-rule: scan braces rather than looking for the first "\n}".
+      let depth = 0;
+      for (let j = i; j < css.length; j++) {
+        if (css[j] === "{") depth++;
+        else if (css[j] === "}") {
+          depth--;
+          if (depth === 0) return css.slice(i, j + 1);
+        }
+      }
+      throw new Error("unterminated @media print block");
+    })();
+
+    it("repeats table headers across page breaks", () => {
+      // Page two of a transaction table is a wall of unlabelled figures
+      // without this.
+      expect(print).toMatch(/thead\s*\{[^}]*display:\s*table-header-group/);
+    });
+
+    it("neutralises the mobile horizontal-scroll floor", () => {
+      // `.vb-table-scroll > *` carries min-width: 600px so wide tables scroll
+      // on a phone. On paper there is nothing to scroll and it clips columns
+      // off the right edge of the sheet.
+      expect(print).toMatch(/\.vb-table-scroll\s*>\s*\*\s*\{[^}]*min-width:\s*0/);
+      expect(print).toMatch(/\.vb-table-scroll\s*\{[^}]*overflow:\s*visible/);
+    });
+
+    it("keeps headings with the content beneath them", () => {
+      expect(print).toMatch(/break-after:\s*avoid-page/);
+      expect(print).toMatch(/break-inside:\s*avoid-page/);
+    });
+
+    it("prints the destination of external links", () => {
+      expect(print).toMatch(/\[href\^="http"\]::after/);
+      expect(print).toContain("attr(href)");
+    });
+
+    it("drops the tinted ground so a whole document is not printed on ink", () => {
+      expect(print).toMatch(/--doc-paper:\s*#fff/);
+    });
+
+    // An unscoped print rule here would reach the dashboard, which has no
+    // business changing under print.
+    it("scopes every rule to the document", () => {
+      // Brace-walk rather than regex. A pattern that "finds selectors" keeps
+      // matching declaration text instead, which is how this check first
+      // reported `background: #fff !important; } @page` as a selector.
+      const selectors: string[] = [];
+      {
+        const body = print.slice(print.indexOf("{") + 1, print.lastIndexOf("}"));
+        let depth = 0;
+        let buf = "";
+        for (const ch of body) {
+          if (ch === "{") {
+            if (depth === 0) selectors.push(buf.replace(/\s+/g, " ").trim());
+            depth++;
+            buf = "";
+          } else if (ch === "}") {
+            depth--;
+            buf = "";
+          } else if (depth === 0) {
+            buf += ch;
+          }
+        }
+      }
+      // `@page` sets sheet geometry and is not a selector.
+      const rules = selectors.filter((s) => s !== "" && !s.startsWith("@"));
+      expect(rules.length).toBeGreaterThan(5);
+
+      // The one deliberate exception: the page ground itself. Everything a
+      // report renders sits on it, and it has to stop being tinted.
+      const ALLOWED_GLOBAL = new Set(["html, body", "html", "body"]);
+
+      for (const sel of rules) {
+        const scoped = sel.includes(".vb-doc") || ALLOWED_GLOBAL.has(sel);
+        expect(scoped, `unscoped print selector: ${sel}`).toBe(true);
+      }
+    });
+  });
+
   it("gives the document its own visual register, not the dashboard's", () => {
     const vars = declared(vbDocBlock());
     // Rounded cards and 999px pills are dashboard vocabulary; paper is ruled
