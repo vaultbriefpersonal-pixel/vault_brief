@@ -187,6 +187,22 @@ export default function ReportEditorPage({ params }: Props) {
     </button>
   );
 
+  // One self-contained file: real typography, working links, nothing to fetch.
+  // A plain link rather than a fetch + Blob, because the route already sets
+  // Content-Disposition and the response is ~1.2MB of embedded fonts — no
+  // reason to pull that through JS memory to hand it straight back.
+  const htmlButton = (
+    <a
+      key="html"
+      href={`/api/reports/${reportId}/html`}
+      download
+      style={{ ...btnBase, textDecoration: "none" }}
+    >
+      <FileDown size={13} />
+      HTML
+    </a>
+  );
+
   const markdownButtons = (
     <>
       <button key="copy-md" onClick={handleCopyMarkdown} style={btnBase}>
@@ -285,14 +301,20 @@ export default function ReportEditorPage({ params }: Props) {
             {regenerate.isPending ? "Regenerating..." : "Regenerate"}
           </button>
 
+          {/* HTML sits with PDF: both are finished documents, where the
+              markdown actions are for pasting into a forum. A preset's
+              defaultExportFormat still only reorders — every action stays
+              reachable regardless. */}
           {markdownFirst ? (
             <>
               {markdownButtons}
               {pdfButton}
+              {htmlButton}
             </>
           ) : (
             <>
               {pdfButton}
+              {htmlButton}
               {markdownButtons}
             </>
           )}
