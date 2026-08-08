@@ -36,7 +36,16 @@ function check(label, condition, detail = "") {
 // Exercises the paths that have historically broken: symbols the old
 // sanitizer mangled, an address that must not be hyphenated, a table, a
 // bulleted list, and inline emphasis.
-const MARKDOWN = `## Executive Summary
+//
+// The leading paragraph is deliberate — it sits ABOVE the first heading,
+// which the old parser silently discarded. So are the `#` and `####` levels,
+// which used to print their own hashes, the ordered list, which collapsed
+// into a run-on paragraph, and the link, which printed its own brackets.
+const MARKDOWN = `An opening line that sits above the first heading.
+
+# Radworks Treasury
+
+## Executive Summary
 
 The treasury held **$2,413,417** across 4 wallets — a rise of 12% ≈ $258K.
 Runway → 2.8 months at the trailing burn of $231,700/mo. Reconciled ✓.
@@ -54,9 +63,22 @@ Runway → 2.8 months at the trailing burn of $231,700/mo. Reconciled ✓.
 - Cover ≥ 80%, drift ≤ 2%, fees ±5%
 - Primary Safe \`0xcC7d34C76A9d08aa0109F7Bae35f29C1CE35355A\`
 - Emoji 🚀 and a star ★ must not leave boxes
+
+#### Data Quality
+
+1. Garden/App Safe ownership rests on a transfer relationship alone.
+2. Wintermute transfer purpose is not evidenced publicly.
+3. RAD lock status could not be determined.
+
+Source: [Etherscan](https://etherscan.io/address/0xcC7d34C76A9d08aa0109F7Bae35f29C1CE35355A).
+A rejected scheme must degrade to text: [click](javascript:alert(1)).
+
+---
+
+*Prepared independently.*
 `;
 
-const { VaultBriefPDF, parseMarkdown } = await import(
+const { VaultBriefPDF } = await import(
   "../src/server/services/pdf-template.tsx"
 );
 const { registerReportFonts } = await import(
@@ -72,7 +94,8 @@ const element = React.createElement(VaultBriefPDF, {
   logoUrl: null,
   website: "vaultbrief.io",
   period: "August 2026",
-  content: parseMarkdown(MARKDOWN),
+  contentMd: MARKDOWN,
+  kind: "investor",
   primaryColor: "#00e87b",
   snapshot: null,
   trendSnapshots: [],
@@ -207,9 +230,87 @@ function fontUsage(pdf) {
   return used;
 }
 
+// ── the overflow regression ────────────────────────────────────────────────
+//
+// Every section used to render inside `<View wrap={false}>`, so a section
+// taller than one page could not break and simply ran off the bottom — the
+// content was gone from the document, silently. The orphan guard now lives on
+// headings (`minPresenceAhead`) and `wrap={false}` only on individual table
+// rows, so a long section must paginate.
+//
+// Asserted by page count rather than by eye: one heading followed by far more
+// prose than fits on a page has to produce several pages.
+// Calibrated against a control rather than a magic page count, because a
+// fixed threshold is both brittle and — as this very check proved on its
+// first run — too weak: with the bug reintroduced, 120 paragraphs rendered
+// as TWO pages, which still satisfied "more than one page" while most of the
+// document had silently fallen off the bottom.
+//
+// The control has the SAME paragraphs, only split across many short sections.
+// Those paginate correctly under either implementation, so it measures how
+// many pages the content genuinely needs. One tall section must then come out
+// at a comparable length; if it collapses to a fraction of the control, the
+// difference is content that never made it onto a page.
+const PARAS = Array.from(
+  { length: 120 },
+  (_, i) =>
+    `Paragraph ${i + 1}. The treasury position is restated here at length so ` +
+    `that the section cannot possibly fit within a single A4 page at 10pt.`
+);
+
+const ONE_SECTION = ["## A section far taller than one page", "", ...PARAS.flatMap((p) => [p, ""])].join("\n");
+const MANY_SECTIONS = PARAS.flatMap((p, i) =>
+  i % 10 === 0 ? [`## Section ${i / 10 + 1}`, "", p, ""] : [p, ""]
+).join("\n");
+
+async function pageCountOf(contentMd) {
+  const b = Buffer.from(
+    await renderToBuffer(
+      React.createElement(VaultBriefPDF, {
+        projectName: "Overflow Test",
+        logoUrl: null,
+        website: null,
+        period: "August 2026",
+        contentMd,
+        kind: "investor",
+        primaryColor: "#00e87b",
+        snapshot: null,
+        trendSnapshots: [],
+        compositionSlices: [],
+      })
+    )
+  );
+  return {
+    buffer: b,
+    pages: (b.toString("latin1").match(/\/Type\s*\/Page[^s]/g) ?? []).length,
+  };
+}
+
+const oneSection = await pageCountOf(ONE_SECTION);
+const control = await pageCountOf(MANY_SECTIONS);
+
+// Two independent floors, because each catches a different shape of the
+// failure. The RATIO catches a regression that clips only the tall section,
+// leaving the control intact. The ABSOLUTE floor catches one that clips
+// everything — which is what happened when this was checked by reintroducing
+// the old wrap={false}: BOTH fixtures collapsed to 2 pages, so the ratio alone
+// still passed while most of the document had fallen off the bottom.
+const MIN_PAGES = 4; // 120 paragraphs at ~2 lines each cannot fit in fewer
+check(
+  "a section taller than a page breaks instead of dropping content",
+  oneSection.pages >= control.pages * 0.7 && oneSection.pages >= MIN_PAGES,
+  `one tall section: ${oneSection.pages} pages; control: ${control.pages}; floor: ${MIN_PAGES}`
+);
+console.log(
+  `   (one tall section: ${oneSection.pages} pages · control: ${control.pages} pages)`
+);
+
+const longBuffer = oneSection.buffer;
+
 mkdirSync(OUT_DIR, { recursive: true });
 const out = join(OUT_DIR, "smoke-report.pdf");
 writeFileSync(out, buffer);
+writeFileSync(join(OUT_DIR, "smoke-report-long.pdf"), longBuffer);
 console.log(`\nWrote ${out} (${(buffer.length / 1024).toFixed(0)} KB) — open it and look at it.`);
 
 console.log(`\n${passed} passed, ${failed} failed`);

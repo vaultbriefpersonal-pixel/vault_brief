@@ -1,6 +1,6 @@
 import React from "react";
 import type { DocumentProps } from "@react-pdf/renderer";
-import { VaultBriefPDF, parseMarkdown } from "./pdf-template";
+import { VaultBriefPDF } from "./pdf-template";
 
 // @react-pdf/renderer is ESM-only and listed in Next.js 16's default
 // serverExternalPackages, so a top-level `require()` returns an empty module
@@ -13,7 +13,7 @@ async function getRenderToBuffer() {
 import { db } from "@/server/db";
 import { reports, projects, treasurySnapshots } from "@/server/db/schema";
 import { and, desc, eq, lt } from "drizzle-orm";
-import { formatDate } from "@/lib/utils";
+import { formatDate, slugify } from "@/lib/utils";
 import { registerReportFonts } from "./pdf-fonts";
 import {
   composeTreasury,
@@ -60,7 +60,6 @@ export async function generatePDF(
   // Oldest → newest for chart x-axis.
   const trendSnapshots = [...trailing, snapshot].filter((s): s is NonNullable<typeof s> => Boolean(s)).reverse();
 
-  const content = parseMarkdown(report.contentMd);
   const period = formatDate(report.periodEnd);
 
   // Donut slices are DERIVED HERE, at read time, from the snapshot's per-token
@@ -89,7 +88,8 @@ export async function generatePDF(
     logoUrl: branding?.logoUrl ?? project.logoUrl,
     website: project.website ?? null,
     period,
-    content,
+    contentMd: report.contentMd,
+    kind: report.reportType === "grant" ? "grant" : "investor",
     primaryColor: branding?.primaryColor,
     snapshot,
     trendSnapshots,
@@ -109,7 +109,17 @@ export async function generatePDF(
   const buffer = await renderToBuffer(
     element as React.ReactElement<DocumentProps>
   );
-  const filename = `${project.name.replace(/\s+/g, "-").toLowerCase()}-report-${report.periodEnd}.pdf`;
+  // `slugify`, not an ad-hoc whitespace replace — the old version left
+  // punctuation from a project name in a public Blob URL.
+  //
+  // NOTE: this CHANGES the storage path for any project whose name contains
+  // characters the two treat differently (pdf-storage.ts:20 builds
+  // `reports/${reportId}/${filename}`). The previous blob is orphaned, not
+  // lost, and `reports.pdf_url` keeps serving it until that report is
+  // regenerated — so a handful of already-sent reports will still hand out
+  // the old-looking PDF. Accepted deliberately: clearing `pdf_url` en masse
+  // is a production write, which is a human's call, not this function's.
+  const filename = `${slugify(project.name)}-report-${report.periodEnd}.pdf`;
 
   return { buffer: Buffer.from(buffer), filename };
 }

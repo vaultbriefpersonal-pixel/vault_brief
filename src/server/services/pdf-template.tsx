@@ -5,6 +5,7 @@ import {
   Text,
   View,
   Image,
+  Link,
   StyleSheet,
 } from "@react-pdf/renderer";
 import {
@@ -15,18 +16,42 @@ import {
 } from "./pdf-charts";
 import type { TreasurySnapshot } from "@/server/db/schema";
 import { REPORT_DISCLAIMER } from "@/lib/report-disclaimer";
-// Family NAMES only — the registration itself lives in pdf-fonts.ts, which
+import {
+  parseReportDoc,
+  columnWidths,
+  isNumericCell,
+  inlineText,
+  type DocBlock,
+  type Inline,
+  type Align,
+} from "@/lib/report-doc";
+// Family NAMES and palette only — registration lives in pdf-fonts.ts, which
 // pdf-generator.ts awaits before rendering. Keeping the `Font` object out of
 // this module avoids a second static import of @react-pdf/renderer, which
 // pdf-generator.ts:5-12 documents as unreliable under serverExternalPackages.
-import { PDF_SERIF, PDF_MONO, sanitizeForPdf } from "@/lib/report-theme";
+import {
+  PDF_SERIF,
+  PDF_MONO,
+  DOC_LIGHT,
+  DEFAULT_ACCENT,
+  readableAccentOn,
+  sanitizeForPdf,
+} from "@/lib/report-theme";
 
 interface PDFTemplateProps {
   projectName: string;
   logoUrl?: string | null;
   website?: string | null;
+  /** Human-readable period label, e.g. "April 2026". */
   period: string;
-  content: ParsedReportContent;
+  /**
+   * The report body, as markdown. Parsed here through the SHARED parser so
+   * the PDF and the web page cannot disagree about the same document — they
+   * did, for a long time, in ways nobody could see side by side.
+   */
+  contentMd: string;
+  /** What kind of report this is; sets the masthead kicker. */
+  kind?: "investor" | "grant";
   primaryColor?: string;
   /** Latest snapshot — drives the chain split + trend charts. */
   snapshot?: TreasurySnapshot | null;
@@ -44,418 +69,545 @@ interface PDFTemplateProps {
   compositionSlices?: { label: string; value: number }[];
 }
 
-interface ParsedReportContent {
-  sections: Array<{ heading: string; body: string }>;
-  rawMarkdown: string;
-}
+// ─── Type scale ────────────────────────────────────────────────────────────
+// Points, not pixels. A4 minus 128pt of horizontal padding leaves 467pt of
+// measure, which at 10pt Spectral is ~85 characters — wide for a reading
+// column, but this is a reference document that people scan for figures more
+// than they read start to finish, and narrowing it would push every table
+// into a scroll.
 
-const NAVY = "#1B2A4A";
-const BODY = "#374151";
-const LIGHT_GRAY = "#F3F4F6";
-const MID_GRAY = "#9CA3AF";
-const ACCENT = "#6366F1";
+const T = {
+  kicker: 8,
+  title: 20,
+  meta: 9,
+  h1: 15,
+  h2: 12.5,
+  h3: 11,
+  h4: 8.5,
+  body: 10,
+  small: 9,
+  tiny: 8,
+} as const;
 
 const styles = StyleSheet.create({
   page: {
     fontFamily: PDF_SERIF,
-    paddingTop: 72,
+    fontSize: T.body,
+    color: DOC_LIGHT.ink,
+    backgroundColor: DOC_LIGHT.paper,
+    paddingTop: 64,
     paddingBottom: 72,
-    paddingHorizontal: 72,
-    fontSize: 10,
-    color: BODY,
+    paddingHorizontal: 64,
+    lineHeight: 1.55,
   },
-  header: {
+
+  // ── masthead ──
+  masthead: {
+    marginBottom: 26,
+    paddingBottom: 14,
+    borderBottomWidth: 2,
+    borderBottomColor: DOC_LIGHT.ink,
+  },
+  mastheadTop: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 24,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: LIGHT_GRAY,
+    alignItems: "flex-start",
+    marginBottom: 10,
   },
-  headerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    flex: 1,
-  },
-  logo: {
-    maxHeight: 28,
-    maxWidth: 80,
-    objectFit: "contain",
-  },
-  projectName: {
-    fontSize: 14,
-    fontFamily: PDF_SERIF, fontWeight: 600,
-    color: NAVY,
-  },
-  headerRight: {
+  kicker: {
     fontFamily: PDF_MONO,
-    fontSize: 9,
-    color: MID_GRAY,
-    textAlign: "right",
+    fontSize: T.kicker,
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+    color: DOC_LIGHT.inkFaint,
   },
+  title: {
+    fontFamily: PDF_SERIF,
+    fontWeight: 600,
+    fontSize: T.title,
+    color: DOC_LIGHT.ink,
+    marginTop: 6,
+    lineHeight: 1.15,
+  },
+  logo: { maxHeight: 30, maxWidth: 96, objectFit: "contain" },
+  metaRow: { flexDirection: "row", gap: 28, marginTop: 12 },
+  metaLabel: {
+    fontFamily: PDF_MONO,
+    fontSize: 7.5,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    color: DOC_LIGHT.inkFaint,
+    marginBottom: 2,
+  },
+  metaValue: {
+    fontFamily: PDF_MONO,
+    fontSize: T.meta,
+    color: DOC_LIGHT.inkSoft,
+  },
+
+  // ── headings ──
+  // Four distinct levels. Previously `##` and `###` both rendered through the
+  // same style, so a document's structure was invisible, and `#`/`####` were
+  // not recognised at all and printed their own hashes.
   h1: {
-    fontSize: 14,
-    fontFamily: PDF_SERIF, fontWeight: 600,
-    color: NAVY,
-    marginTop: 16,
-    marginBottom: 6,
+    fontFamily: PDF_SERIF,
+    fontWeight: 600,
+    fontSize: T.h1,
+    color: DOC_LIGHT.ink,
+    marginTop: 20,
+    marginBottom: 8,
+    paddingBottom: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: DOC_LIGHT.line,
   },
   h2: {
-    fontSize: 12,
-    fontFamily: PDF_SERIF, fontWeight: 600,
-    color: NAVY,
+    fontFamily: PDF_SERIF,
+    fontWeight: 600,
+    fontSize: T.h2,
+    color: DOC_LIGHT.ink,
+    marginTop: 16,
+    marginBottom: 5,
+  },
+  h3: {
+    fontFamily: PDF_SERIF,
+    fontWeight: 600,
+    fontSize: T.h3,
+    color: DOC_LIGHT.ink,
     marginTop: 12,
     marginBottom: 4,
   },
+  h4: {
+    fontFamily: PDF_MONO,
+    fontSize: T.h4,
+    letterSpacing: 0.9,
+    textTransform: "uppercase",
+    color: DOC_LIGHT.inkFaint,
+    marginTop: 12,
+    marginBottom: 4,
+  },
+
+  // ── body ──
   paragraph: {
     fontFamily: PDF_SERIF,
-    fontSize: 10,
-    color: BODY,
-    lineHeight: 1.5,
-    marginBottom: 6,
+    fontSize: T.body,
+    color: DOC_LIGHT.ink,
+    marginBottom: 7,
   },
-  bulletRow: {
+  listRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    marginBottom: 3,
-    paddingLeft: 6,
+    marginBottom: 4,
+    paddingLeft: 4,
   },
   // A styled View, not a "•" character.
   //
-  // This was originally a workaround: Helvetica's standard encoding didn't
-  // carry the bullet reliably, and shipping a font for one glyph wasn't worth
-  // it. Both halves of that are now obsolete — the report faces are embedded,
-  // and pdf-fonts.test.ts verifies U+2022 is in every one of them.
-  //
-  // Kept anyway, as a design choice rather than a constraint: a 4px dot in the
-  // project's accent colour carries brand where a typographic bullet doesn't,
-  // and it stays correct through any future change of typeface.
+  // Originally a workaround: Helvetica's standard encoding didn't carry the
+  // bullet reliably, and shipping a font for one glyph wasn't worth it. Both
+  // halves of that are obsolete — the faces are embedded and pdf-fonts.test.ts
+  // verifies U+2022 is in all of them. Kept as a design choice: a small dot in
+  // the project's accent carries brand where a typographic bullet doesn't, and
+  // it survives any future change of typeface.
   bulletDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: ACCENT,
-    marginTop: 5,
+    width: 3.5,
+    height: 3.5,
+    borderRadius: 1.75,
+    marginTop: 6,
+    marginRight: 8,
+  },
+  // Ordered lists were not a block kind at all before, so `1. 2. 3.` collapsed
+  // into one run-on paragraph. Mono numerals in a fixed right-aligned gutter
+  // keep the text edge straight past item 9.
+  ordinal: {
+    fontFamily: PDF_MONO,
+    fontSize: T.small,
+    color: DOC_LIGHT.inkFaint,
+    width: 20,
     marginRight: 6,
+    textAlign: "right",
   },
-  bulletText: {
-    fontFamily: PDF_SERIF,
+  listText: {
     flex: 1,
-    fontSize: 10,
-    color: BODY,
-    lineHeight: 1.45,
+    fontFamily: PDF_SERIF,
+    fontSize: T.body,
+    color: DOC_LIGHT.ink,
   },
-  // Tables: a flex grid. Each cell gets a 1px right/bottom border to draw
-  // the grid; table-edge cells skip the outer side via cellLast / cellBottom.
-  table: {
-    marginVertical: 6,
-    borderTopWidth: 1,
-    borderLeftWidth: 1,
-    borderColor: LIGHT_GRAY,
+  rule: {
+    borderBottomWidth: 1,
+    borderBottomColor: DOC_LIGHT.line,
+    marginVertical: 12,
   },
-  tr: {
+  codeBlock: {
+    fontFamily: PDF_MONO,
+    fontSize: T.tiny,
+    color: DOC_LIGHT.inkSoft,
+    backgroundColor: DOC_LIGHT.paperRaised,
+    borderLeftWidth: 2,
+    borderLeftColor: DOC_LIGHT.line,
+    padding: 8,
+    marginBottom: 8,
+    lineHeight: 1.4,
+  },
+
+  // ── tables ──
+  // Hairline rows rather than a boxed grid: a ruled table reads as a financial
+  // statement, a boxed one reads as a spreadsheet screenshot.
+  table: { marginTop: 4, marginBottom: 12 },
+  tHeadRow: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderColor: LIGHT_GRAY,
+    borderBottomColor: DOC_LIGHT.ink,
+    paddingBottom: 4,
+  },
+  tRow: {
+    flexDirection: "row",
+    borderBottomWidth: 0.5,
+    borderBottomColor: DOC_LIGHT.line,
+    paddingVertical: 4,
   },
   th: {
-    flex: 1,
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    fontSize: 9,
-    fontFamily: PDF_SERIF, fontWeight: 600,
-    color: NAVY,
-    backgroundColor: LIGHT_GRAY,
-    borderRightWidth: 1,
-    borderColor: "#E5E7EB",
+    fontFamily: PDF_MONO,
+    fontSize: 7.5,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: DOC_LIGHT.inkFaint,
+    paddingHorizontal: 5,
   },
   td: {
+    fontFamily: PDF_SERIF,
+    fontSize: T.small,
+    color: DOC_LIGHT.ink,
+    paddingHorizontal: 5,
+  },
+  tdNum: {
     fontFamily: PDF_MONO,
-    flex: 1,
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    fontSize: 9,
-    color: BODY,
-    borderRightWidth: 1,
-    borderColor: LIGHT_GRAY,
+    fontSize: T.small,
+    color: DOC_LIGHT.ink,
+    paddingHorizontal: 5,
+  },
+
+  // ── chart cards ──
+  card: {
+    marginBottom: 14,
+    padding: 12,
+    backgroundColor: DOC_LIGHT.paperRaised,
+    borderWidth: 1,
+    borderColor: DOC_LIGHT.line,
+  },
+  cardLabel: {
+    fontFamily: PDF_MONO,
+    fontSize: T.h4,
+    letterSpacing: 0.9,
+    textTransform: "uppercase",
+    color: DOC_LIGHT.inkFaint,
+    marginBottom: 8,
+  },
+
+  // ── chrome ──
+  disclaimer: {
+    fontFamily: PDF_SERIF,
+    fontSize: T.tiny,
+    color: DOC_LIGHT.inkSoft,
+    marginTop: 22,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: DOC_LIGHT.line,
+    lineHeight: 1.45,
   },
   footer: {
     position: "absolute",
-    bottom: 36,
-    left: 72,
-    right: 72,
+    bottom: 38,
+    left: 64,
+    right: 64,
     flexDirection: "row",
     justifyContent: "space-between",
-    fontSize: 8,
-    color: MID_GRAY,
-    borderTopWidth: 1,
-    borderTopColor: LIGHT_GRAY,
-    paddingTop: 6,
     // Explicit, because `position: absolute` + `fixed` takes this View out of
-    // the page's flow and it stops inheriting `page`'s fontFamily — which
-    // silently embedded a whole extra base-14 Helvetica resource just to set
-    // "Page 1 of 3". Mono also suits the content: a URL and a page counter.
+    // the page flow and it stops inheriting `page`'s fontFamily — which
+    // silently pulled a whole base-14 resource in just to set "Page 1 of 3".
     fontFamily: PDF_MONO,
-  },
-  // Rendered once at the end of the document content — NOT `fixed`, unlike
-  // `footer` above, which repeats on every page and has no room to spare.
-  disclaimer: {
-    fontFamily: PDF_SERIF,
-    fontSize: 8,
-    color: MID_GRAY,
-    marginTop: 16,
-    paddingTop: 8,
+    fontSize: 7.5,
+    color: DOC_LIGHT.inkFaint,
     borderTopWidth: 1,
-    borderTopColor: LIGHT_GRAY,
+    borderTopColor: DOC_LIGHT.line,
+    paddingTop: 6,
   },
 });
 
-export function parseMarkdown(markdown: string): ParsedReportContent {
-  const sections: Array<{ heading: string; body: string }> = [];
-  const lines = markdown.split("\n");
-  let currentHeading = "";
-  let currentBody: string[] = [];
+// ─── inline rendering ──────────────────────────────────────────────────────
 
-  for (const line of lines) {
-    if (line.startsWith("### ") || line.startsWith("## ")) {
-      if (currentHeading) {
-        sections.push({ heading: currentHeading, body: currentBody.join("\n").trim() });
-      }
-      currentHeading = line.replace(/^#+\s+/, "");
-      currentBody = [];
-    } else {
-      currentBody.push(line);
-    }
-  }
-  if (currentHeading) {
-    sections.push({ heading: currentHeading, body: currentBody.join("\n").trim() });
-  }
-
-  return { sections, rawMarkdown: markdown };
+/**
+ * Render an inline run from the shared AST.
+ *
+ * All the tokenizing that used to live here is gone — three regexes and a
+ * hand-rolled splitter that disagreed with the web renderer's three regexes
+ * and hand-rolled splitter. This just walks nodes.
+ *
+ * `sanitizeForPdf` is applied at the leaves rather than to the whole string
+ * up front, so a substitution can never disturb the markup boundaries the
+ * parser already resolved.
+ */
+/**
+ * The two accents a report renders with, resolved once per document.
+ *
+ * `fill` is the project's raw brand colour and paints shapes — bullet dots,
+ * chart series, the masthead rule. `ink` is the same hue darkened until it
+ * clears 4.5:1 on paper, and paints text. They are separate because the
+ * product's own default accent (#00e87b) measures about 1.5:1 against
+ * #EDEEEA: perfectly good as a fill, invisible as a link.
+ */
+interface AccentPair {
+  fill: string;
+  ink: string;
 }
 
-// ─── Inline rendering ──────────────────────────────────────────────────────
-// React-PDF doesn't read Markdown; we have to walk the bold/italic/code
-// markers ourselves and emit nested <Text> with the appropriate fontFamily.
-// Order matters — bold before italic so `**foo**` doesn't get parsed as italic.
-
-const BOLD_RE = /\*\*([^*]+)\*\*/g;
-const ITALIC_RE = /(?<!\*)\*([^*\n]+)\*(?!\*)/g;
-const CODE_RE = /`([^`]+)`/g;
-
-function renderInline(text: string, key: number): React.ReactNode {
-  // Drop or substitute anything the embedded faces cannot draw.
-  //
-  // Was a bare U+1F300-U+1FAFF strip, which covered pictographs only — so the
-  // arrows and ticks a model actually emits in a treasury narrative passed
-  // straight through to a font that could not encode them either. The
-  // replacement is driven by a table that pdf-fonts.test.ts verifies against
-  // the shipped subsets, and it now PRESERVES the symbols the faces really
-  // carry (arrows, the tick, the maths comparators) instead of flattening
-  // them to ASCII.
-  text = sanitizeForPdf(text);
-
-  // Tokenize. Each token is either plain or a styled span.
-  type Tok = { kind: "plain" | "bold" | "italic" | "code"; text: string };
-  const tokens: Tok[] = [{ kind: "plain", text }];
-
-  function splitOn(re: RegExp, kind: Tok["kind"]) {
-    const next: Tok[] = [];
-    for (const tok of tokens) {
-      if (tok.kind !== "plain") {
-        next.push(tok);
-        continue;
-      }
-      let last = 0;
-      let m: RegExpExecArray | null;
-      const localRe = new RegExp(re.source, re.flags);
-      while ((m = localRe.exec(tok.text)) !== null) {
-        if (m.index > last) {
-          next.push({ kind: "plain", text: tok.text.slice(last, m.index) });
-        }
-        next.push({ kind, text: m[1] });
-        last = m.index + m[0].length;
-      }
-      if (last < tok.text.length) {
-        next.push({ kind: "plain", text: tok.text.slice(last) });
+function renderInline(
+  nodes: Inline[],
+  keyBase: string,
+  accent: AccentPair
+): React.ReactNode[] {
+  return nodes.map((n, i) => {
+    const key = `${keyBase}-${i}`;
+    switch (n.t) {
+      case "text":
+        return <Text key={key}>{sanitizeForPdf(n.v)}</Text>;
+      case "strong":
+        return (
+          <Text key={key} style={{ fontWeight: 600 }}>
+            {renderInline(n.c, key, accent)}
+          </Text>
+        );
+      case "em":
+        return (
+          <Text key={key} style={{ fontStyle: "italic" }}>
+            {renderInline(n.c, key, accent)}
+          </Text>
+        );
+      case "code":
+        return (
+          <Text
+            key={key}
+            style={{
+              fontFamily: PDF_MONO,
+              fontSize: T.small,
+              color: DOC_LIGHT.inkSoft,
+            }}
+          >
+            {sanitizeForPdf(n.v)}
+          </Text>
+        );
+      case "link":
+        // Neither renderer could produce a link before; `Link` was never even
+        // imported here, so `[text](url)` printed its own brackets. The parser
+        // has already rejected any scheme outside http/https/mailto.
+        return (
+          <Link key={key} src={n.href} style={{ color: accent.ink }}>
+            {renderInline(n.c, key, accent)}
+          </Link>
+        );
+      default: {
+        // Exhaustiveness guard. A new Inline variant becomes a COMPILE error
+        // here rather than silently rendering as nothing — which is how the
+        // old renderers came to be missing links in the first place.
+        const exhaustive: never = n;
+        return exhaustive;
       }
     }
-    tokens.splice(0, tokens.length, ...next);
-  }
+  });
+}
 
-  splitOn(BOLD_RE, "bold");
-  splitOn(ITALIC_RE, "italic");
-  splitOn(CODE_RE, "code");
+// ─── block rendering ───────────────────────────────────────────────────────
+
+const HEADING_STYLE = {
+  1: styles.h1,
+  2: styles.h2,
+  3: styles.h3,
+  4: styles.h4,
+} as const;
+
+function renderBlock(
+  block: DocBlock,
+  key: string,
+  accent: AccentPair
+): React.ReactNode {
+  switch (block.k) {
+    case "heading":
+      // `minPresenceAhead` is react-pdf's orphan guard: it forces a page break
+      // BEFORE the heading if there isn't at least this much room after it.
+      // The old template instead wrapped each whole section in
+      // `<View wrap={false}>`, which meant a section taller than a page could
+      // not break at all and simply overflowed off the bottom.
+      return (
+        <Text
+          key={key}
+          style={HEADING_STYLE[block.level]}
+          minPresenceAhead={48}
+        >
+          {renderInline(block.c, key, accent)}
+        </Text>
+      );
+
+    case "para":
+      return (
+        <Text key={key} style={styles.paragraph}>
+          {renderInline(block.c, key, accent)}
+        </Text>
+      );
+
+    case "bullets":
+      return (
+        <View key={key} style={{ marginBottom: 6 }}>
+          {block.items.map((item, i) => (
+            <View key={`${key}-${i}`} style={styles.listRow}>
+              <View style={[styles.bulletDot, { backgroundColor: accent.fill }]} />
+              <Text style={styles.listText}>
+                {renderInline(item, `${key}-${i}`, accent)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      );
+
+    case "ordered":
+      return (
+        <View key={key} style={{ marginBottom: 6 }}>
+          {block.items.map((item, i) => (
+            <View key={`${key}-${i}`} style={styles.listRow}>
+              <Text style={styles.ordinal}>{block.start + i}.</Text>
+              <Text style={styles.listText}>
+                {renderInline(item, `${key}-${i}`, accent)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      );
+
+    case "table":
+      return renderTable(block, key, accent);
+
+    case "rule":
+      return <View key={key} style={styles.rule} />;
+
+    case "code":
+      return (
+        <Text key={key} style={styles.codeBlock}>
+          {sanitizeForPdf(block.v)}
+        </Text>
+      );
+
+    default: {
+      // Same exhaustiveness contract as renderInline. This is what makes the
+      // shared AST safe: a block kind the PDF forgets to handle is a build
+      // failure, not a silently missing section in a funder's document.
+      const exhaustive: never = block;
+      return exhaustive;
+    }
+  }
+}
+
+function renderTable(
+  block: Extract<DocBlock, { k: "table" }>,
+  key: string,
+  accent: AccentPair
+): React.ReactNode {
+  // Every column used to be `flex: 1`, so a 42-character wallet address got
+  // exactly as much room as a "%" column and both wrapped badly. Widths now
+  // track content, with a floor so nothing collapses.
+  const widths = columnWidths(block.align, block.head, block.rows);
+  const colCount = widths.length;
+
+  const alignAt = (i: number): Align => block.align[i] ?? "left";
 
   return (
-    <>
-      {tokens.map((t, i) => {
-        if (t.kind === "bold") {
-          return (
-            <Text key={`${key}-${i}`} style={{ fontFamily: PDF_SERIF, fontWeight: 600 }}>
-              {t.text}
-            </Text>
-          );
-        }
-        if (t.kind === "italic") {
-          return (
-            <Text key={`${key}-${i}`} style={{ fontFamily: PDF_SERIF, fontStyle: "italic" }}>
-              {t.text}
-            </Text>
-          );
-        }
-        if (t.kind === "code") {
-          return (
-            <Text
-              key={`${key}-${i}`}
-              style={{
-                fontFamily: PDF_MONO,
-                backgroundColor: LIGHT_GRAY,
-                fontSize: 9,
-              }}
-            >
-              {t.text}
-            </Text>
-          );
-        }
-        return <Text key={`${key}-${i}`}>{t.text}</Text>;
-      })}
-    </>
+    <View key={key} style={styles.table}>
+      <View style={styles.tHeadRow} wrap={false}>
+        {Array.from({ length: colCount }, (_, i) => (
+          <Text
+            key={`${key}-h-${i}`}
+            style={[
+              styles.th,
+              { width: `${widths[i] * 100}%`, textAlign: alignAt(i) },
+            ]}
+          >
+            {/* Header cells go through the same inline pass as body cells.
+                They used to be emitted raw, so `**Total**` printed its
+                asterisks in the header of a funder's table. */}
+            {block.head[i] ? renderInline(block.head[i], `${key}-h-${i}`, accent) : ""}
+          </Text>
+        ))}
+      </View>
+
+      {block.rows.map((row, r) => (
+        // wrap={false} belongs HERE, on the row — a row split across a page
+        // boundary is unreadable, but a long table must still be able to
+        // break between rows.
+        <View key={`${key}-r-${r}`} style={styles.tRow} wrap={false}>
+          {Array.from({ length: colCount }, (_, c) => {
+            const cell = row[c];
+            const raw = cell ? inlineText(cell) : "";
+            const numeric = isNumericCell(raw);
+            return (
+              <Text
+                key={`${key}-r-${r}-${c}`}
+                style={[
+                  numeric ? styles.tdNum : styles.td,
+                  {
+                    width: `${widths[c] * 100}%`,
+                    // Fall back to right-aligning figures when the markdown
+                    // didn't carry an alignment row — models emit those
+                    // inconsistently, and a ragged-left money column is the
+                    // clearest tell of an untypeset document.
+                    textAlign:
+                      block.align[c] !== undefined
+                        ? alignAt(c)
+                        : numeric
+                          ? "right"
+                          : "left",
+                  },
+                ]}
+              >
+                {cell ? renderInline(cell, `${key}-r-${r}-${c}`, accent) : ""}
+              </Text>
+            );
+          })}
+        </View>
+      ))}
+    </View>
   );
 }
 
-// ─── Block parsing ─────────────────────────────────────────────────────────
-// Given a section body (the lines between two headings), group consecutive
-// lines into block types so React-PDF can render them with appropriate
-// components. Tables and bullet lists must contain their consecutive rows.
-
-type Block =
-  | { kind: "para"; text: string }
-  | { kind: "bullets"; items: string[] }
-  | { kind: "table"; headers: string[]; rows: string[][] };
-
-function isTableRow(s: string): boolean {
-  // Markdown table row: "| ... |" with at least one pipe inside.
-  const t = s.trim();
-  return t.startsWith("|") && t.endsWith("|") && t.split("|").length >= 3;
-}
-
-function isTableSeparator(s: string): boolean {
-  // "| :--- | :--- |" — separator rows we never render.
-  return /^\|\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/.test(s.trim());
-}
-
-function splitTableRow(s: string): string[] {
-  return s
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((c) => c.trim());
-}
-
-function isBullet(s: string): boolean {
-  // - foo  |  • foo  |  * foo
-  return /^[\s]*[-•*]\s+/.test(s);
-}
-
-function stripBullet(s: string): string {
-  return s.replace(/^[\s]*[-•*]\s+/, "");
-}
-
-function blocksFromBody(body: string): Block[] {
-  const lines = body.split("\n");
-  const blocks: Block[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (!line.trim()) {
-      i++;
-      continue;
-    }
-
-    // Table: header row followed by separator, then more rows
-    if (isTableRow(line) && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
-      const headers = splitTableRow(line);
-      i += 2; // skip header + separator
-      const rows: string[][] = [];
-      while (i < lines.length && isTableRow(lines[i]) && !isTableSeparator(lines[i])) {
-        rows.push(splitTableRow(lines[i]));
-        i++;
-      }
-      blocks.push({ kind: "table", headers, rows });
-      continue;
-    }
-
-    // Inline-table-on-one-line edge case: LLM sometimes runs a whole table
-    // through with literal " | " separators inside one paragraph. Treat as
-    // paragraph in that case — don't try to recover.
-    if (isTableRow(line) && !(i + 1 < lines.length && isTableSeparator(lines[i + 1]))) {
-      // Single-row "table" — render as a 1-row table with no header
-      const cells = splitTableRow(line);
-      // If this is clearly "header | header | header" without separator,
-      // probably a header (we can't tell), fall back to paragraph.
-      blocks.push({ kind: "para", text: cells.join("  ·  ") });
-      i++;
-      continue;
-    }
-
-    // Bullet list: collect consecutive bullet lines
-    if (isBullet(line)) {
-      const items: string[] = [stripBullet(line)];
-      i++;
-      while (i < lines.length && isBullet(lines[i])) {
-        items.push(stripBullet(lines[i]));
-        i++;
-      }
-      blocks.push({ kind: "bullets", items });
-      continue;
-    }
-
-    // Paragraph: collect until blank line, table, or bullet list
-    const paraLines: string[] = [line];
-    i++;
-    while (
-      i < lines.length &&
-      lines[i].trim() &&
-      !isTableRow(lines[i]) &&
-      !isBullet(lines[i])
-    ) {
-      paraLines.push(lines[i]);
-      i++;
-    }
-    blocks.push({ kind: "para", text: paraLines.join(" ") });
-  }
-  return blocks;
-}
-
-// ─── Document component ───────────────────────────────────────────────────
+// ─── document ──────────────────────────────────────────────────────────────
 
 export function VaultBriefPDF({
   projectName,
   logoUrl,
   website,
   period,
-  content,
-  primaryColor = NAVY,
+  contentMd,
+  kind = "investor",
+  primaryColor,
   snapshot,
   trendSnapshots = [],
   compositionSlices: compositionSlicesProp = [],
 }: PDFTemplateProps) {
-  // The accent palette flows through three places: project name (header),
-  // bullet dots, and the footer link. Compute once for consistency.
-  const accent = primaryColor || ACCENT;
+  // Two accents, deliberately. The raw one paints FILLS — bullet dots, chart
+  // series, the masthead rule — so a project's brand stays visible. The
+  // derived one paints TEXT, because the product's own default (#00e87b)
+  // measures about 1.5:1 on paper and would be unreadable as a link.
+  const accentFill =
+    primaryColor && primaryColor.trim() ? primaryColor : DEFAULT_ACCENT;
+  const accent: AccentPair = {
+    fill: accentFill,
+    ink: readableAccentOn(accentFill, DOC_LIGHT.paper),
+  };
 
-  // Derive chart inputs once. All chart components null-out internally
-  // when the data isn't sufficient (e.g. fewer than 2 trend points), so
-  // we can pass them unconditionally.
+  const blocks = parseReportDoc(contentMd ?? "");
+
+  // Derive chart inputs once. All chart components null-out internally when
+  // the data isn't sufficient (e.g. fewer than 2 trend points), so they can be
+  // passed unconditionally.
+  //
   // Zero-value slices are dropped, and that stays deliberate: a bucket the
-  // treasury holds nothing in should not render a 0% wedge with a legend entry,
-  // because a wedge is a claim that there is something there. The slices
-  // themselves now arrive already derived from per-token balances (see the prop
-  // doc above) — the ONLY thing this line still decides is what to draw.
+  // treasury holds nothing in should not render a 0% wedge with a legend
+  // entry, because a wedge is a claim that there is something there.
   const compositionSlices = compositionSlicesProp.filter((s) => s.value > 0);
   const chainEntries = snapshot?.balancesByChain
     ? Object.entries(snapshot.balancesByChain as Record<string, number>).map(
@@ -463,148 +615,107 @@ export function VaultBriefPDF({
       )
     : [];
   const trendBars = trendSnapshots.map((s) => ({
-    date: typeof s.snapshotDate === "string" ? s.snapshotDate : String(s.snapshotDate),
+    date:
+      typeof s.snapshotDate === "string"
+        ? s.snapshotDate
+        : String(s.snapshotDate),
     value: Number(s.totalBalanceUsd ?? 0),
   }));
   const ghSpark = trendSnapshots.map((s) => Number(s.githubCommitsCount ?? 0));
 
   return (
-    <Document>
+    <Document
+      title={`${projectName} — ${period}`}
+      author="Vault Brief"
+      creator="Vault Brief"
+    >
       <Page size="A4" style={styles.page} wrap>
-        {/* Header — logo left of project name when available, period at right */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
+        <View style={styles.masthead}>
+          <View style={styles.mastheadTop}>
+            <View style={{ flex: 1, paddingRight: 16 }}>
+              <Text style={styles.kicker}>
+                {kind === "grant" ? "Grant Report" : "Investor Report"}
+              </Text>
+              <Text style={styles.title}>{sanitizeForPdf(projectName)}</Text>
+            </View>
             {logoUrl ? (
-              // `Image` here is @react-pdf/renderer's PDF-layout primitive,
-              // not an HTML <img> — its props have no `alt` (see
-              // BaseImageProps in the package's type defs). jsx-a11y can't
-              // tell the two apart, hence the disable.
+              // `Image` is @react-pdf/renderer's PDF-layout primitive, not an
+              // HTML <img> — its props have no `alt` (see BaseImageProps in
+              // the package's type defs). jsx-a11y can't tell them apart.
               // eslint-disable-next-line jsx-a11y/alt-text
               <Image src={logoUrl} style={styles.logo} />
             ) : null}
-            <Text style={[styles.projectName, { color: accent }]}>
-              {projectName}
-            </Text>
           </View>
-          <Text style={styles.headerRight}>
-            Monthly Investor Report{"\n"}
-            {period}
-          </Text>
+
+          <View style={styles.metaRow}>
+            <View>
+              <Text style={styles.metaLabel}>Period</Text>
+              <Text style={styles.metaValue}>{period}</Text>
+            </View>
+            {website ? (
+              <View>
+                <Text style={styles.metaLabel}>Project</Text>
+                <Text style={styles.metaValue}>{website}</Text>
+              </View>
+            ) : null}
+          </View>
         </View>
 
-        {/* Charts — rendered above the body so they anchor the visual
-            opening of the report. Each component null-checks its own data
-            so single-month / single-chain projects still render cleanly. */}
+        {/* Charts anchor the visual opening. Each component null-checks its
+            own data, so single-month / single-chain projects render cleanly. */}
         {compositionSlices.length > 0 && (
-          <View
-            wrap={false}
-            style={{
-              marginBottom: 12,
-              padding: 10,
-              borderWidth: 1,
-              borderColor: LIGHT_GRAY,
-              borderRadius: 6,
-            }}
-          >
-            <Text style={[styles.h2, { marginTop: 0 }]}>Treasury composition</Text>
-            <TreasuryPie data={compositionSlices} accent={accent} />
+          <View wrap={false} style={styles.card}>
+            <Text style={styles.cardLabel}>Treasury composition</Text>
+            <TreasuryPie data={compositionSlices} accent={accentFill} />
           </View>
         )}
         {chainEntries.length >= 2 && (
-          <View wrap={false} style={{ marginBottom: 12 }}>
-            <Text style={styles.h2}>Treasury by chain</Text>
+          <View wrap={false} style={{ marginBottom: 14 }}>
+            <Text style={styles.cardLabel}>Treasury by chain</Text>
             <ChainSplit data={chainEntries} />
           </View>
         )}
         {trendBars.length >= 2 && (
-          <View wrap={false} style={{ marginBottom: 12 }}>
-            <Text style={styles.h2}>Treasury over time</Text>
-            <TrendBars data={trendBars} accent={accent} yLabel="USD" />
+          <View wrap={false} style={{ marginBottom: 14 }}>
+            <Text style={styles.cardLabel}>Treasury over time</Text>
+            <TrendBars data={trendBars} accent={accentFill} yLabel="USD" />
           </View>
         )}
         {ghSpark.length >= 2 && ghSpark.some((n) => n > 0) && (
           <View
             wrap={false}
-            style={{ marginBottom: 12, flexDirection: "row", alignItems: "center", gap: 12 }}
+            style={{
+              marginBottom: 14,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+            }}
           >
-            <Text style={[styles.h2, { marginTop: 0 }]}>GitHub activity</Text>
-            <GitHubSparkline data={ghSpark} accent={accent} />
+            <Text style={[styles.cardLabel, { marginBottom: 0 }]}>
+              GitHub activity
+            </Text>
+            <GitHubSparkline data={ghSpark} accent={accentFill} />
           </View>
         )}
 
-        {/* Content */}
-        {content.sections.map((section, i) => {
-          const blocks = blocksFromBody(section.body);
-          return (
-            <View key={i} wrap={false}>
-              <Text style={styles.h1}>{section.heading}</Text>
-              {blocks.map((b, j) => {
-                if (b.kind === "para") {
-                  return (
-                    <Text key={j} style={styles.paragraph}>
-                      {renderInline(b.text, j)}
-                    </Text>
-                  );
-                }
-                if (b.kind === "bullets") {
-                  return (
-                    <View key={j}>
-                      {b.items.map((item, k) => (
-                        <View key={k} style={styles.bulletRow}>
-                          <View
-                            style={[styles.bulletDot, { backgroundColor: accent }]}
-                          />
-                          <Text style={styles.bulletText}>
-                            {renderInline(item, k)}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                  );
-                }
-                if (b.kind === "table") {
-                  return (
-                    <View key={j} style={styles.table}>
-                      <View style={styles.tr}>
-                        {b.headers.map((h, k) => (
-                          <Text key={k} style={styles.th}>
-                            {h}
-                          </Text>
-                        ))}
-                      </View>
-                      {b.rows.map((row, k) => (
-                        <View key={k} style={styles.tr}>
-                          {row.map((cell, m) => (
-                            <Text key={m} style={styles.td}>
-                              {renderInline(cell, m)}
-                            </Text>
-                          ))}
-                        </View>
-                      ))}
-                    </View>
-                  );
-                }
-                return null;
-              })}
-            </View>
-          );
-        })}
+        {/* Body. A flat block list, NOT a list of heading-scoped sections —
+            which is what let the old parser silently drop everything above
+            the first heading and made a tall section overflow the page. */}
+        {blocks.map((b, i) => renderBlock(b, `b${i}`, accent))}
 
-        {/* Platform disclaimer — rendered once, at the end of the document
-            content, not per-page like the footer below. The LLM is
-            instructed (report-sections.ts's Rules block) never to write its
-            own, so this is the only disclaimer that reaches the PDF. */}
+        {/* Platform disclaimer — once, at the end of the content, not per-page
+            like the footer. The model is instructed (report-sections.ts's
+            Rules block) never to write its own, so this is the only
+            disclaimer that reaches the PDF. */}
         <Text style={styles.disclaimer}>{REPORT_DISCLAIMER}</Text>
 
-        {/* Footer — left: project website (if present) → falls back to brand
-            attribution. Right: page N of M. Both shrink to fit on each page. */}
         <View style={styles.footer} fixed>
           <Text>
             {website ? `${website} · ` : ""}Generated by Vault Brief
           </Text>
           <Text
             render={({ pageNumber, totalPages }) =>
-              `Page ${pageNumber} of ${totalPages}`
+              `${pageNumber} / ${totalPages}`
             }
           />
         </View>
@@ -612,3 +723,4 @@ export function VaultBriefPDF({
     </Document>
   );
 }
+

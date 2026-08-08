@@ -407,6 +407,40 @@ export function docPlainText(blocks: DocBlock[]): string {
 }
 
 /**
+ * Does this cell hold a figure rather than prose?
+ *
+ * Drives two presentation decisions in both renderers: set it in the mono
+ * face with tabular figures, and right-align it when the table's own
+ * alignment row didn't say. Models emit alignment markers inconsistently, so
+ * a financial table would otherwise come out ragged-left with proportional
+ * digits — which is the single clearest visual tell of a document that was
+ * generated rather than typeset.
+ *
+ * Intentionally conservative. A cell qualifies only if, once currency and
+ * grouping marks are stripped, what remains is essentially numeric. Prose
+ * that merely mentions a number ("up 12% year on year") stays prose, because
+ * setting a sentence in mono looks worse than leaving a figure in serif.
+ */
+export function isNumericCell(text: string): boolean {
+  const t = text.trim();
+  if (t === "") return false;
+  // Em dash, en dash and hyphen are the conventional "no value" markers, and
+  // they belong with the column they sit in.
+  if (/^[-–—]$/.test(t)) return true;
+  // Hex addresses and tx hashes: not numbers, but mono is exactly right.
+  if (/^0x[0-9a-fA-F]{6,}$/.test(t)) return true;
+  // Strip currency symbols, grouping separators, sign, percent and the
+  // parentheses accountants use for negatives, then require digits only.
+  const stripped = t
+    .replace(/^[($+-]+/, "")
+    .replace(/[)%]+$/, "")
+    .replace(/[$€£¥]/g, "")
+    .replace(/[,\s]/g, "")
+    .replace(/[KMB]$/i, "");
+  return stripped !== "" && /^\d+(\.\d+)?$/.test(stripped);
+}
+
+/**
  * Relative column widths for a table, summing to 1.
  *
  * Replaces `flex: 1` on every column, which made a 60-character address column

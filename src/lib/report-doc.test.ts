@@ -5,6 +5,7 @@ import {
   docPlainText,
   inlineText,
   columnWidths,
+  isNumericCell,
   type DocBlock,
   type Inline,
 } from "./report-doc";
@@ -364,6 +365,47 @@ describe("docPlainText", () => {
 
   it("collapses runs of whitespace", () => {
     expect(docPlainText(parseReportDoc("a\n\n\n\nb"))).toBe("a b");
+  });
+});
+
+describe("isNumericCell", () => {
+  it("recognises the figure shapes a treasury table actually contains", () => {
+    for (const s of [
+      "1234",
+      "1,234",
+      "$934,909",
+      "$1,478,508.42",
+      "61%",
+      "-12.5%",
+      "+3",
+      "(4,200)",
+      "€1,200",
+      "£900",
+      "1.2M",
+      "450K",
+      "—",
+      "0xcC7d34C76A9d08aa0109F7Bae35f29C1CE35355A",
+    ]) {
+      expect(isNumericCell(s), s).toBe(true);
+    }
+  });
+
+  // Setting a sentence in mono looks worse than leaving a figure in serif, so
+  // the predicate errs toward prose.
+  it("leaves prose alone, even when it mentions a number", () => {
+    for (const s of [
+      "",
+      "   ",
+      "USDC",
+      "Stablecoins",
+      "up 12% year on year",
+      "Q1 2026",
+      "2 of 4 multisig",
+      "not computable",
+      "UNKNOWN",
+    ]) {
+      expect(isNumericCell(s), s).toBe(false);
+    }
   });
 });
 

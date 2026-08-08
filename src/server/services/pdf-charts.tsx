@@ -1,5 +1,5 @@
 import React from "react";
-import { PDF_MONO } from "@/lib/report-theme";
+import { PDF_MONO, DOC_LIGHT, DEFAULT_ACCENT } from "@/lib/report-theme";
 import { Svg, Path, Rect, Line, Text as SvgText, G } from "@react-pdf/renderer";
 
 /**
@@ -27,20 +27,29 @@ import { Svg, Path, Rect, Line, Text as SvgText, G } from "@react-pdf/renderer";
  */
 
 const PALETTE = {
-  bgGrid: "#E5E7EB",
-  textBody: "#374151",
-  textMid: "#6B7280",
-  // Pie / chain palette. Keep these distinct under 8% lightness deltas so
-  // adjacent slices don't blur on monochrome printers.
+  // Grid and text come from the shared document palette so the charts sit on
+  // the same paper as the prose around them. They used to be Tailwind greys
+  // chosen independently, which read as a screenshot pasted into a document.
+  bgGrid: DOC_LIGHT.line,
+  textBody: DOC_LIGHT.ink,
+  textMid: DOC_LIGHT.inkFaint,
+  // Pie / chain series.
+  //
+  // Muted and slightly desaturated on purpose: these sit on #EDEEEA paper and
+  // are frequently printed. The previous set was the default Tailwind-500
+  // ramp, which is tuned for a white screen and goes muddy on a monochrome
+  // printer once adjacent hues land at similar lightness. This ramp keeps a
+  // visible lightness step between neighbours so the wedges stay separable
+  // in greyscale — the state most funder-facing PDFs are actually read in.
   series: [
-    "#6366F1", // indigo
-    "#10B981", // emerald
-    "#F59E0B", // amber
-    "#EF4444", // red
-    "#8B5CF6", // violet
-    "#06B6D4", // cyan
-    "#EC4899", // pink
-    "#84CC16", // lime
+    "#1F4B5F", // deep teal
+    "#3F6B4F", // moss
+    "#8A5D1F", // ochre
+    "#9C3B2E", // brick
+    "#4E5A73", // slate blue
+    "#6B5B8A", // muted violet
+    "#2F7A78", // verdigris
+    "#7A6A4F", // olive grey
   ],
   chains: {
     ethereum: "#627EEA",
@@ -212,7 +221,7 @@ export function ChainSplit({
         width={width}
         height={height}
         fill="none"
-        stroke="#E5E7EB"
+        stroke={PALETTE.bgGrid}
         strokeWidth={0.5}
         rx={4}
       />
@@ -290,7 +299,7 @@ export function TrendBars({
 
   const barGap = 4;
   const barW = (innerW - barGap * (data.length - 1)) / data.length;
-  const color = accent ?? "#10B981";
+  const color = accent ?? DEFAULT_ACCENT;
 
   return (
     <Svg width={width} height={height}>
@@ -413,7 +422,7 @@ export function GitHubSparkline({
   if (data.length < 2) return null;
   const max = Math.max(...data, 1);
   const stepX = width / (data.length - 1);
-  const stroke = accent ?? "#10B981";
+  const stroke = accent ?? DEFAULT_ACCENT;
   const points = data.map((v, i) => {
     const x = i * stepX;
     const y = height - (v / max) * height;
