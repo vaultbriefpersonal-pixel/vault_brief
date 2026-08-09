@@ -127,11 +127,24 @@ test("E14d the document theme does not leak into the dark app", async ({ page })
 
   const state = await page.evaluate(() => {
     const root = getComputedStyle(document.documentElement);
+
+    // Read a token as a COLOR, not as a string. getPropertyValue hands back the
+    // custom property verbatim, and the production CSS minifier rewrites
+    // `rgba(255, 255, 255, 0.06)` to the equivalent `#ffffff0f` — so asserting
+    // on the raw text passes in dev and fails on a real build. Painting the
+    // token onto a probe element makes the browser normalize any spelling to
+    // `rgb()`/`rgba()`, which is the same in both.
+    const probe = document.createElement("div");
+    probe.style.backgroundColor = root.getPropertyValue("--doc-track").trim();
+    document.body.appendChild(probe);
+    const docTrack = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+
     return {
       bodyBg: getComputedStyle(document.body).backgroundColor,
       vbBg: root.getPropertyValue("--vb-bg").trim(),
       docOk: root.getPropertyValue("--doc-ok").trim(),
-      docTrack: root.getPropertyValue("--doc-track").trim(),
+      docTrack,
       radiusCard: root.getPropertyValue("--doc-radius-card").trim(),
       docScopes: document.querySelectorAll(".vb-doc").length,
     };
@@ -143,6 +156,14 @@ test("E14d the document theme does not leak into the dark app", async ({ page })
   // report-side edit changed these, the widget strip would silently restyle
   // on the founder's own screens.
   expect(state.docOk).toBe("#00e87b");
-  expect(state.docTrack.replace(/\s+/g, "")).toBe("rgba(255,255,255,0.06)");
+
+  // The dark track is translucent WHITE; the paper one is translucent ink
+  // (rgba(28, 32, 36, 0.08)). The channels are what distinguish them, so assert
+  // those exactly and give alpha a tolerance — minification rounds 0.06 to
+  // 0x0f/255 (0.0588), a difference no eye and no leak could tell apart.
+  const track = state.docTrack.match(/[\d.]+/g)?.map(Number) ?? [];
+  expect(track.slice(0, 3)).toEqual([255, 255, 255]);
+  expect(track[3]).toBeCloseTo(0.06, 2);
+
   expect(state.radiusCard).toBe("12px");
 });
