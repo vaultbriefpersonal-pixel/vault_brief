@@ -2,6 +2,7 @@ import { put } from "@vercel/blob";
 import { eq } from "drizzle-orm";
 import { db } from "@/server/db";
 import { reports } from "@/server/db/schema";
+import { reportPdfBlobPath } from "@/lib/report-pdf-version";
 import { generatePDF } from "./pdf-generator";
 
 /**
@@ -17,7 +18,10 @@ export async function renderAndStorePDF(reportId: string): Promise<string> {
 
   // Public access: blob URLs are unguessable, but pair this with TRPC ownership
   // checks before exposing the URL anywhere user-facing.
-  const blob = await put(`reports/${reportId}/${filename}`, buffer, {
+  // The path carries the template version, which is what lets the PDF route
+  // recognise a blob rendered by an older template and re-render instead of
+  // serving it. See report-pdf-version.ts.
+  const blob = await put(reportPdfBlobPath(reportId, filename), buffer, {
     access: "public",
     contentType: "application/pdf",
     addRandomSuffix: false,

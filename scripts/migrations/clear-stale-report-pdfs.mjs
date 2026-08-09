@@ -1,6 +1,15 @@
 // Clears `reports.pdf_url` for reports whose stored PDF predates the Stage 18
 // document redesign, so the next request re-renders one in the new design.
 //
+// SUPERSEDED AS THE REMEDY, KEPT AS A DIAGNOSTIC. `src/lib/report-pdf-version.ts`
+// now stamps the template version into the blob path and the PDF route
+// re-renders anything that does not carry the current one, so a template
+// change no longer needs this script — bump the version instead and every
+// stored PDF goes stale on its own. What this still does that the route
+// cannot: report what is actually EMBEDDED in each stored blob. The route
+// trusts the path; this opens the bytes. Reach for it to audit, or to recover
+// if a blob and its path ever disagree.
+//
 // WHY THIS IS NEEDED. `GET /api/reports/[reportId]/pdf` has a fast path:
 //
 //     if (report.pdfUrl) return Response.redirect(report.pdfUrl, 302);

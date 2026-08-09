@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+import { isCurrentTemplateBlob } from "@/lib/report-pdf-version";
 import { db } from "@/server/db";
 import { reports, projects } from "@/server/db/schema";
 import { generatePDF } from "@/server/services/pdf-generator";
@@ -29,9 +30,18 @@ export async function GET(_req: NextRequest, { params }: Context) {
     return new Response("Not found", { status: 404 });
   }
 
-  // Fast path: pre-rendered blob URL exists. 302 the browser straight to it.
-  if (report.pdfUrl) {
-    return Response.redirect(report.pdfUrl, 302);
+  // Fast path: a pre-rendered blob from the CURRENT template exists. 302 the
+  // browser straight to it.
+  //
+  // The version check is the whole point. This used to redirect on
+  // `report.pdfUrl` alone, which meant a report that already had a blob kept
+  // serving it forever — so when Stage 18 replaced Helvetica with the embedded
+  // document faces, 6 of 7 reports went on handing out the old PDF and it took
+  // a hand-run script to clear them. Now a template bump makes every stored
+  // blob stale automatically and it re-renders below, once, on next request.
+  const storedPdf = report.pdfUrl;
+  if (storedPdf && isCurrentTemplateBlob(storedPdf)) {
+    return Response.redirect(storedPdf, 302);
   }
 
   // Slow path: try to render + store, then redirect. Falls back to inline

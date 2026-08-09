@@ -112,13 +112,16 @@ export async function generatePDF(
   // `slugify`, not an ad-hoc whitespace replace — the old version left
   // punctuation from a project name in a public Blob URL.
   //
-  // NOTE: this CHANGES the storage path for any project whose name contains
-  // characters the two treat differently (pdf-storage.ts:20 builds
-  // `reports/${reportId}/${filename}`). The previous blob is orphaned, not
-  // lost, and `reports.pdf_url` keeps serving it until that report is
-  // regenerated — so a handful of already-sent reports will still hand out
-  // the old-looking PDF. Accepted deliberately: clearing `pdf_url` en masse
-  // is a production write, which is a human's call, not this function's.
+  // NOTE: the filename is part of the blob path, so renaming a project moves
+  // where its next PDF is written and orphans (never deletes) the previous
+  // blob.
+  //
+  // The template-version stamp does NOT cover this case, and shouldn't be
+  // assumed to: a rename leaves the version unchanged, so the route still
+  // considers the stored blob current and keeps serving a PDF carrying the old
+  // project name until something nulls `pdf_url` — which a content edit or a
+  // regenerate already does. Narrower than the template problem the stamp
+  // solves, and left alone deliberately.
   const filename = `${slugify(project.name)}-report-${report.periodEnd}.pdf`;
 
   return { buffer: Buffer.from(buffer), filename };
