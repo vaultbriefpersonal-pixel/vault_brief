@@ -341,6 +341,77 @@ export async function sendAnomalyAlertEmail(params: SendAnomalyAlertParams) {
   return data;
 }
 
+interface SendSyncIssueParams {
+  to: { name: string; email: string };
+  projectName: string;
+  walletsUrl: string;
+  /** One `describeSyncIssue` sentence per distinct issue, worst first. */
+  issues: string[];
+  /** The underlying provider errors, shown verbatim under the summary. */
+  details: string[];
+  logoUrl?: string | null;
+  brandColor?: string;
+}
+
+/**
+ * Founder-only alert that a sync finished but did NOT read everything.
+ *
+ * The gap this closes: a sync that cannot reach a chain still writes a
+ * snapshot, still reports success, and records the problem only in
+ * `sync_warnings` — which, until this, nothing pushed anywhere. Base Mainnet
+ * was disabled on the Alchemy app for nine days and every Base figure was
+ * silently missing the whole time.
+ *
+ * Default footer, no `REPORT_DISCLAIMER`: this is an operational nudge to the
+ * founder, not a financial statement to an investor — the same call
+ * `sendGrantReportDueEmail` makes.
+ */
+export async function sendSyncIssueEmail(params: SendSyncIssueParams) {
+  const { to, projectName, walletsUrl, issues, details, logoUrl, brandColor } =
+    params;
+  const palette = paletteFor(brandColor ? { primaryColor: brandColor } : undefined);
+
+  const body = `
+    <p style="${paragraphStyle(palette)}">Hi ${to.name},</p>
+    ${badgeHtml("Incomplete sync", "amber")}
+    <p style="${paragraphStyle(palette)} margin-top: 12px;">${escapeHtmlForEmail(projectName)} synced, but some data could not be read. The figures below are affected until it is fixed — a report generated now would understate them without saying so loudly enough.</p>
+    <ul style="${paragraphStyle(palette)} padding-left: 20px;">
+      ${issues.map((i) => `<li style="margin-bottom: 6px;">${escapeHtmlForEmail(i)}</li>`).join("")}
+    </ul>
+    ${
+      details.length > 0
+        ? `<p style="font-size: 12px; color: ${palette.textMuted}; margin-top: 16px; line-height: 1.5;">Reported by the data provider:<br>${details
+            .map((d) => `<code>${escapeHtmlForEmail(d)}</code>`)
+            .join("<br>")}</p>`
+        : ""
+    }
+    ${ctaButtonHtml(walletsUrl, "Check wallets →", palette)}
+    <p style="font-size: 12px; color: ${palette.textMuted}; margin-top: 24px; line-height: 1.5;">
+      This alert is for you only — nothing is sent to investors automatically.
+      You will hear about this issue once a month while it persists, not on
+      every sync.
+    </p>
+  `;
+
+  const html = renderEmailLayout({
+    title: projectName,
+    subtitle: "Incomplete sync",
+    logoUrl,
+    palette,
+    bodyHtml: body,
+  });
+
+  const { data, error } = await getResend().emails.send({
+    from: FROM,
+    to: `${to.name} <${to.email}>`,
+    subject: `⚠ ${projectName}: some treasury data could not be read`,
+    html,
+  });
+
+  if (error) throw new Error(`Email send failed: ${error.message}`);
+  return data;
+}
+
 interface SendGrantReportDueParams {
   to: { name: string; email: string };
   projectName: string;

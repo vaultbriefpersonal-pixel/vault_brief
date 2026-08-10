@@ -7,7 +7,10 @@ export type NotificationType =
   | "report_sent"
   | "sync_failed"
   | "anomaly_detected"
-  | "grant_report_due";
+  | "grant_report_due"
+  // A sync finished but could not read everything — see sync-alerts.ts. The
+  // column is free `text` with no CHECK, so this is a TypeScript-only change.
+  | "sync_degraded";
 
 interface NotifyArgs {
   type: NotificationType;

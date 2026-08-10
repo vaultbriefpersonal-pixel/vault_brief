@@ -21,6 +21,9 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
   report_sent: <Send size={16} color="#00e87b" />,
   sync_failed: <AlertCircle size={16} color="#f87171" />,
   grant_report_due: <Clock size={16} color="#f59e0b" />,
+  // Amber, not red: the sync succeeded, it just did not read everything. Red
+  // is `sync_failed`, where nothing was written at all.
+  sync_degraded: <AlertCircle size={16} color="#f59e0b" />,
 };
 
 function timeAgo(date: Date): string {

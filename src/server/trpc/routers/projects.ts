@@ -21,6 +21,7 @@ import {
 import { slugify, formatDate } from "@/lib/utils";
 import { TRPCError } from "@trpc/server";
 import { requireProject, requireProjectAdmin } from "../guards";
+import { notifyNewSyncIssues } from "@/server/services/sync-alerts";
 import {
   checkLimit,
   projectCreateLimiter,
@@ -999,6 +1000,16 @@ export const projectsRouter = router({
           errors,
         };
       }
+
+      // Push the incompleteness, if any, for the NEWEST snapshot only. A
+      // backfill writes many periods and a broken chain is broken in all of
+      // them; alerting inside the loop would send one notice per period.
+      // Non-throwing by contract — a failed notice must not fail a good sync.
+      await notifyNewSyncIssues({
+        projectId: input.projectId,
+        snapshotDate: latestSnapshot.snapshotDate,
+        syncWarnings: latestSnapshot.syncWarnings,
+      });
 
       // Only generate a report for the most recent period. Older periods
       // remain data-only — comparisons surface them anyway.

@@ -15,6 +15,7 @@ import { fetchAndClassify } from "./transaction-sync";
 import { buildTransactionSample } from "./transaction-sample";
 import { fetchGitHubActivity } from "./github-sync";
 import { notify } from "./notifications";
+import { notifyNewSyncIssues } from "./sync-alerts";
 import type {
   BalanceBasis,
   CarriedForwardWallet,
@@ -103,7 +104,19 @@ export async function createMonthlySnapshot(
   options: CreateSnapshotOptions = {}
 ) {
   const prepared = await prepareMonthlySnapshot(projectId, period, options);
-  return writeSnapshot(prepared);
+  const snapshot = await writeSnapshot(prepared);
+
+  // Push the incompleteness, if any. Here and NOT inside `writeSnapshot`,
+  // which a multi-period backfill calls once per period — alerting there would
+  // turn one broken chain into one alert per month written. Non-throwing by
+  // contract; a failed notice must not fail a good sync.
+  await notifyNewSyncIssues({
+    projectId,
+    snapshotDate: snapshot.snapshotDate,
+    syncWarnings: snapshot.syncWarnings,
+  });
+
+  return snapshot;
 }
 
 /**
