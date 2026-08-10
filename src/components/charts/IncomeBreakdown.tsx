@@ -4,16 +4,10 @@ import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recha
 import { formatUsd } from "@/lib/utils";
 import { DARK_CHART_PALETTE } from "./chart-palette";
 
-// Green/teal palette so income reads at a glance as the positive counterpart
-// to the warm Expense breakdown chart.
-const COLORS = [
-  "#10b981",
-  "#22c55e",
-  "#34d399",
-  "#06b6d4",
-  "#0ea5e9",
-  "#84cc16",
-];
+// Green/teal so income reads at a glance as the positive counterpart to the
+// warm Expense breakdown chart. That intent is preserved; the hexes now come
+// from the shared palette instead of a local Tailwind ramp.
+const COLORS = DARK_CHART_PALETTE.categoricalPositive;
 
 interface IncomeBreakdownProps {
   data: Record<string, number>;

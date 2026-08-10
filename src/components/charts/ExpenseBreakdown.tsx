@@ -24,15 +24,7 @@ import { DARK_CHART_PALETTE } from "./chart-palette";
  * touches every chart in the product to fix two — and a treasury breakdown has
  * nothing to gain from an entrance animation anyway.
  */
-const COLORS = [
-  "#6366F1",
-  "#f59e0b",
-  "#10b981",
-  "#3b82f6",
-  "#ec4899",
-  "#8b5cf6",
-  "#f97316",
-];
+const COLORS = DARK_CHART_PALETTE.categorical;
 
 interface ExpenseBreakdownProps {
   data: Record<string, number>;

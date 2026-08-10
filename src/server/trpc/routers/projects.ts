@@ -326,12 +326,34 @@ export const projectsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
-      await requireProject(ctx, id);
+      const existing = await requireProject(ctx, id);
+
+      // A RENAME invalidates every stored PDF for this project.
+      //
+      // The project name is rendered into the document masthead AND into the
+      // blob filename (`<slug>-report-<periodEnd>.pdf`). The PDF route serves
+      // a stored blob whenever its path carries the current template version,
+      // and a rename does not change the version — so without this, a renamed
+      // project keeps handing out PDFs titled with the old name indefinitely.
+      //
+      // Nulling the pointer is the same mechanism `reports.update` and
+      // `reports.regenerate` already use for a content change; the blob itself
+      // is left in place so links in already-sent emails keep resolving.
+      const renamed = data.name !== undefined && data.name !== existing.name;
+
       const [updated] = await ctx.db
         .update(projects)
         .set({ ...data, updatedAt: new Date() })
         .where(eq(projects.id, id))
         .returning();
+
+      if (renamed) {
+        await ctx.db
+          .update(reports)
+          .set({ pdfUrl: null, updatedAt: new Date() })
+          .where(eq(reports.projectId, id));
+      }
+
       return updated;
     }),
 
